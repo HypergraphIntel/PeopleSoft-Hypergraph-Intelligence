@@ -41,47 +41,47 @@ The platform serves every persona in a PeopleSoft organization:
 ## Architecture Layers
 
 ```
-                        ┌──────────────────────────────┐
-                        │         AI Assistant          │
-                        │  Natural-language queries,    │
-                        │  diagnostics, recommendations │
-                        └──────────────┬───────────────┘
+                        ┌────────────────────────────────┐
+                        │         AI Assistant           │
+                        │  Natural-language queries,     │
+                        │  diagnostics, recommendations  │
+                        └──────────────┬─────────────────┘
                                        │
-                        ┌──────────────┴───────────────┐
-                        │      Intelligence Layer        │
-                        │  Reasoning, impact analysis,  │
-                        │  anomaly detection, prediction │
-                        └──────────────┬───────────────┘
+                        ┌──────────────┴──────────────────┐
+                        │      Intelligence Layer         │
+                        │  Reasoning, impact analysis,    │
+                        │  anomaly detection, prediction  │
+                        └──────────────┬──────────────────┘
                                        │
-              ┌────────────────────────┴─────────────────────────┐
+              ┌────────────────────────┴───────────────────────────┐
               │                  Knowledge Layer                   │
               │   Knowledge Graph · Universal Search · Reporting   │
-              │   Graph algorithms, path traversal, cross-object  │
+              │   Graph algorithms, path traversal, cross-object   │
               │   relationship queries, snapshot diffing           │
-              └────────────────────────┬─────────────────────────┘
+              └────────────────────────┬───────────────────────────┘
                                        │
-              ┌────────────────────────┴─────────────────────────┐
-              │                  Object Model Layer               │
-              │    Universal Object Model (UOM) · Providers       │
-              │    Canonical object identity, relationships,       │
-              │    graph shape, metadata, links, warnings          │
-              └────────────────────────┬─────────────────────────┘
+              ┌────────────────────────┴──────────────────────────┐
+              │                   Object Model Layer              │
+              │     Universal Object Model (UOM) · Providers      │
+              │     Canonical object identity, relationships,     │
+              │     graph shape, metadata, links, warnings        │
+              └────────────────────────┬──────────────────────────┘
                                        │
-     ┌─────────────────────────────────┴──────────────────────────────┐
-     │                         Connector Layer                          │
-     │  psdb · ptmetadata · ae · peoplecode · ib · execution · oracle  │
-     │  sqlws · envcompare · graphdb · uom · identity · nginx · system  │
-     │  Grant-aware SQL, version-adaptive queries, structured warnings  │
-     └─────────────────────────────────┬──────────────────────────────┘
+     ┌─────────────────────────────────┴──────────────────────────────────┐
+     │                         Connector Layer                            │
+     │   psdb · ptmetadata · ae · peoplecode · ib · execution · oracle    │
+     │   sqlws · envcompare · graphdb · uom · identity · nginx · system   │
+     │   Grant-aware SQL, version-adaptive queries, structured warnings   │
+     └─────────────────────────────────┬──────────────────────────────────┘
                                        │
-     ┌─────────────────────────────────┴──────────────────────────────┐
-     │                          Data Layer                              │
-     │       Oracle Database        PeopleSoft Metadata Tables         │
-     │   V$SESSION · V$SQL         PSRECDEFN · PSPNLGRPDEFN           │
-     │   DBA_OBJECTS               PSPCMPROG · PSAEAPPLDEFN           │
-     │   ALL_TAB_COLUMNS           PSROLEDEFN · PSCLASSDEFN           │
-     │                             PSIBAPPLDEFN · PSPRCSRQST          │
-     └─────────────────────────────────────────────────────────────────┘
+       ┌───────────────────────────────┴────────────────────────────────┐
+       │                          Data Layer                            │
+       │       Oracle Database        PeopleSoft Metadata Tables        │
+       │   V$SESSION · V$SQL         PSRECDEFN · PSPNLGRPDEFN           │
+       │   DBA_OBJECTS               PSPCMPROG · PSAEAPPLDEFN           │
+       │   ALL_TAB_COLUMNS           PSROLEDEFN · PSCLASSDEFN           │
+       │                             PSIBAPPLDEFN · PSPRCSRQST          │
+       └────────────────────────────────────────────────────────────────┘
 ```
 
 ### Layer Responsibilities
@@ -135,7 +135,7 @@ enable later ones — build vertically, not horizontally.
 
 | # | Provider | File | Purpose |
 |---|---|---|---|
-| 1 | **Connector** | `connectors/<module>.py` | Grant-aware SQL; returns structured dicts; owns all SQL for the domain |
+| 1 | **Connector**| `connectors/<module>.py` | Grant-aware SQL; returns structured dicts; owns all SQL for the domain |
 | 2 | **REST API** | `routers/<module>.py` | Thin FastAPI router; no SQL; delegates to connector |
 | 3 | **Metadata Provider** | `connectors/ptmetadata.py` OBJECT_REGISTRY | Object type registration; discovery table; description columns |
 | 4 | **UOM Provider** | `connectors/uom.py` | Canonical object: id, type, name, description, owner, status, warnings, _links, _relationships, _graph, _metadata |

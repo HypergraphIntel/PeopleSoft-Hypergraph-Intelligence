@@ -124,6 +124,17 @@ def compare_portals(
     return envcompare.compare_portals(env1, env2, q=q, limit=limit)
 
 
+@router.get("/queries")
+def compare_queries(
+    env1:  str = Query("HCM"),
+    env2:  str = Query("FSCM"),
+    q:     str = Query(""),
+    limit: int = Query(500),
+):
+    """Diff PSQRYDEFN (public PS Queries) between two environments."""
+    return envcompare.compare_queries(env1, env2, q=q, limit=limit)
+
+
 @router.get("/graph")
 def compare_graph(
     env1: str = Query("HCM"),

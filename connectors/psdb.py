@@ -1007,7 +1007,8 @@ def permissionlist(env_name, classid):
     columns = select_existing_columns(
         env_name,
         "PSCLASSDEFN",
-        ["DESCR", "CLASSDEFNDESC", "VERSION", "LASTUPDDTTM", "LASTUPDOPRID"],
+        ["DESCR", "CLASSDEFNDESC", "TIMEOUTMINUTES", "STARTAPPSERVER",
+         "ALLOWPSWDEMAIL", "DEFAULTBPM", "VERSION", "LASTUPDDTTM", "LASTUPDOPRID"],
         required=["CLASSID"],
     )
     select_columns = ", ".join(columns)

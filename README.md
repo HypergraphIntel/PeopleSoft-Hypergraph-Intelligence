@@ -132,7 +132,7 @@ GRANT SELECT_CATALOG_ROLE TO deathstar_mon;
 ## Installation
 
 ``` bash
-git clone https://github.com/YOUR_ORG/peoplesoft-explorer.git deathstar-api
+git clone https://github.com/NoodleSploder/peoplesoft-explorer.git deathstar-api
 cd deathstar-api
 
 python3 -m venv .venv

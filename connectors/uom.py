@@ -1118,7 +1118,8 @@ def sections_for_role(role):
     permissionlists = rels.get("permissionlists", [])
     graph_nodes = role.get("_graph", {}).get("nodes", [])
     graph_edges = role.get("_graph", {}).get("edges", [])
-    return [
+
+    sections = [
         {"name": "Definition", "items": [], "data": {
             "rolename": role["name"],
             "description": role.get("description") or "",
@@ -1129,6 +1130,47 @@ def sections_for_role(role):
             "lastupddttm": raw.get("lastupddttm") or "",
             "lastupdoprid": raw.get("lastupdoprid") or "",
         }},
+    ]
+
+    # Dynamic membership: show query/PeopleCode/LDAP rule when role type is dynamic
+    qryname = str(raw.get("qryname") or "").strip()
+    pc_func = str(raw.get("pc_function_name") or "").strip()
+    ldap_on = str(raw.get("ldap_rule_on") or "").strip().upper()
+    roletype = str(raw.get("roletype") or "").strip().upper()
+    if roletype in ("Q", "P") or qryname or pc_func or ldap_on == "Y":
+        dynamic_items = []
+        rule_type = raw.get("roletype_label") or roletype
+        if qryname:
+            dynamic_items.append({
+                "type": "query", "name": qryname,
+                "label": f"Membership Query: {qryname}",
+                "_links": {"admin": object_url("query", qryname)},
+            })
+        if pc_func:
+            dynamic_items.append({
+                "label": f"PeopleCode Function: {pc_func}",
+                "name": pc_func,
+            })
+        if ldap_on == "Y":
+            dynamic_items.append({"label": "LDAP Rule: Enabled", "name": "ldap"})
+        recname = str(raw.get("recname") or "").strip()
+        fieldname = str(raw.get("fieldname") or "").strip()
+        if recname:
+            dynamic_items.append({
+                "label": f"Drives from field: {recname}.{fieldname}" if fieldname else f"Drives from record: {recname}",
+                "type": "record", "name": recname,
+                "_links": {"admin": object_url("record", recname)},
+            })
+        sections.append({
+            "name": "Dynamic Membership",
+            "items": dynamic_items,
+            "data": {
+                "rule_type": rule_type,
+                "note": f"Membership is automatically managed ({rule_type}). Static members may also exist.",
+            },
+        })
+
+    sections += [
         {"name": "Members", "items": members, "data": {"count": len(members)}},
         {"name": "Permission Lists", "items": permissionlists,
          "data": {"count": len(permissionlists), "note": "" if permissionlists else "PSROLECLASS not accessible"}},
@@ -1137,6 +1179,7 @@ def sections_for_role(role):
         {"name": "Warnings", "items": role.get("warnings", []),
          "data": {"count": len(role.get("warnings", []))}},
     ]
+    return sections
 
 
 def role_payload(role):
@@ -1238,6 +1281,9 @@ def sections_for_permissionlist(pl):
             "description": pl.get("description") or "",
             "descr": raw.get("descr") or "",
             "classdefndesc": raw.get("classdefndesc") or "",
+            "timeout_minutes": raw.get("timeoutminutes"),
+            "start_app_server": raw.get("startappserver"),
+            "allow_password_email": raw.get("allowpswdemail"),
             "version": raw.get("version"),
             "lastupddttm": raw.get("lastupddttm") or "",
             "lastupdoprid": raw.get("lastupdoprid") or "",

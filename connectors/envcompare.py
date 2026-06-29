@@ -341,6 +341,32 @@ def compare_portals(env1, env2, q="", limit=500):
     return diff
 
 
+def compare_queries(env1, env2, q="", limit=500):
+    """Diff PSQRYDEFN (public PS Queries, OPRID=' ') between two environments."""
+    sql = """
+        SELECT QRYNAME, DESCR, QRYTYPE, QRYFOLDER,
+               QRYDISABLED, QRYVALID,
+               LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSQRYDEFN
+         WHERE OPRID = ' '
+           AND (:q IS NULL OR UPPER(QRYNAME) LIKE :q OR UPPER(DESCR) LIKE :q)
+         ORDER BY QRYNAME
+         FETCH FIRST {limit} ROWS ONLY
+    """.format(limit=int(limit))
+    pattern = f"%{q.upper()}%" if q else None
+    params = {"q": pattern}
+
+    rows1, w1 = _run(env1, sql, params)
+    rows2, w2 = _run(env2, sql, params)
+    warnings = [w for w in [w1, w2] if w]
+
+    diff = _compare(rows1, rows2, "qryname",
+                    ["descr", "qrytype", "qryfolder", "qrydisabled", "lastupddttm"])
+    diff.update({"env1": env1, "env2": env2, "object_type": "queries",
+                 "query": q, "warnings": warnings})
+    return diff
+
+
 def summary(env1, env2):
     """
     Quick catalog-count comparison across key object types.
@@ -357,6 +383,7 @@ def summary(env1, env2):
         ("PeopleCode Progs", "SELECT COUNT(DISTINCT OBJECTVALUE1||'|'||OBJECTVALUE2||'|'||OBJECTVALUE3) AS n FROM SYSADM.PSPCMPROG"),
         ("SQL Definitions",  "SELECT COUNT(*) AS n FROM SYSADM.PSSQLDEFN"),
         ("Portal Entries",   "SELECT COUNT(*) AS n FROM SYSADM.PSPRSMDEFN"),
+        ("PS Queries",       "SELECT COUNT(*) AS n FROM SYSADM.PSQRYDEFN WHERE OPRID = ' '"),
     ]
     rows = []
     warnings = []
