@@ -303,6 +303,10 @@ def object_payload(env, object_type, object_name):
         s_obj = uom.sql_object(env, object_name)
         return uom.sql_payload(s_obj)
 
+    if object_type == "query":
+        q_obj = uom.query_object(env, object_name)
+        return uom.query_payload(q_obj)
+
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
 

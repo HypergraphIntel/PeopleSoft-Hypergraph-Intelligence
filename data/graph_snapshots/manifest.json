@@ -1,6 +1,18 @@
 {
   "snapshots": [
     {
+      "id": "HCM_20260629T222341Z_scheduled",
+      "env": "HCM",
+      "name": "scheduled",
+      "note": "Auto-snapshot (daily scheduler) \u2014 2026-06-29T22:23:41Z",
+      "created_at": "2026-06-29T22:23:41Z",
+      "built_at": "2026-06-29T22:23:41Z",
+      "node_count": 4308,
+      "edge_count": 9610,
+      "warning_count": 0,
+      "path": "/opt/deathstar-api/data/graph_snapshots/HCM_20260629T222341Z_scheduled.json"
+    },
+    {
       "id": "HCM_20260629T214047Z_scheduled",
       "env": "HCM",
       "name": "scheduled",

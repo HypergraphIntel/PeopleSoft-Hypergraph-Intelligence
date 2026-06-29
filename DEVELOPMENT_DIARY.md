@@ -638,3 +638,74 @@ Changes in `routers/admin.py` (`object_explorer_page()`):
 Verification:
 - `/admin/object/record/JOB` HTML contains 6 references to
   `relativeTime`/`removeRecent`/`pushRecent`.
+
+------------------------------------------------------------------------
+
+### SQL Syntax Highlighting in Object Explorer
+
+All SQL content in the Object Explorer now renders with syntax highlighting
+instead of plain text.
+
+Changes in `routers/admin.py` (`object_explorer_page()`):
+- Added `highlightSQL(sql)` tokenizer function. Uses a hand-rolled tokenizer
+  (block comments, line comments, single-quoted strings, code segments) to
+  avoid regex-based false positives. Color scheme:
+  - SQL keywords (SELECT/FROM/WHERE/JOIN/etc.) → blue (`#569cd6`)
+  - PeopleSoft meta-SQL (%Table/%Bind/%Select/etc.) → purple (`#c586c0`)
+  - String literals → orange (`#ce9178`)
+  - Comments → green (`#6a9955`)
+  - Numbers → light green (`#b5cea8`)
+- Updated section renderer: changed `pre.textContent = section.data.ddl` to
+  `pre.innerHTML = highlightSQL(section.data.ddl)` for DDL sections (Record
+  DDL, SQL Definition source).
+- Updated `renderRows()`: items that carry `row.data.ddl` (e.g., AE SQL Steps)
+  now render an inline `<pre>` with `highlightSQL()` below the item title.
+
+Verification:
+- `/admin/object/record/JOB` HTML contains 3 `highlightSQL` references.
+- SQL Definition objects show colored keywords in their SQL Source section.
+- AE object SQL Steps show inline highlighted SQL under each step row.
+
+------------------------------------------------------------------------
+
+### PS Query Explorer
+
+Added full PS Query object type support via the UOM pattern:
+
+**`connectors/ptmetadata.py`**:
+- Replaced the "planned" stub for `"query"` in the fallback loop with a proper
+  `OBJECT_REGISTRY.setdefault("query", {...})` entry pointing to `PSQRYDEFN`
+  with `provider: "query"` search config.
+- Added `provider: "query"` branch in `global_search()` that filters
+  `WHERE OPRID = ' '` (public/shared queries only) when searching `PSQRYDEFN`.
+
+**`connectors/uom.py`**:
+- `query_object(env, qryname)`: fetches definition from `PSQRYDEFN` (public
+  only, `OPRID=' '`), records from `PSQRYRECORD` (with join types and
+  correlation name aliases), output columns from `PSQRYFIELD` (with heading,
+  aggregate function, record resolution), and prompt parameters from
+  `PSQRYBIND` (with field type labels). All tables guarded with
+  `ptmetadata.has_table()` + `psdb.select_existing_columns()`.
+- `sections_for_query(q_obj)`: renders Overview, Records Used (join type +
+  alias per record), Output Columns (column position, heading, aggregate,
+  RECNAME.FIELD display), and Prompt Parameters (bind name, type, related
+  field).
+- `query_payload(q_obj)`: standard UOM payload envelope.
+- `canonical_object()`: added `if object_type == "query": return query_object()`
+  dispatch.
+
+**`routers/peoplesoft.py`**:
+- Added `if object_type == "query"` dispatch in `object_payload()`, returning
+  `uom.query_payload(uom.query_object(...))`.
+
+**`routers/admin.py`**:
+- Added `<option value="query">PS Query</option>` to both the Graph Explorer
+  type selector and the Object Explorer type selector.
+
+Verification:
+- `query_object('HCM', 'OPRDEFN2')`: status=ok, 1 record, 2 output columns.
+- `query_object('HCM', 'FPA_JOB_SUM')`: status=ok, 5 records with join types,
+  17 output columns, 2 prompt parameters.
+- `GET /api/peoplesoft/object/query/FPA_JOB_SUM?env=HCM`: 200 OK, sections
+  `['Overview', 'Records Used (5)', 'Output Columns (17)', 'Prompt Parameters (2)']`.
+- Global search `?q=FPA_JOB`: returns `query: FPA_JOB_SUM | FPS Job Data`.

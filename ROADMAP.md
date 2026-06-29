@@ -30,10 +30,11 @@
 -   Breadcrumbs in Object Explorer (type-aware trail with field record parent support)
 -   Recently Viewed: relative timestamps, descriptions, per-item remove button
 
+-   SQL syntax highlighting in Object Explorer: `highlightSQL()` tokenizer for `data.ddl` sections and inline SQL step items (SQL keywords in blue, PeopleSoft meta-SQL in purple, strings in orange, comments in green)
+
 ### Remaining
 
--   Dedicated renderers for SQL, PeopleCode, reports, live usage
--   Remaining object types (Query, Tree, CI, etc.)
+-   Remaining object types (Tree, CI)
 -   Improved visual hierarchy
 
 ------------------------------------------------------------------------
@@ -78,9 +79,13 @@
 -   Object Explorer integration
 -   Graph context enrichment
 
+### Completed
+
+-   Query objects: `query_object()` / `sections_for_query()` / `query_payload()` — fetches PSQRYDEFN + PSQRYRECORD + PSQRYFIELD + PSQRYBIND for public queries (OPRID=\' \'); shows records with join types/aliases, output columns with headings/aggregates, and prompt parameters with field types
+
 ### Remaining
 
--   Query / Tree / CI models
+-   Tree / CI models
 -   Shared relationship provider registration
 
 ------------------------------------------------------------------------

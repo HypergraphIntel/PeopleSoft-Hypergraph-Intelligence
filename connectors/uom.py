@@ -2453,6 +2453,305 @@ def sql_payload(s_obj):
     }
 
 
+_JOIN_TYPE_LABELS = {1: "Inner Join", 2: "Left Join", 3: "Left Outer Join", 4: "Exists Join"}
+_QRY_FIELD_TYPES = {0: "Char", 1: "Long Char", 2: "Number", 3: "Signed Number", 4: "Date", 5: "Time", 6: "DateTime"}
+_QRY_AGG_FUNCS = {" ": None, "": None, "S": "SUM", "A": "AVG", "C": "COUNT", "M": "MIN", "X": "MAX"}
+
+
+def query_object(env, qryname):
+    qryname = qryname.strip().upper()
+    warnings = []
+
+    if not ptmetadata.has_table(env, "PSQRYDEFN"):
+        warnings.append(ptmetadata.warning("no_access", "PSQRYDEFN not accessible"))
+        return canonical_base(
+            env, "query", qryname,
+            display_name=qryname, status="unavailable", warnings=warnings,
+            _links={"admin": object_url("query", qryname)},
+            _metadata={"environment": env.upper()},
+        )
+
+    defn = {}
+    try:
+        defn_cols = psdb.select_existing_columns(
+            env, "PSQRYDEFN",
+            ["QRYNAME", "OPRID", "QRYTYPE", "DESCR", "DESCRLONG", "QRYFOLDER",
+             "QRYDISABLED", "QRYVALID", "SELCOUNT", "BNDCOUNT", "EXPCOUNT",
+             "EXECLOGGING", "QRYAPPROVED", "LASTUPDDTTM", "LASTUPDOPRID",
+             "CREATEOPRID", "CREATEDTTM"],
+            required=["QRYNAME"],
+        )
+        rows = psdb.query(env, f"""
+            SELECT {", ".join(defn_cols)}
+              FROM SYSADM.PSQRYDEFN
+             WHERE QRYNAME = :qn AND OPRID = ' '
+        """, {"qn": qryname})
+        if rows:
+            defn = rows[0]
+        else:
+            warnings.append(ptmetadata.warning("not_found", f"Public query {qryname} not found"))
+    except Exception as exc:
+        warnings.append(ptmetadata.warning("query_error", str(exc)))
+
+    records = []
+    if defn and ptmetadata.has_table(env, "PSQRYRECORD"):
+        try:
+            rec_cols = psdb.select_existing_columns(
+                env, "PSQRYRECORD",
+                ["QRYNAME", "OPRID", "RCDNUM", "RECNAME", "CORRNAME", "JOINTYPE",
+                 "JOINRCDNUM", "SELNUM"],
+                required=["QRYNAME", "RCDNUM", "RECNAME"],
+            )
+            records = psdb.query(env, f"""
+                SELECT {", ".join(rec_cols)}
+                  FROM SYSADM.PSQRYRECORD
+                 WHERE QRYNAME = :qn AND OPRID = ' '
+                 ORDER BY RCDNUM
+            """, {"qn": qryname})
+        except Exception as exc:
+            warnings.append(ptmetadata.warning("psqryrecord_error", str(exc)))
+
+    fields = []
+    if defn and ptmetadata.has_table(env, "PSQRYFIELD"):
+        try:
+            fld_cols = psdb.select_existing_columns(
+                env, "PSQRYFIELD",
+                ["QRYNAME", "OPRID", "FLDNUM", "FIELDNAME", "RECNAME", "FLDRCDNUM",
+                 "COLUMNNUM", "HEADING", "HDGTYPE", "AGGREGATEFUNC", "ORDERBYNUM",
+                 "ORDERBYDIR", "GROUPBYNUM"],
+                required=["QRYNAME", "FLDNUM", "FIELDNAME"],
+            )
+            fields = psdb.query(env, f"""
+                SELECT {", ".join(fld_cols)}
+                  FROM SYSADM.PSQRYFIELD
+                 WHERE QRYNAME = :qn AND OPRID = ' '
+                 ORDER BY FLDNUM
+            """, {"qn": qryname})
+        except Exception as exc:
+            warnings.append(ptmetadata.warning("psqryfield_error", str(exc)))
+
+    binds = []
+    if defn and ptmetadata.has_table(env, "PSQRYBIND"):
+        try:
+            bnd_cols = psdb.select_existing_columns(
+                env, "PSQRYBIND",
+                ["QRYNAME", "OPRID", "BNDNUM", "BNDNAME", "FIELDNAME", "FIELDTYPE",
+                 "LENGTH", "HEADING", "HDGTYPE"],
+                required=["QRYNAME", "BNDNUM"],
+            )
+            binds = psdb.query(env, f"""
+                SELECT {", ".join(bnd_cols)}
+                  FROM SYSADM.PSQRYBIND
+                 WHERE QRYNAME = :qn AND OPRID = ' '
+                 ORDER BY BNDNUM
+            """, {"qn": qryname})
+        except Exception as exc:
+            warnings.append(ptmetadata.warning("psqrybind_error", str(exc)))
+
+    rec_by_num = {r.get("rcdnum"): r for r in records}
+
+    enriched_records = []
+    for i, r in enumerate(records):
+        jt_raw = r.get("jointype")
+        jt_int = int(jt_raw) if str(jt_raw or "").isdigit() else 1
+        corrname = str(r.get("corrname") or "").strip()
+        recname = str(r.get("recname") or "")
+        enriched_records.append({
+            **r,
+            "join_type_label": _JOIN_TYPE_LABELS.get(jt_int, f"Join({jt_raw})"),
+            "alias": corrname,
+            "is_primary": i == 0,
+            "_links": {"admin": object_url("record", recname)},
+        })
+
+    output_fields = []
+    all_fields = []
+    for f in fields:
+        agg_raw = str(f.get("aggregatefunc") or " ").strip()
+        agg_label = _QRY_AGG_FUNCS.get(agg_raw if agg_raw else " ")
+        rec_row = rec_by_num.get(f.get("fldrcdnum"))
+        recname = str((rec_row or {}).get("recname") or f.get("recname") or "").strip()
+        fieldname = str(f.get("fieldname") or "")
+        col_num = int(f.get("columnnum") or 0)
+        heading = str(f.get("heading") or "").strip()
+        enriched = {
+            **f,
+            "recname_resolved": recname,
+            "in_output": col_num > 0,
+            "agg_label": agg_label,
+            "heading_display": heading or fieldname,
+            "_links": {
+                "field": f"/admin/object/field/{fieldname}",
+                "record": object_url("record", recname) if recname else None,
+            },
+        }
+        all_fields.append(enriched)
+        if col_num > 0:
+            output_fields.append(enriched)
+
+    enriched_binds = []
+    for b in binds:
+        ft = int(b.get("fieldtype") or 0)
+        enriched_binds.append({
+            **b,
+            "fieldtype_label": _QRY_FIELD_TYPES.get(ft, f"Type({ft})"),
+            "heading_display": str(b.get("heading") or b.get("bndname") or "").strip(),
+        })
+
+    descr = str(defn.get("descr") or "").strip()
+    descrlong = str(defn.get("descrlong") or "").strip()
+
+    raw = {
+        "qrytype": defn.get("qrytype"),
+        "qryfolder": str(defn.get("qryfolder") or "").strip() or None,
+        "qrydisabled": defn.get("qrydisabled"),
+        "qryvalid": defn.get("qryvalid"),
+        "selcount": defn.get("selcount"),
+        "bndcount": defn.get("bndcount"),
+        "expcount": defn.get("expcount"),
+        "execlogging": defn.get("execlogging"),
+        "qryapproved": defn.get("qryapproved"),
+        "lastupddttm": str(defn.get("lastupddttm") or ""),
+        "lastupdoprid": str(defn.get("lastupdoprid") or ""),
+        "createoprid": str(defn.get("createoprid") or ""),
+        "createdttm": str(defn.get("createdttm") or ""),
+    }
+
+    return canonical_base(
+        env, "query", qryname,
+        display_name=qryname,
+        description=descrlong or descr,
+        status="ok" if defn else "partial",
+        warnings=warnings,
+        _links={"admin": object_url("query", qryname)},
+        _metadata={
+            "environment": env.upper(),
+            "raw": raw,
+            "defn": defn,
+            "records": enriched_records,
+            "fields": all_fields,
+            "output_fields": output_fields,
+            "binds": enriched_binds,
+            "descr": descr,
+            "descrlong": descrlong,
+        },
+    )
+
+
+def sections_for_query(q_obj):
+    meta = q_obj.get("_metadata", {})
+    raw = meta.get("raw", {})
+    records = meta.get("records", [])
+    output_fields = meta.get("output_fields", [])
+    binds = meta.get("binds", [])
+    descr = meta.get("descr", "")
+    descrlong = meta.get("descrlong", "")
+    warnings = q_obj.get("warnings", [])
+
+    sections = []
+
+    overview_rows = [
+        {"label": "Query Name", "value": q_obj["name"]},
+        {"label": "Description", "value": descrlong or descr or ""},
+    ]
+    if raw.get("qryfolder"):
+        overview_rows.append({"label": "Folder", "value": raw["qryfolder"]})
+    if raw.get("qrydisabled") not in (None, "", "N", "0", 0):
+        overview_rows.append({"label": "Disabled", "value": "Yes"})
+    if raw.get("lastupdoprid"):
+        overview_rows.append({"label": "Last Updated By", "value": str(raw["lastupdoprid"])})
+    if raw.get("lastupddttm"):
+        overview_rows.append({"label": "Last Updated", "value": str(raw["lastupddttm"])})
+    if raw.get("createoprid"):
+        overview_rows.append({"label": "Created By", "value": str(raw["createoprid"])})
+    sections.append({"title": "Overview", "type": "key_values", "rows": overview_rows})
+
+    if records:
+        rec_items = []
+        for i, r in enumerate(records):
+            recname = str(r.get("recname") or "")
+            alias = str(r.get("alias") or "").strip()
+            jt = r.get("join_type_label", "")
+            label = f"{r.get('rcdnum', i+1)}. {recname}"
+            if alias:
+                label += f" [{alias}]"
+            if not r.get("is_primary"):
+                label += f" — {jt}"
+            rec_items.append({
+                "label": label,
+                "type": "record",
+                "name": recname,
+                "_links": r.get("_links", {}),
+            })
+        sections.append({
+            "title": f"Records Used ({len(records)})",
+            "type": "list",
+            "items": rec_items,
+        })
+
+    if output_fields:
+        col_items = []
+        for f in sorted(output_fields, key=lambda x: int(x.get("columnnum") or 0)):
+            fieldname = str(f.get("fieldname") or "")
+            recname = str(f.get("recname_resolved") or "")
+            heading = f.get("heading_display") or fieldname
+            agg = f.get("agg_label")
+            label = f"{f.get('columnnum')}. {heading}"
+            if agg:
+                label += f" ({agg})"
+            if recname:
+                label += f" — {recname}.{fieldname}"
+            col_items.append({
+                "label": label,
+                "type": "field",
+                "name": f"{recname}.{fieldname}" if recname else fieldname,
+                "_links": f.get("_links", {}),
+            })
+        sections.append({
+            "title": f"Output Columns ({len(output_fields)})",
+            "type": "list",
+            "items": col_items,
+        })
+
+    if binds:
+        bnd_items = []
+        for b in binds:
+            bndname = str(b.get("bndname") or "")
+            heading = b.get("heading_display") or bndname
+            ftype = b.get("fieldtype_label", "")
+            fieldname = str(b.get("fieldname") or "").strip()
+            label = f"{b.get('bndnum')}. {heading} ({ftype})"
+            if fieldname:
+                label += f" — {fieldname}"
+            bnd_items.append({"label": label, "name": bndname})
+        sections.append({
+            "title": f"Prompt Parameters ({len(binds)})",
+            "type": "list",
+            "items": bnd_items,
+        })
+
+    if warnings:
+        sections.append({"title": "Warnings", "type": "list",
+                         "items": [{"label": str(w)} for w in warnings]})
+
+    return sections
+
+
+def query_payload(q_obj):
+    meta = q_obj.get("_metadata", {})
+    raw = meta.get("raw", {})
+    return {
+        "type": q_obj["type"], "name": q_obj["name"], "title": q_obj["display_name"],
+        "overview": {
+            "id": q_obj["id"], "display_name": q_obj["display_name"],
+            "description": q_obj.get("description") or meta.get("descr") or "",
+            "status": q_obj["status"], **raw,
+        },
+        "sections": sections_for_query(q_obj),
+        "_links": q_obj["_links"], "_uom": q_obj,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
     if object_type == "permission_list":
@@ -2490,6 +2789,8 @@ def canonical_object(env, object_type, name):
         return routing_object(env, name)
     if object_type == "sql_definition":
         return sql_object(env, name)
+    if object_type == "query":
+        return query_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

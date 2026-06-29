@@ -1306,6 +1306,7 @@ def admin_graph():
                 <option value="queue">IB Queue</option>
                 <option value="routing">IB Routing</option>
                 <option value="sql_definition">SQL Definition</option>
+                <option value="query">PS Query</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="loadGraph()">Explore</button>
@@ -1754,6 +1755,7 @@ def object_explorer_page(object_type="", object_name=""):
                 <option value="queue">IB Queue</option>
                 <option value="routing">IB Routing</option>
                 <option value="sql_definition">SQL Definition</option>
+                <option value="query">PS Query</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="openTypedObject()">Open</button>
@@ -1939,6 +1941,60 @@ function highlightPeopleCode(source) {
     }).join('');
 }
 
+function highlightSQL(sql) {
+    if (!sql) return '';
+    function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    // Tokenize: single-quoted strings, line comments (--), block comments (/* */), rest
+    const tokens = [];
+    let pos = 0;
+    while (pos < sql.length) {
+        if (sql.startsWith('/*', pos)) {
+            const end = sql.indexOf('*/', pos + 2);
+            const closePos = end === -1 ? sql.length : end + 2;
+            tokens.push({type:'comment', text: sql.slice(pos, closePos)});
+            pos = closePos;
+        } else if (sql.startsWith('--', pos)) {
+            const end = sql.indexOf('\n', pos);
+            const closePos = end === -1 ? sql.length : end;
+            tokens.push({type:'comment', text: sql.slice(pos, closePos)});
+            pos = closePos;
+        } else if (sql[pos] === "'") {
+            let i = pos + 1;
+            while (i < sql.length) {
+                if (sql[i] === "'" && sql[i+1] === "'") { i += 2; continue; }
+                if (sql[i] === "'") { i++; break; }
+                i++;
+            }
+            tokens.push({type:'string', text: sql.slice(pos, i)});
+            pos = i;
+        } else {
+            let i = pos + 1;
+            while (i < sql.length && sql[i] !== '/' && sql[i] !== '-' && sql[i] !== "'") i++;
+            tokens.push({type:'code', text: sql.slice(pos, i)});
+            pos = i;
+        }
+    }
+
+    const KW = /\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|LIKE|ORDER|BY|GROUP|HAVING|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|DISTINCT|UNION|ALL|CASE|WHEN|THEN|ELSE|END|IS|NULL|EXISTS|BETWEEN|INTO|VALUES|INSERT|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|VIEW|INDEX|WITH|OVER|PARTITION|ROWNUM|FETCH|ROWS|ONLY|COUNT|SUM|MAX|MIN|AVG|NVL|NVL2|COALESCE|TRIM|UPPER|LOWER|TO_DATE|TO_CHAR|DECODE|SUBSTR|LENGTH|INSTR|REPLACE|SYSDATE|TRUNC|ROUND|MOD|NEXT_VAL|CONNECT|LEVEL|PRIOR|START|ROWID|CONSTRAINT|PRIMARY|KEY|UNIQUE|FOREIGN|REFERENCES|DEFAULT|NOT)\b/gi;
+    const META = /(%Table|%Bind|%Select|%SelectAll|%SelectInit|%UpdateStats|%Insert|%Delete|%DateAdd|%DateDiff|%DateOut|%SQL|%Current|%Truncate|%TruncateTable|%Execute|%List|%CurrentDateIn|%EffDtCheck|%OPERATOR|%ParmList|%TextIn|%DateTimeIn|%TimeIn)\b/g;
+    const NUM = /\b\d+(\.\d+)?\b/g;
+
+    function colorCode(text) {
+        const h = esc(text);
+        return h
+            .replace(KW,   m => `<span style="color:#569cd6">${m}</span>`)
+            .replace(META, m => `<span style="color:#c586c0">${m}</span>`)
+            .replace(NUM,  m => `<span style="color:#b5cea8">${m}</span>`);
+    }
+
+    return tokens.map(t => {
+        if (t.type === 'comment') return `<span style="color:#6a9955">${esc(t.text)}</span>`;
+        if (t.type === 'string')  return `<span style="color:#ce9178">${esc(t.text)}</span>`;
+        return colorCode(t.text);
+    }).join('');
+}
+
 function renderKeyValues(target, data) {
     target.innerHTML = '';
     const dl = document.createElement('dl');
@@ -1996,6 +2052,14 @@ function renderRows(target, rows) {
         detail.className = 'detail';
         detail.textContent = detailFor(row);
         div.appendChild(detail);
+
+        // Render inline SQL if the item carries data.ddl (e.g., SQL Steps in AE)
+        if (row.data && row.data.ddl) {
+            const pre = document.createElement('pre');
+            pre.style.cssText = 'margin:6px 0 0;padding:6px;background:#050c14;border:1px solid #1e3344;font-size:11px';
+            pre.innerHTML = highlightSQL(row.data.ddl);
+            div.appendChild(pre);
+        }
 
         target.appendChild(div);
     });
@@ -2109,7 +2173,7 @@ function renderObject(object) {
 
         if (section.data && section.data.ddl) {
             const pre = document.createElement('pre');
-            pre.textContent = section.data.ddl;
+            pre.innerHTML = highlightSQL(section.data.ddl);
             card.appendChild(pre);
         }
 

@@ -463,6 +463,17 @@ OBJECT_REGISTRY.setdefault("portal_registry", {
     "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
 })
 
+OBJECT_REGISTRY.setdefault("query", {
+    "display_title": "PS Query",
+    "icon": "search",
+    "graph_node_type": "query",
+    "object_page": "/admin/object/query/{name}",
+    "discovery": {"table": "PSQRYDEFN", "name_column": "QRYNAME"},
+    "search": {"provider": "query", "table": "PSQRYDEFN", "name_column": "QRYNAME",
+               "description_columns": ["DESCR"]},
+    "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+})
+
 for object_type in [
     "menu",
     "content_reference",
@@ -471,7 +482,6 @@ for object_type in [
     "sql",
     "message",
     "ci",
-    "query",
     "tree",
     "approval",
     "event_mapping",
@@ -765,6 +775,53 @@ def global_search(env, q, limit=20):
                         "type": object_type,
                         "name": name,
                         "description": "IB Service Operation",
+                        "score": score,
+                        "icon": entry["icon"],
+                        "_links": {"admin": entry["object_page"].format(name=name)},
+                    })
+            except Exception as exc:
+                results.append({
+                    "type": object_type, "name": None,
+                    "description": f"Search failed: {exc}",
+                    "score": 0, "icon": entry["icon"], "error": True,
+                })
+            continue
+
+        if provider.get("provider") == "query":
+            try:
+                table_name = provider["table"]
+                if not has_table(env, table_name):
+                    continue
+                qry_cols = psdb.select_existing_columns(
+                    env, table_name,
+                    ["QRYNAME", "DESCR", "DESCRLONG", "QRYFOLDER"],
+                    required=["QRYNAME"],
+                )
+                available_q = {c.upper() for c in qry_cols}
+                desc_col = "DESCR" if "DESCR" in available_q else "null"
+                extra_pred = " OR UPPER(DESCR) LIKE :pat" if "DESCR" in available_q else ""
+                rows = psdb.query(env, f"""
+                    SELECT QRYNAME as name, {desc_col} as description
+                      FROM SYSADM.{table_name}
+                     WHERE OPRID = ' '
+                       AND (UPPER(QRYNAME) LIKE :pat{extra_pred})
+                     ORDER BY QRYNAME
+                     FETCH FIRST {limit} ROWS ONLY
+                """, {"pat": pattern})
+                for row in rows:
+                    name = str(row.get("name") or "").strip()
+                    if not name:
+                        continue
+                    description = str(row.get("description") or "").strip() or None
+                    score = 14
+                    if name == q.upper():
+                        score += 100
+                    elif name.startswith(q.upper()):
+                        score += 50
+                    results.append({
+                        "type": object_type,
+                        "name": name,
+                        "description": description,
                         "score": score,
                         "icon": entry["icon"],
                         "_links": {"admin": entry["object_page"].format(name=name)},
