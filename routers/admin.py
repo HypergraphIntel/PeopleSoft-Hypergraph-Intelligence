@@ -1445,8 +1445,8 @@ async function loadGraph() {
         return;
     }
 
-    setStatus(`Loading ${type}:${name}...`);
-    const graph = await api(`/api/peoplesoft/graph/${encodeURIComponent(type)}/${encodeURIComponent(name)}?env=${ENV}`);
+    setStatus(`Loading ${normalizedType}:${name}...`);
+    const graph = await api(`/api/peoplesoft/graph/${encodeURIComponent(normalizedType)}/${encodeURIComponent(name)}?env=${ENV}`);
     renderGraph(graph);
     setStatus(`Loaded ${graph.nodes.length} nodes and ${graph.edges.length} edges.`);
 }
@@ -1459,7 +1459,7 @@ document.getElementById('objectName').addEventListener('keydown', event => {
 
 // ── Knowledge Graph Force Visualization ─────────────────
 const KG_COLORS = {
-  operator:'#4488ff', role:'#00cc66', permission_list:'#ff8800',
+  operator:'#4488ff', role:'#00cc66', permissionlist:'#ff8800',
   component:'#00e5ff', page:'#44ffcc', record:'#ffdd00', field:'#ff88ff',
   portal_registry:'#aa44ff', application_engine:'#ff4488', peoplecode:'#ff6644',
   service_operation:'#88ccff', node:'#ff88aa', queue:'#88ff44',
