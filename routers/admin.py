@@ -6034,6 +6034,7 @@ function explorerLink(type, name) {
     records:     `/admin/record/${encodeURIComponent(name)}`,
     roles:       `/admin/role/${encodeURIComponent(name)}`,
     permissions: `/admin/object/permissionlist/${encodeURIComponent(name)}`,
+    queries:     `/admin/object/query/${encodeURIComponent(name)}`,
   };
   if (!map[type]) return '';
   return ` <a href="${map[type]}" target="_blank" style="font-size:9px;color:#00e5ff44;text-decoration:none;" title="Open in Explorer">↗</a>`;
@@ -6250,6 +6251,7 @@ function nameCol(type) {
     permissions: 'classid',
     ae: 'ae_applid',
     roles: 'rolename',
+    queries: 'qryname',
   };
   return map[type] || 'name';
 }
@@ -6262,6 +6264,7 @@ function metaHeaders(type) {
     permissions: ['Name', 'Description'],
     ae:          ['Name', 'Status', 'Description'],
     roles:       ['Name', 'Description'],
+    queries:     ['Name', 'Type', 'Folder', 'Disabled', 'Valid'],
   };
   return map[type] || ['Name'];
 }
@@ -6280,6 +6283,8 @@ function metaCells(r, type) {
       return `<td>${esc(r.ae_status)}</td><td>${esc(r.descr)}</td>`;
     case 'roles':
       return `<td>${esc(r.descr)}</td>`;
+    case 'queries':
+      return `<td>${esc(r.qrytype)}</td><td>${esc(r.qryfolder)}</td><td>${esc(r.qrydisabled)}</td><td>${esc(r.qryvalid)}</td>`;
     default:
       return '';
   }
