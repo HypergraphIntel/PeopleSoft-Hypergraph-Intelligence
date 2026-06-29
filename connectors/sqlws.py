@@ -328,6 +328,7 @@ def execute_query(
     page_size: int = DEFAULT_PAGE_SIZE,
     max_rows: int = None,
     timeout_secs: int = 0,
+    cancel_check=None,
 ) -> dict:
     """
     Execute a read-only SELECT against the named PeopleSoft environment.
@@ -424,53 +425,70 @@ def execute_query(
     status = "success"
     error_msg = None
     timed_out = False
+    cancelled = False
     columns = []
     rows = []
     warnings = validation.get("warnings", [])
 
-    try:
-        conn = _connect(env_name)
+    if cancel_check is not None and cancel_check():
+        cancelled = True
+        status = "cancelled"
+        warnings.append("Query execution was cancelled by the client.")
+
+    if not cancelled:
         try:
-            cur = conn.cursor()
-            if timeout_secs and hasattr(cur, "callTimeout"):
-                try:
-                    cur.callTimeout = timeout_secs * 1000
-                except Exception:
-                    warnings.append("Execution timeout is not supported by the current Oracle driver configuration.")
-            cur.execute(paged_sql, exec_binds)
+            conn = _connect(env_name)
+            try:
+                cur = conn.cursor()
+                if timeout_secs and hasattr(cur, "callTimeout"):
+                    try:
+                        cur.callTimeout = timeout_secs * 1000
+                    except Exception:
+                        warnings.append("Execution timeout is not supported by the current Oracle driver configuration.")
 
-            # Build column metadata from cursor description, skip the rn sentinel.
-            raw_cols = cur.description or []
-            col_meta = []
-            col_indices = []
-            for i, desc in enumerate(raw_cols):
-                if desc[0].upper() == "SQLWS_RN":
-                    continue
-                col_meta.append({
-                    "name": desc[0],
-                    "type": _oracle_type_name(desc[1]),
-                })
-                col_indices.append(i)
-            columns = col_meta
+                if cancel_check is not None and cancel_check():
+                    cancelled = True
+                    status = "cancelled"
+                    warnings.append("Query execution was cancelled by the client.")
+                else:
+                    cur.execute(paged_sql, exec_binds)
 
-            # Fetch rows.
-            for raw_row in cur.fetchall():
-                row = {}
-                for meta, idx in zip(col_meta, col_indices):
-                    row[meta["name"]] = _clean_value(raw_row[idx])
-                rows.append(row)
-        finally:
-            conn.close()
-    except oracledb.Error as exc:
-        status = "error"
-        error_msg = str(exc)
-        if "DPI-1067" in error_msg or "call timeout" in error_msg.lower():
-            timed_out = True
-            status = "timeout"
-            error_msg = f"Query exceeded the {timeout_secs}s timeout and was cancelled."
-    except Exception as exc:
-        status = "error"
-        error_msg = str(exc)
+                    # Build column metadata from cursor description, skip the rn sentinel.
+                    raw_cols = cur.description or []
+                    col_meta = []
+                    col_indices = []
+                    for i, desc in enumerate(raw_cols):
+                        if desc[0].upper() == "SQLWS_RN":
+                            continue
+                        col_meta.append({
+                            "name": desc[0],
+                            "type": _oracle_type_name(desc[1]),
+                        })
+                        col_indices.append(i)
+                    columns = col_meta
+
+                    # Fetch rows.
+                    for raw_row in cur.fetchall():
+                        row = {}
+                        for meta, idx in zip(col_meta, col_indices):
+                            row[meta["name"]] = _clean_value(raw_row[idx])
+                        rows.append(row)
+            finally:
+                conn.close()
+        except oracledb.Error as exc:
+            status = "error"
+            error_msg = str(exc)
+            if "DPI-1067" in error_msg or "call timeout" in error_msg.lower():
+                timed_out = True
+                status = "timeout"
+                error_msg = f"Query exceeded the {timeout_secs}s timeout and was cancelled."
+            elif "cancel" in error_msg.lower() or "abort" in error_msg.lower():
+                cancelled = True
+                status = "cancelled"
+                error_msg = "Query execution was cancelled."
+        except Exception as exc:
+            status = "error"
+            error_msg = str(exc)
 
     elapsed_ms = round((time.monotonic() - t0) * 1000)
     row_count  = len(rows)
@@ -481,6 +499,8 @@ def execute_query(
 
     if timed_out:
         status = "timeout"
+    elif cancelled:
+        status = "cancelled"
 
     _history_append({
         "id": query_id,
@@ -494,6 +514,7 @@ def execute_query(
         "blocked_reason": None,
         "pinned": False,
         "timed_out": timed_out,
+        "cancelled": cancelled,
     })
 
     audit_write("execute", {
@@ -521,7 +542,8 @@ def execute_query(
         "blocked": False,
         "blocked_reason": None,
         "timed_out": timed_out,
-        "cancelled": False,
+        "cancelled": cancelled,
+        "status": status,
         "query_id": query_id,
     }
 

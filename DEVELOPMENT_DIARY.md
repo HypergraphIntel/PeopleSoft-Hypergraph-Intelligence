@@ -71,6 +71,7 @@ Verification:
 ### SQL Workspace Timeout and Cancellation
 
 - Added server-side execution timeout normalization and propagation from the SQL Workspace router into the connector execution path.
+- Added backend cancellation handling so SQL Workspace executions can return an explicit `cancelled` status when a client-side abort is detected, and the connector records that state in history/audit output.
 - The connector now applies `cursor.callTimeout` when available, returns a clear `timed_out` flag for timed-out queries, and records timeout status in history/audit entries.
 - The admin SQL Workspace page now exposes a timeout input, a Cancel button, and client-side `AbortController` handling so execution can be interrupted cleanly and the UI surfaces cancelled/timed-out feedback without leaving the interface in a stuck state.
 - Preserved the existing read-only execution, pagination, explain-plan, export, and history behavior while keeping successful query execution unchanged.

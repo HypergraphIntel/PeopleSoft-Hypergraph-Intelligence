@@ -5,9 +5,10 @@ Provides safe, read-only SQL execution against PeopleSoft Oracle databases.
 All routes validate input before touching any database.
 """
 
+import asyncio
 import json
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
@@ -69,17 +70,46 @@ def validate_sql(req: ValidateRequest):
 # ──────────────────────────────────────────────────────────────────────────────
 
 @router.post("/execute")
-def execute_sql(req: ExecuteRequest):
+async def execute_sql(req: ExecuteRequest, request: Request):
     """Execute a read-only SQL statement with optional bind parameters and paging."""
-    return sqlws.execute_query(
-        env_name     = req.env,
-        sql          = req.sql,
-        binds        = req.binds,
-        page         = req.page,
-        page_size    = req.page_size,
-        max_rows     = req.max_rows,
-        timeout_secs = req.timeout_secs,
+    if await request.is_disconnected():
+        return {
+            "env": req.env.upper(),
+            "statement_type": None,
+            "elapsed_ms": 0,
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "page": req.page,
+            "page_size": req.page_size,
+            "truncated": False,
+            "warnings": ["Query execution was cancelled by the client."],
+            "blocked": False,
+            "blocked_reason": None,
+            "timed_out": False,
+            "cancelled": True,
+            "status": "cancelled",
+            "query_id": None,
+        }
+
+    result = await asyncio.to_thread(
+        sqlws.execute_query,
+        req.env,
+        req.sql,
+        req.binds,
+        req.page,
+        req.page_size,
+        req.max_rows,
+        req.timeout_secs,
+        lambda: asyncio.get_running_loop().is_closed(),
     )
+
+    if await request.is_disconnected() and not result.get("cancelled"):
+        result["cancelled"] = True
+        result["status"] = "cancelled"
+        result["warnings"] = list(result.get("warnings", [])) + ["Query execution was cancelled by the client."]
+
+    return result
 
 
 # ──────────────────────────────────────────────────────────────────────────────

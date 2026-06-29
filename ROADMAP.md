@@ -183,6 +183,7 @@
 -   Security reports: 6 canned audit reports via `/api/peoplesoft/security/reports?report=<type>`, Reports card in `/admin/security`
 -   Dynamic-membership enrichment for role and permission-list UOM views
 -   Permission-decoding grant-path enrichment with permission-list detail and decoded actions for component, page, and menu access explanations
+-   SQL Workspace backend cancellation handling with explicit cancelled status propagation for aborted executions
 -   Canonical object routing for permission-list aliases in the Object Explorer
 
 ### Remaining
