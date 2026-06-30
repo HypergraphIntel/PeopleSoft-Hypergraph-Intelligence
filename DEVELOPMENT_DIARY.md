@@ -984,3 +984,77 @@ Verification:
 - `GET /api/peoplesoft/object/query/FPA_JOB_SUM?env=HCM`: 200 OK, sections
   `['Overview', 'Records Used (5)', 'Output Columns (17)', 'Prompt Parameters (2)']`.
 - Global search `?q=FPA_JOB`: returns `query: FPA_JOB_SUM | FPS Job Data`.
+
+------------------------------------------------------------------------
+
+### PS Queries Tab — Environment Comparison
+
+Added a PS Queries comparison tab to `/admin/envcompare`:
+
+**`connectors/envcompare.py`** (already complete):
+- `compare_queries(env1, env2, q, limit)`: diffs `PSQRYDEFN` public queries
+  (`OPRID=' '`) between two environments by `QRYNAME`, comparing `DESCR`,
+  `QRYTYPE`, `QRYFOLDER`, `QRYDISABLED`, `LASTUPDDTTM`.
+- `summary()`: includes `PS Queries` count query.
+
+**`routers/envcompare.py`** (already complete):
+- `GET /api/envcompare/queries`: public diff endpoint.
+
+**`routers/admin.py`**:
+- Added "PS Queries" tab button after "Portals" in the envcompare tab row.
+- Added `<div id="pane-queries">` with `<input id="queryQ">`, Compare button,
+  spinner, and result div.
+- Updated `TABS` constant to include `'queries'` between `'portals'` and `'graph'`.
+- Added `queries: 'queryQ'` to `Q_IDS` map so `runCompare('queries')` picks
+  up the filter input.
+
+------------------------------------------------------------------------
+
+### SQL Workspace — Timeout and Cancellation
+
+Added server-side call timeout and client-side cancel support:
+
+**`connectors/sqlws.py`**:
+- `MAX_TIMEOUT_SECS = 600` constant.
+- `_normalize_timeout_secs(seconds)`: clamps to `[0, MAX_TIMEOUT_SECS]`.
+- `execute_query()`: accepts `timeout_secs` and `cancel_check` parameters.
+  Sets `cursor.callTimeout = timeout_secs * 1000` when driver supports it.
+  Catches `oracledb.Error` with DPI-1067 or "call timeout" message to set
+  `timed_out=True, status="timeout"`. Cancellation detected via `cancel_check`
+  callable or oracle "cancel/abort" error message.
+- Result dict includes `timed_out`, `cancelled`, and `status` fields.
+- History entries record `timed_out` and `cancelled` flags.
+
+**`routers/sqlws.py`**:
+- `ExecuteRequest`: added `timeout_secs: int = 0`.
+- `execute_sql()`: now `async`, uses `asyncio.to_thread()` to run the blocking
+  DB call without blocking the event loop.
+- Pre- and post-execution `request.is_disconnected()` checks set `cancelled`
+  flag when the HTTP client aborts before or after the query runs.
+
+**`routers/admin.py`** (SQL Workspace UI):
+- Added Cancel button (`id="cancelBtn"`, hidden while idle) next to Execute.
+- Added Timeout selector (`id="timeoutSel"`) with None/10s/30s/60s/2m/5m options
+  (default 30s).
+- `currentAbortController`: module-level `AbortController` for the live request.
+- `_setExecRunning(running)`: toggles Execute disabled state + Cancel button
+  visibility.
+- `cancelSQL()`: calls `currentAbortController.abort()`.
+- `executeSQL()`: creates `AbortController`, passes `signal` to fetch and
+  `timeout_secs` to request body; handles `AbortError` to show "Query
+  cancelled by user." message without crashing.
+- Timing display shows `— TIMED OUT` suffix when `data.timed_out` is set.
+
+------------------------------------------------------------------------
+
+### IB Explorer — Overview Duplication Fix + Services Count
+
+**`routers/admin.py`**:
+- `loadDashboard()`: removed the duplicate `<h2>Integration Broker Overview</h2>`
+  and stat-grid from the injected HTML — these counts are already in the static
+  card (populated via `$('ovSvc').textContent` etc.). The `#dashboard` div now
+  only renders live runtime data (Publications/Subscriptions/Domain Status).
+- `loadServices()`: increased limit to 500; appended a footer note showing
+  "N services — all services (no status filter) · PSIBAPPLDEFN" so users can
+  confirm the list is unfiltered (PSIBAPPLDEFN has no EFF_STATUS filter in the
+  services query).

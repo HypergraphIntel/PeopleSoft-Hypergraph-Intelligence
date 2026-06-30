@@ -5132,9 +5132,10 @@ h2{color:#00e5ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;bord
 nav a{color:#00e5ff;text-decoration:none;font-size:12px;}
 nav a:hover{text-decoration:underline;}
 .topbar{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
-.main{display:flex;flex:1;overflow:hidden;}
-.sidebar{width:310px;border-right:1px solid #00e5ff22;display:flex;flex-direction:column;overflow:hidden;}
-.content{flex:1;overflow:auto;padding:14px;}
+.main{display:flex;flex:1;overflow:hidden;flex-direction:column;min-height:0;}
+.content{flex:1;overflow:hidden;padding:14px;display:flex;flex-direction:column;min-height:0;}
+.list-area{overflow-y:auto;flex:1;min-height:0;}
+.tab-row{display:flex;flex-wrap:wrap;gap:0;border-bottom:1px solid #00e5ff22;overflow-x:hidden;}
 select,input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
 select:focus,input:focus{outline:none;border-color:#00e5ff;}
 button{background:#00e5ff;border:none;padding:4px 10px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
@@ -5204,18 +5205,40 @@ a.obj-link:hover{text-decoration:underline;}
 
 <div class="main">
 
-<!-- ═══════════════════════════════════════════════════════════ SIDEBAR -->
-<div class="sidebar">
-  <div class="tab-row">
-    <div class="tab on"  onclick="switchTab('services')">Services</div>
-    <div class="tab"     onclick="switchTab('operations')">Service Ops</div>
-    <div class="tab"     onclick="switchTab('routings')">Routings</div>
-    <div class="tab"     onclick="switchTab('nodes')">Nodes</div>
-    <div class="tab"     onclick="switchTab('queues')">Queues</div>
-    <div class="tab"     onclick="switchTab('txns')">Txns</div>
+<div class="tab-row" style="width:100%;">
+  <div class="tab on" onclick="switchTab('overview')">Overview</div>
+  <div class="tab" onclick="switchTab('services')">Services</div>
+  <div class="tab" onclick="switchTab('operations')">Service Ops</div>
+  <div class="tab" onclick="switchTab('routings')">Routings</div>
+  <div class="tab" onclick="switchTab('nodes')">Nodes</div>
+  <div class="tab" onclick="switchTab('queues')">Queues</div>
+  <div class="tab" onclick="switchTab('txns')">Txns</div>
+</div>
+
+<div class="content" id="contentArea">
+  <div id="tab-overview" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0;">
+    <div class="card">
+      <h2>Overview</h2>
+      <div class="stat-grid" style="margin-top:12px;">
+        <div class="stat-box"><div class="stat-num" id="ovSvc">--</div><div class="stat-lbl">Services</div></div>
+        <div class="stat-box"><div class="stat-num" id="ovOps">--</div><div class="stat-lbl">Service Ops</div></div>
+        <div class="stat-box"><div class="stat-num" id="ovRtng">--</div><div class="stat-lbl">Routings</div></div>
+        <div class="stat-box"><div class="stat-num" id="ovNode">--</div><div class="stat-lbl">Nodes</div></div>
+        <div class="stat-box"><div class="stat-num" id="ovQueue">--</div><div class="stat-lbl">Queues</div></div>
+      </div>
+      <div style="font-size:11px;color:#667;line-height:1.5;margin-top:10px;">
+        Integration Broker data is loaded from the selected environment. Use the quick actions below to jump to the most-used IB sections.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+        <button onclick="switchTab('services')">Browse Services</button>
+        <button onclick="switchTab('operations')">Browse Service Ops</button>
+        <button onclick="switchTab('txns')">View Transactions</button>
+      </div>
+    </div>
+    <div id="dashboard" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0;"></div>
   </div>
 
-  <div id="tab-services" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+  <div id="tab-services" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
     <div class="search-bar">
       <input id="svcQ" type="text" placeholder="Search services…" onkeydown="if(event.key==='Enter')loadServices()">
       <button onclick="loadServices()">Go</button>
@@ -5274,16 +5297,11 @@ a.obj-link:hover{text-decoration:underline;}
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════ CONTENT AREA -->
-<div class="content" id="contentArea">
-  <div id="dashboard"></div>
-</div>
-
 </div><!-- .main -->
 
 <script>
 const $ = id => document.getElementById(id);
-let currentTab = 'services';
+let currentTab = 'overview';
 
 function env() { return $('envSel').value || 'HCM'; }
 
@@ -5298,7 +5316,7 @@ async function api(path, opts) {
 }
 
 // ─── tabs ──────────────────────────────────────────────────────────────────
-const TABS = ['services','operations','routings','nodes','queues','txns'];
+const TABS = ['overview','services','operations','routings','nodes','queues','txns'];
 function switchTab(name) {
   currentTab = name;
   TABS.forEach(t => {
@@ -5307,6 +5325,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach((el, i) => {
     el.classList.toggle('on', TABS[i] === name);
   });
+  if (name === 'overview') loadDashboard();
   if (name === 'operations' && !$('opList').querySelector('.list-item')) loadOperations();
   if (name === 'routings' && !$('rtngList').querySelector('.list-item')) loadRoutings();
   if (name === 'txns') loadTxns();
@@ -5316,8 +5335,9 @@ function switchTab(name) {
 async function loadServices() {
   const q = $('svcQ').value;
   $('svcList').innerHTML = '<span class="empty" style="padding:8px;">Loading…</span>';
-  const d = await api(`/api/ib/services?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
-  renderList('svcList', d.items || [], item => {
+  const d = await api(`/api/ib/services?env=${env()}&q=${encodeURIComponent(q)}&limit=500`);
+  const items = d.items || [];
+  renderList('svcList', items, item => {
     const b = bStatus(item.status_label);
     return `<div class="list-item" onclick="showService(${JSON.stringify(item.ptibapplname)})">
       <span class="badge ${b.cls}">${b.text}</span>
@@ -5325,6 +5345,12 @@ async function loadServices() {
       <div class="item-meta">${esc(item.descr || '')}</div>
     </div>`;
   });
+  if (items.length) {
+    const note = document.createElement('div');
+    note.style.cssText = 'font-size:11px;color:#667;padding:4px 8px;border-top:1px solid #1a2a1a;';
+    note.textContent = `${items.length} service${items.length===1?'':'s'}${q ? ' matching filter' : ' — all services (no status filter)'} · PSIBAPPLDEFN`;
+    $('svcList').appendChild(note);
+  }
   warnBox(d.warnings);
 }
 
@@ -5772,25 +5798,25 @@ async function showTxn(txid) {
 
 // ─── dashboard ────────────────────────────────────────────────────────────
 async function loadDashboard() {
+  const dashboard = $('dashboard');
+  if (!dashboard) return;
   const d = await api(`/api/ib/dashboard?env=${env()}`);
-  let h = `<h2>&#127760; Integration Broker Overview</h2>`;
+  let h = '';
 
   const configured = d.service_count != null || d.node_count != null;
   if (!configured) {
     h += `<div class="card"><div class="warn-msg">IB metadata tables are not accessible in this environment.
       The monitoring account may lack grants to PSIBAPPLDEFN, PSIBRTNGDEFN, PSMSGNODEDEFN and related tables.</div></div>`;
     (d.warnings||[]).forEach(w => { h += `<div class="warn-msg">${esc(w.message||w)}</div>`; });
-    $('dashboard').innerHTML = h;
+    dashboard.innerHTML = h;
     return;
   }
 
-  h += `<div class="card"><div class="stat-grid">
-    ${sBox(d.service_count, 'Services')}
-    ${sBox(d.operation_count, 'Service Ops')}
-    ${sBox(d.routing_count, 'Routings')}
-    ${sBox(d.node_count, 'Nodes')}
-    ${sBox(d.queue_count, 'Queues')}
-  </div></div>`;
+  $('ovSvc').textContent   = d.service_count != null ? d.service_count : '--';
+  $('ovOps').textContent   = d.operation_count != null ? d.operation_count : '--';
+  $('ovRtng').textContent  = d.routing_count != null ? d.routing_count : '--';
+  $('ovNode').textContent  = d.node_count != null ? d.node_count : '--';
+  $('ovQueue').textContent = d.queue_count != null ? d.queue_count : '--';
 
   if ((d.pub_by_status||[]).length) {
     h += `<h2>Publications — Last 24h</h2><div class="card" style="display:flex;gap:16px;flex-wrap:wrap;">`;
@@ -5851,8 +5877,8 @@ function warnBox(ws) {
 
 // ─── init ─────────────────────────────────────────────────────────────────
 function reload() {
-  $('dashboard').innerHTML = '';
-  $('contentArea').innerHTML = '<div id="dashboard"></div>';
+  const dashboard = $('dashboard');
+  if (dashboard) dashboard.innerHTML = '<span class="empty">Reloading…</span>';
   loadDashboard();
   loadServices();
   loadOperations();
