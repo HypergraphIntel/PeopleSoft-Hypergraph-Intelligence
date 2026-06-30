@@ -3717,6 +3717,12 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
   </div>
 </div>
 
+<!-- ── Active Alerts ── -->
+<div class="card" id="alertsCard">
+  <h2>Active Alerts <span id="alertBadge"></span></h2>
+  <div id="alertsArea"><span class="muted" style="font-size:12px">Loading…</span></div>
+</div>
+
 <!-- ── App Server Domains ── -->
 <div class="card">
   <h2>App Server Domains</h2>
@@ -3766,6 +3772,13 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
   <div id="paneBlocking" class="pane"><div id="tblBlocking"></div></div>
   <div id="paneLongops"  class="pane"><div id="tblLongops"></div></div>
   <div id="paneTopsql"   class="pane"><div id="tblTopsql"></div></div>
+</div>
+
+<!-- ── Oracle ASH ── -->
+<div class="card">
+  <h2>Oracle Active Session History &mdash; <span id="ashLabel"></span></h2>
+  <div id="ashBar" class="status-bar"></div>
+  <div id="ashArea"><span class="muted" style="font-size:12px">Loading…</span></div>
 </div>
 
 <!-- ── Runtime Graph ── -->
@@ -4050,6 +4063,46 @@ async function loadStatus() {
   }
 }
 
+async function loadAlerts() {
+  const env = $('envSel').value;
+  const db  = $('dbSel').value;
+  if (!env) { $('alertsArea').innerHTML = ''; $('alertBadge').innerHTML = ''; return; }
+  try {
+    const url = `/api/runtime/alerts?env=${encodeURIComponent(env)}${db ? '&db='+encodeURIComponent(db) : ''}`;
+    const r = await api(url);
+    const alerts = r.alerts || [];
+
+    // Badge on card title
+    const errCnt = r.error_count || 0;
+    const warnCnt = r.warn_count || 0;
+    let badge = '';
+    if (errCnt) badge += `<span class="chip chip-error" style="font-size:10px;padding:2px 8px;margin-left:6px">${errCnt} error${errCnt>1?'s':''}</span>`;
+    if (warnCnt) badge += `<span class="chip chip-warn" style="font-size:10px;padding:2px 8px;margin-left:6px">${warnCnt} warning${warnCnt>1?'s':''}</span>`;
+    $('alertBadge').innerHTML = badge;
+    $('alertsCard').style.borderColor = errCnt ? '#ff444466' : warnCnt ? '#ffaa0066' : '#00e5ff44';
+
+    if (!alerts.length) {
+      $('alertsArea').innerHTML = `<div class="empty" style="color:#00cc66">&#x2714; All clear — no active alerts</div>`;
+      return;
+    }
+
+    let html = '';
+    alerts.forEach(a => {
+      const col = a.severity === 'error' ? '#ff4444' : '#ffaa00';
+      const icon = a.severity === 'error' ? '&#x26A0;' : '&#x25B2;';
+      const link = a.data?._links?.admin ? `<a href="${esc(a.data._links.admin)}" style="color:#00e5ff;font-size:10px;margin-left:8px">&#x2192; View</a>` : '';
+      html += `<div class="alert-box" style="border-color:${col};color:${col};display:flex;align-items:flex-start;gap:8px;margin:4px 0">
+        <span style="font-size:16px;line-height:1">${icon}</span>
+        <div><span style="font-size:10px;opacity:.7;text-transform:uppercase;letter-spacing:1px">[${esc(a.code)}]</span>
+          <span style="margin-left:6px">${esc(a.message)}</span>${link}</div>
+      </div>`;
+    });
+    $('alertsArea').innerHTML = html;
+  } catch(e) {
+    $('alertsArea').innerHTML = `<span class="muted" style="font-size:12px">Alerts unavailable: ${esc(e.message)}</span>`;
+  }
+}
+
 async function loadDomains() {
   const env = $('envSel').value;
   if (!env) { $('domArea').innerHTML = '<span class="muted" style="font-size:12px">No environment selected.</span>'; return; }
@@ -4162,6 +4215,86 @@ async function loadOracle() {
   $('tblTopsql').innerHTML  = renderTopSql(topsql.value?.items   || []);
 }
 
+const _WC_COLOR = {
+  'CPU': '#00cc66', 'User I/O': '#00aaff', 'System I/O': '#0066cc',
+  'Commit': '#ffaa00', 'Lock': '#ff4444', 'Concurrency': '#ff8800',
+  'Network': '#aa66ff', 'Application': '#cc4466', 'Other': '#778',
+  'Administrative': '#556', 'Configuration': '#445',
+};
+
+async function loadAsh() {
+  const db = $('dbSel').value;
+  if (!db) { $('ashArea').innerHTML = ''; $('ashBar').innerHTML = ''; return; }
+  $('ashLabel').textContent = db;
+  try {
+    const [summary, topSql] = await Promise.all([
+      api(`/api/runtime/ash?db=${encodeURIComponent(db)}&minutes=30`),
+      api(`/api/runtime/ash/sql?db=${encodeURIComponent(db)}&minutes=30&limit=10`),
+    ]);
+    const wcs = summary.wait_classes || [];
+    const total = summary.total_samples || 0;
+
+    // Wait class chips
+    let barHtml = wcs.map(wc => {
+      const col = _WC_COLOR[wc.wait_class] || '#778';
+      return `<div class="chip" style="border-color:${col}44;color:${col};background:${col}11">${esc(wc.wait_class)}: <b>${wc.pct}%</b> <span style="font-size:10px;opacity:.6">(${wc.samples})</span></div>`;
+    }).join('');
+    $('ashBar').innerHTML = barHtml || `<span class="muted" style="font-size:12px">No foreground ASH samples in last 30 minutes.</span>`;
+
+    if (!total) { $('ashArea').innerHTML = ''; return; }
+
+    let html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:10px;">`;
+
+    // Top events
+    html += `<div><div style="font-size:10px;color:#445;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Top Wait Events</div>`;
+    html += `<table><thead><tr><th>Event</th><th>Class</th><th></th><th>%</th></tr></thead><tbody>`;
+    (summary.top_events || []).slice(0,8).forEach(ev => {
+      const col = _WC_COLOR[ev.wait_class] || '#778';
+      html += `<tr>
+        <td class="mono" style="font-size:11px">${esc(ev.event)}</td>
+        <td><span style="color:${col};font-size:10px">${esc(ev.wait_class)}</span></td>
+        <td><div class="pct-bar"><div class="pct-fill" style="width:${Math.min(ev.pct,100).toFixed(0)}%;background:${col}"></div></div></td>
+        <td style="font-size:10px;color:#9ab">${ev.pct}%</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+
+    // Top SQL
+    html += `<div><div style="font-size:10px;color:#445;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Top SQL by Samples (≈ DB Time)</div>`;
+    html += `<table><thead><tr><th>SQL ID</th><th>Samples</th><th>%</th><th>Text</th></tr></thead><tbody>`;
+    (topSql.items || []).slice(0,8).forEach(s => {
+      const txt = s.sql_text ? s.sql_text.substring(0,70) : '<span style="color:#445;font-style:italic">not in V$SQL</span>';
+      html += `<tr>
+        <td class="mono" style="font-size:10px;color:#00e5ff">${esc(s.sql_id)}</td>
+        <td style="font-size:11px">${s.samples}</td>
+        <td style="font-size:10px;color:#9ab">${s.pct}%</td>
+        <td class="sql-cell">${s.sql_text ? esc(txt) : txt}</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+    html += `</div>`;
+
+    // Top modules
+    const mods = (summary.top_modules || []).filter(m => m.module !== '(unknown)').slice(0,6);
+    if (mods.length) {
+      html += `<div style="margin-top:10px"><div style="font-size:10px;color:#445;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Top Processes</div>`;
+      html += `<div style="display:flex;gap:6px;flex-wrap:wrap">`;
+      mods.forEach(m => {
+        html += `<div class="chip chip-muted" style="font-size:10px">${esc(m.module)} <span style="color:#00e5ff">${m.pct}%</span></div>`;
+      });
+      html += `</div></div>`;
+    }
+
+    html += `<div style="font-size:10px;color:#334;margin-top:10px">Source: V$ACTIVE_SESSION_HISTORY · Last 30 min · ${total} samples · Foreground sessions only</div>`;
+    (summary.warnings||[]).concat(topSql.warnings||[]).forEach(w => {
+      html += `<div class="warn-msg">${esc(w.message||String(w))}</div>`;
+    });
+    $('ashArea').innerHTML = html;
+  } catch(e) {
+    $('ashArea').innerHTML = `<span class="muted" style="font-size:12px">ASH unavailable: ${esc(e.message)}</span>`;
+  }
+}
+
 function closeProc() {
   $('procPanel').classList.remove('open');
   $('overlay').classList.remove('open');
@@ -4260,7 +4393,7 @@ ${d.prcsservername ? `<div class="p-field"><span class="p-label">Process Server<
 
 async function refresh() {
   $('lastTs').textContent = 'Refreshing…';
-  await Promise.allSettled([loadStatus(), loadDomains(), loadServers(), loadProcesses(), loadOracle()]);
+  await Promise.allSettled([loadAlerts(), loadStatus(), loadDomains(), loadServers(), loadProcesses(), loadOracle(), loadAsh()]);
   $('lastTs').textContent = 'Last: ' + new Date().toLocaleTimeString();
   if (autoR) {
     clearTimeout(arTimer);

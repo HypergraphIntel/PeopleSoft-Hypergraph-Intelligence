@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from connectors import execution, psdb
+from connectors import execution, psdb, alerts as alerts_conn
 
 router = APIRouter(prefix="/api/runtime", tags=["Runtime"])
 
@@ -99,6 +99,24 @@ def runtime_user_sessions(env: str = "HCM", limit: int = 50):
 def runtime_servers(env: str = "HCM"):
     """Return Process Scheduler server status from PSSERVERSTAT."""
     return psdb.process_scheduler_servers(env)
+
+
+@router.get("/alerts")
+def runtime_alerts(env: str = "HCM", db: str = None):
+    """Evaluate runtime alert thresholds and return active alerts."""
+    return alerts_conn.evaluate_alerts(env, db_name=db or None)
+
+
+@router.get("/ash")
+def runtime_ash(db: str, minutes: int = 30):
+    """Return Oracle ASH wait class breakdown from V$ACTIVE_SESSION_HISTORY."""
+    return execution.oracle_ash_summary(db, minutes=minutes)
+
+
+@router.get("/ash/sql")
+def runtime_ash_sql(db: str, minutes: int = 30, limit: int = 10):
+    """Return top SQL from Oracle ASH by sample count (approx. time in DB)."""
+    return execution.oracle_ash_top_sql(db, minutes=minutes, limit=limit)
 
 
 @router.get("/domains")

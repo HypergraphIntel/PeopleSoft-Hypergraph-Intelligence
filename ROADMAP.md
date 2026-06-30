@@ -503,10 +503,16 @@
     `/api/runtime/domains`; "App Server Domains" card in `/admin/runtime` with
     domain type chips (App Server / Process Scheduler / Web PIA / Integration Broker);
     non-fatal warning when neither view is accessible
-
-### Remaining
-
--   Alerts
+-   Oracle ASH Integration: `oracle_ash_summary()` / `oracle_ash_top_sql()` in
+    execution.py query `V$ACTIVE_SESSION_HISTORY` (now accessible); `/api/runtime/ash`
+    and `/api/runtime/ash/sql`; "Oracle Active Session History" card in `/admin/runtime`
+    with wait class chips, top-8 wait events (color-coded by class), top-10 SQL by
+    samples (with V$SQL text if cached), and top process module breakdown
+-   Runtime Monitor Alerts: `connectors/alerts.py` evaluates six checks — process errors
+    (last 1h), long-running processes (>2h), queue depth (>10), Oracle blocking chains,
+    ASH high-wait (single wait class >70%), domain no-listener; `/api/runtime/alerts`;
+    "Active Alerts" card at top of `/admin/runtime` with severity chips (error/warn),
+    card border color shift (red/amber/cyan), and deep-links to affected resources
 
 ------------------------------------------------------------------------
 
@@ -557,8 +563,6 @@
 
 ## Blocked
 
--   AE SQL actions (database grants)
--   Oracle ASH integration (Diagnostics Pack)
 -   Runtime IB inspection (missing grants)
 
 ## Long-Term

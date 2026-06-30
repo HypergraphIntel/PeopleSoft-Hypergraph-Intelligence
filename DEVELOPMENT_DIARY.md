@@ -6,6 +6,58 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Oracle ASH Integration + Runtime Monitor Alerts
+
+**Oracle ASH (V$ACTIVE_SESSION_HISTORY) is now accessible** following the AE/Oracle grant
+expansion. Previously listed as "Blocked (Diagnostics Pack)", it now has 3370+ in-memory
+samples and DBA_HIST_ACTIVE_SESS_HISTORY provides 10 days of historical AWR data.
+
+**`connectors/execution.py`** — added `oracle_ash_summary(db_name, minutes=30)` and
+`oracle_ash_top_sql(db_name, minutes=30, limit=10)`:
+- `oracle_ash_summary`: returns wait class breakdown (CPU / Commit / User I/O / …),
+  top-10 wait events with sample counts and percentages, top-10 process modules — all
+  from foreground sessions in V$ACTIVE_SESSION_HISTORY
+- `oracle_ash_top_sql`: joins V$ACTIVE_SESSION_HISTORY to V$SQL (child_number=0) to
+  return top SQL IDs by sample count (≈ approximate time in DB), with SQL text snippets
+  where the cursor is still cached
+- TIMESTAMP date math: PSPRCSRQST uses TIMESTAMP(6), so arithmetic against SYSDATE
+  (DATE) must cast via `CAST(BEGINDTTM AS DATE)` to avoid ORA-00932
+
+**`routers/runtime.py`** — added `/api/runtime/ash?db=&minutes=` and
+`/api/runtime/ash/sql?db=&minutes=&limit=` endpoints.
+
+**`routers/admin.py`** — added "Oracle Active Session History" card between Oracle DB
+and Runtime Graph; `loadAsh()` fetches both endpoints in parallel; wait class chips
+use per-class color coding (`_WC_COLOR` map); two-column layout (events left, SQL right);
+top process modules shown as chips at the bottom; `loadAsh()` added to `refresh()`.
+
+**Verification:** `/api/runtime/ash?db=HRDMO&minutes=30` returns 104 samples:
+68.3% Commit (log file sync), 30.8% CPU, 1% User I/O. Top SQL includes DeathStar's own
+queries plus IB dispatcher SELECTs.
+
+---
+
+**Runtime Monitor Alerts** — `connectors/alerts.py` implements six independent checks:
+1. **PROCESS_ERRORS** — counts PSPRCSRQST rows with RUNSTATUS 3/4/8 in last 1h
+2. **LONG_PROCESS** — flags processes with RUNSTATUS 2/7 and elapsed >120m (using
+   `CAST(BEGINDTTM AS DATE)` for TIMESTAMP arithmetic)
+3. **QUEUE_DEPTH** — warns when 10+ processes are queued/pending-cancel in last 2h
+4. **BLOCKING_SESSIONS** — delegates to `execution.oracle_blocking()`, escalates to
+   "error" severity when max wait exceeds 300s
+5. **HIGH_WAIT** — flags when a single non-CPU wait class exceeds 70% of ASH samples
+6. **DOMAIN_NO_LISTENERS** — surfaces app server domains with no active listeners
+
+`/api/runtime/alerts?env=&db=` endpoint. "Active Alerts" card at top of `/admin/runtime`:
+all-clear shown in green when clean; card border shifts to red/amber when errors/warns
+are present; each alert has a severity chip, code tag, message, and where applicable a
+deep-link to `/admin/runtime?instance=N` or similar.
+
+**Verification:** `GET /api/runtime/alerts?env=HCM&db=HRDMO` → `{"alert_count": 0, ...}`
+(all clear on a quiet lab environment). Alert thresholds are conservative defaults that
+will fire on real-world production anomalies.
+
+------------------------------------------------------------------------
+
 ## 2026-06-30
 
 ### Component Interface UOM and Object Explorer Support

@@ -4,7 +4,8 @@ tables for live runtime monitoring.
 
 Data sources:
   psdb.query()          → SYSADM.PSPRCSRQST, PSAPMSGPUBHDR/SUBHDR, PSACCESSLOG
-  oracle.query_db()     → V$SESSION, V$SQL, V$SESSION_LONGOPS, V$INSTANCE
+  oracle.query_db()     → V$SESSION, V$SQL, V$SESSION_LONGOPS, V$INSTANCE,
+                          V$ACTIVE_SESSION_HISTORY
 """
 
 import json
@@ -569,6 +570,162 @@ def oracle_session_counts(db_name):
     except Exception as exc:
         warnings.append(ptmetadata.warning("ORACLE_COUNTS_ERR", str(exc), severity="error"))
         return {"counts": [], "db": db_name, "warnings": warnings}
+
+
+def oracle_ash_summary(db_name, minutes=30):
+    """Return Oracle ASH wait class breakdown and top wait events from V$ACTIVE_SESSION_HISTORY."""
+    warnings = []
+    try:
+        db = _db_by_name(db_name)
+    except ValueError as exc:
+        return {"wait_classes": [], "top_events": [], "top_modules": [], "total_samples": 0,
+                "db": db_name, "minutes": minutes,
+                "warnings": [ptmetadata.warning("DB_NOT_FOUND", str(exc))]}
+
+    mins = max(1, min(int(minutes), 1440))
+
+    try:
+        wc_rows = oracle_connector.query_db(db, f"""
+            SELECT NVL(wait_class, 'CPU') as wait_class,
+                   COUNT(*) as samples
+              FROM V$ACTIVE_SESSION_HISTORY
+             WHERE sample_time >= SYSDATE - {mins}/1440
+               AND session_type = 'FOREGROUND'
+             GROUP BY wait_class
+             ORDER BY samples DESC
+        """)
+        total = sum(r["samples"] for r in wc_rows)
+
+        wait_classes = [
+            {
+                "wait_class": r["wait_class"],
+                "samples": r["samples"],
+                "pct": round(r["samples"] * 100.0 / total, 1) if total else 0,
+            }
+            for r in wc_rows
+        ]
+
+        ev_rows = oracle_connector.query_db(db, f"""
+            SELECT NVL(event, 'On CPU') as event,
+                   NVL(wait_class, 'CPU') as wait_class,
+                   COUNT(*) as samples
+              FROM V$ACTIVE_SESSION_HISTORY
+             WHERE sample_time >= SYSDATE - {mins}/1440
+               AND session_type = 'FOREGROUND'
+             GROUP BY event, wait_class
+             ORDER BY samples DESC
+             FETCH FIRST 10 ROWS ONLY
+        """)
+        top_events = [
+            {
+                "event": r["event"],
+                "wait_class": r["wait_class"],
+                "samples": r["samples"],
+                "pct": round(r["samples"] * 100.0 / total, 1) if total else 0,
+            }
+            for r in ev_rows
+        ]
+
+        mod_rows = oracle_connector.query_db(db, f"""
+            SELECT NVL(module, '(unknown)') as module,
+                   COUNT(*) as samples
+              FROM V$ACTIVE_SESSION_HISTORY
+             WHERE sample_time >= SYSDATE - {mins}/1440
+               AND session_type = 'FOREGROUND'
+             GROUP BY module
+             ORDER BY samples DESC
+             FETCH FIRST 10 ROWS ONLY
+        """)
+        top_modules = [
+            {
+                "module": r["module"],
+                "samples": r["samples"],
+                "pct": round(r["samples"] * 100.0 / total, 1) if total else 0,
+            }
+            for r in mod_rows
+        ]
+
+        return {
+            "db": db_name,
+            "minutes": mins,
+            "total_samples": total,
+            "wait_classes": wait_classes,
+            "top_events": top_events,
+            "top_modules": top_modules,
+            "warnings": warnings,
+        }
+
+    except Exception as exc:
+        warnings.append(ptmetadata.warning("ASH_SUMMARY_ERR", str(exc), severity="warn"))
+        return {
+            "db": db_name, "minutes": minutes, "total_samples": 0,
+            "wait_classes": [], "top_events": [], "top_modules": [],
+            "warnings": warnings,
+        }
+
+
+def oracle_ash_top_sql(db_name, minutes=30, limit=10):
+    """Return top SQL from V$ACTIVE_SESSION_HISTORY by sample count (approx. time in DB)."""
+    warnings = []
+    try:
+        db = _db_by_name(db_name)
+    except ValueError as exc:
+        return {"items": [], "total_samples": 0, "db": db_name, "minutes": minutes,
+                "warnings": [ptmetadata.warning("DB_NOT_FOUND", str(exc))]}
+
+    mins = max(1, min(int(minutes), 1440))
+    lim = max(1, min(int(limit), 50))
+
+    try:
+        rows = oracle_connector.query_db(db, f"""
+            SELECT a.sql_id,
+                   COUNT(*) as samples,
+                   MAX(a.sql_opname) as sql_opname,
+                   MAX(a.module) as module,
+                   SUBSTR(MAX(s.sql_text), 1, 200) as sql_text
+              FROM V$ACTIVE_SESSION_HISTORY a
+              LEFT JOIN V$SQL s ON a.sql_id = s.sql_id AND s.child_number = 0
+             WHERE a.sample_time >= SYSDATE - {mins}/1440
+               AND a.sql_id IS NOT NULL
+               AND a.session_type = 'FOREGROUND'
+             GROUP BY a.sql_id
+             ORDER BY samples DESC
+             FETCH FIRST {lim} ROWS ONLY
+        """)
+        tot_rows = oracle_connector.query_db(db, f"""
+            SELECT COUNT(*) as cnt
+              FROM V$ACTIVE_SESSION_HISTORY
+             WHERE sample_time >= SYSDATE - {mins}/1440
+               AND session_type = 'FOREGROUND'
+        """)
+        total = (tot_rows[0]["cnt"] if tot_rows else 0) or 1
+
+        items = [
+            {
+                "sql_id": r["sql_id"],
+                "samples": r["samples"],
+                "pct": round(r["samples"] * 100.0 / total, 1),
+                "sql_opname": r.get("sql_opname") or "",
+                "module": r.get("module") or "",
+                "sql_text": (r.get("sql_text") or "")[:200],
+            }
+            for r in rows
+        ]
+
+        return {
+            "db": db_name,
+            "minutes": mins,
+            "total_samples": total,
+            "items": items,
+            "warnings": warnings,
+        }
+
+    except Exception as exc:
+        warnings.append(ptmetadata.warning("ASH_SQL_ERR", str(exc), severity="warn"))
+        return {
+            "items": [], "total_samples": 0, "db": db_name, "minutes": minutes,
+            "warnings": warnings,
+        }
 
 
 def _runtime_node(node_type, name, label=None, data=None, links=None):
