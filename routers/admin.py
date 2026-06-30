@@ -1927,9 +1927,9 @@ function highlightPeopleCode(source) {
         }
     }
 
-    const KW  = /\b(If|Else|ElseIf|End-If|For|End-For|While|End-While|Evaluate|When|When-Other|End-Evaluate|Function|End-Function|Return|Local|Global|Component|Object|Constant|CreateObject|import|class|method|property|get|set|readonly|abstract|extends|Array|of|As|By|Step|Break|Continue|try|catch|throw|end-try)\b/g;
-    const BIN = /\b(SQLExec|CreateSQL|GetSQL|CreateRecord|GetRecord|GetField|GetRowset|GetLevel0|GetComponent|CallAppEngine|Transfer|DoSave|DoModal|CommitWork|RollbackWork|MessageBox|WinMessage|Error|Warning|CreateMessage|GetMessage|CreateObject)\b/g;
-    const NUM = /\b\d+(\.\d+)?\b/g;
+    const KW  = /\\b(If|Else|ElseIf|End-If|For|End-For|While|End-While|Evaluate|When|When-Other|End-Evaluate|Function|End-Function|Return|Local|Global|Component|Object|Constant|CreateObject|import|class|method|property|get|set|readonly|abstract|extends|Array|of|As|By|Step|Break|Continue|try|catch|throw|end-try)\\b/g;
+    const BIN = /\\b(SQLExec|CreateSQL|GetSQL|CreateRecord|GetRecord|GetField|GetRowset|GetLevel0|GetComponent|CallAppEngine|Transfer|DoSave|DoModal|CommitWork|RollbackWork|MessageBox|WinMessage|Error|Warning|CreateMessage|GetMessage|CreateObject)\\b/g;
+    const NUM = /\\b\\d+(\\.\\d+)?\\b/g;
 
     function colorCode(text) {
         let h = esc(text);
@@ -1960,7 +1960,7 @@ function highlightSQL(sql) {
             tokens.push({type:'comment', text: sql.slice(pos, closePos)});
             pos = closePos;
         } else if (sql.startsWith('--', pos)) {
-            const end = sql.indexOf('\n', pos);
+            const end = sql.indexOf('\\n', pos);
             const closePos = end === -1 ? sql.length : end;
             tokens.push({type:'comment', text: sql.slice(pos, closePos)});
             pos = closePos;
@@ -1981,9 +1981,9 @@ function highlightSQL(sql) {
         }
     }
 
-    const KW = /\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|LIKE|ORDER|BY|GROUP|HAVING|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|DISTINCT|UNION|ALL|CASE|WHEN|THEN|ELSE|END|IS|NULL|EXISTS|BETWEEN|INTO|VALUES|INSERT|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|VIEW|INDEX|WITH|OVER|PARTITION|ROWNUM|FETCH|ROWS|ONLY|COUNT|SUM|MAX|MIN|AVG|NVL|NVL2|COALESCE|TRIM|UPPER|LOWER|TO_DATE|TO_CHAR|DECODE|SUBSTR|LENGTH|INSTR|REPLACE|SYSDATE|TRUNC|ROUND|MOD|NEXT_VAL|CONNECT|LEVEL|PRIOR|START|ROWID|CONSTRAINT|PRIMARY|KEY|UNIQUE|FOREIGN|REFERENCES|DEFAULT|NOT)\b/gi;
-    const META = /(%Table|%Bind|%Select|%SelectAll|%SelectInit|%UpdateStats|%Insert|%Delete|%DateAdd|%DateDiff|%DateOut|%SQL|%Current|%Truncate|%TruncateTable|%Execute|%List|%CurrentDateIn|%EffDtCheck|%OPERATOR|%ParmList|%TextIn|%DateTimeIn|%TimeIn)\b/g;
-    const NUM = /\b\d+(\.\d+)?\b/g;
+    const KW = /\\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|LIKE|ORDER|BY|GROUP|HAVING|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|DISTINCT|UNION|ALL|CASE|WHEN|THEN|ELSE|END|IS|NULL|EXISTS|BETWEEN|INTO|VALUES|INSERT|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|VIEW|INDEX|WITH|OVER|PARTITION|ROWNUM|FETCH|ROWS|ONLY|COUNT|SUM|MAX|MIN|AVG|NVL|NVL2|COALESCE|TRIM|UPPER|LOWER|TO_DATE|TO_CHAR|DECODE|SUBSTR|LENGTH|INSTR|REPLACE|SYSDATE|TRUNC|ROUND|MOD|NEXT_VAL|CONNECT|LEVEL|PRIOR|START|ROWID|CONSTRAINT|PRIMARY|KEY|UNIQUE|FOREIGN|REFERENCES|DEFAULT|NOT)\\b/gi;
+    const META = /(%Table|%Bind|%Select|%SelectAll|%SelectInit|%UpdateStats|%Insert|%Delete|%DateAdd|%DateDiff|%DateOut|%SQL|%Current|%Truncate|%TruncateTable|%Execute|%List|%CurrentDateIn|%EffDtCheck|%OPERATOR|%ParmList|%TextIn|%DateTimeIn|%TimeIn)\\b/g;
+    const NUM = /\\b\\d+(\\.\\d+)?\\b/g;
 
     function colorCode(text) {
         const h = esc(text);
@@ -2281,18 +2281,30 @@ function renderRecentList() {
 
 function clearRecent() { saveRecent([]); renderRecentList(); }
 
-async function loadObject(type, name) {
+async function loadObject(type, name, options = {}) {
     if (!type || !name) return;
 
     document.getElementById('objectType').value = type;
     document.getElementById('objectName').value = name;
     setStatus(`Loading ${type}:${name}...`);
 
-    const object = await api(`/api/peoplesoft/object/${encodeURIComponent(type)}/${encodeURIComponent(name)}?env=${ENV}`);
-    renderObject(object);
-    const desc = (object.overview || {}).description || object.description || '';
-    pushRecent(object.type, object.name, object.title || object.name, desc);
-    setStatus(`Loaded ${object.type}:${object.name}.`);
+    try {
+        const object = await api(`/api/peoplesoft/object/${encodeURIComponent(type)}/${encodeURIComponent(name)}?env=${ENV}`);
+        renderObject(object);
+        const desc = (object.overview || {}).description || object.description || '';
+        pushRecent(object.type, object.name, object.title || object.name, desc);
+
+        if (options.updateUrl) {
+            const url = objectUrl(object.type, object.name);
+            if (window.location.pathname + window.location.search !== url) {
+                history.pushState({type: object.type, name: object.name}, '', url);
+            }
+        }
+
+        setStatus(`Loaded ${object.type}:${object.name}.`);
+    } catch (err) {
+        setStatus(`Object load failed: ${err.message || err}`);
+    }
 }
 
 async function globalSearch() {
@@ -2340,8 +2352,20 @@ function openTypedObject() {
         return;
     }
 
-    window.location.href = objectUrl(type, name);
+    const url = objectUrl(type, name);
+    if (url.startsWith('/admin/object/')) {
+        loadObject(type, name, {updateUrl: true});
+    } else {
+        window.location.href = url;
+    }
 }
+
+window.addEventListener('popstate', () => {
+    const match = window.location.pathname.match(/^\\/admin\\/object\\/([^/]+)\\/(.+)$/);
+    if (match) {
+        loadObject(decodeURIComponent(match[1]), decodeURIComponent(match[2]), {updateUrl: false});
+    }
+});
 
 document.getElementById('globalSearch').addEventListener('keydown', event => {
     if (event.key === 'Enter') globalSearch();
@@ -2389,7 +2413,7 @@ async function searchSqlDefinitions() {
 renderRecentList();
 
 if (INITIAL_TYPE && INITIAL_NAME) {
-    loadObject(INITIAL_TYPE, INITIAL_NAME);
+    loadObject(INITIAL_TYPE, INITIAL_NAME, {updateUrl: false});
 }
 </script>
 </body>

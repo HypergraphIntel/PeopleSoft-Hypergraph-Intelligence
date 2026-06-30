@@ -300,6 +300,38 @@ Verification:
 - `/api/peoplesoft/graph/component/JOB_DATA?env=HCM` returned `200` with
   58 nodes and 286 edges.
 
+### Object Explorer Open Button Resilience
+
+- Fixed `/admin/object` Open behavior for canonical Object Explorer routes such
+  as Component `JOB_DATA`.
+- `openTypedObject()` now loads `/admin/object/{type}/{name}` targets in place
+  via the existing object API, updates browser history with `pushState`, and
+  preserves existing redirects for dedicated routes such as operator/role pages.
+- Wrapped object loading in a visible error path so client/API failures update
+  the status line instead of leaving the page looking inert.
+- Added `popstate` handling for object URLs loaded into the Explorer.
+- Fixed Python-template escaping in the Object Explorer PeopleCode/SQL
+  highlighters so the generated JavaScript emits regex word boundaries and
+  `\\n` correctly. Before this, the served page could contain a literal newline
+  inside `sql.indexOf('...')`, causing a parse-time JavaScript error that made
+  both Search and Open appear inert.
+
+Verification:
+
+- `python -m py_compile routers/admin.py routers/peoplesoft.py connectors/uom.py connectors/psdb.py`
+  completed successfully. The remaining inline-JS regex `SyntaxWarning` in
+  `routers/admin.py` is outside Object Explorer.
+- Extracted Object Explorer JavaScript from `object_explorer_page()` and
+  verified it parses/initializes with QuickJS DOM stubs.
+- `object_payload('HCM', 'component', 'JOB_DATA')` returned `status=available`
+  with 14 sections.
+- `object_payload('HCM', 'record', 'JOB')` returned `status=available` with
+  16 sections.
+- `/api/peoplesoft/search?env=HCM&q=JOB_DATA` returned 168 results including
+  `component:JOB_DATA`.
+- `/api/peoplesoft/object/component/JOB_DATA?env=HCM` returned `200` with the
+  expected component payload.
+
 ------------------------------------------------------------------------
 
 ## 2026-06-29 (continued)
