@@ -6491,6 +6491,8 @@ function renderDiff(targetId, d, type) {
   const changed = d.changed || [];
   const identical = d.identical_count || 0;
   const total = only1.length + only2.length + changed.length + identical;
+  const sectionPrefix = targetId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const sectionId = key => `${sectionPrefix}-${key}`;
 
   const nameKey = nameCol(type);
 
@@ -6503,10 +6505,10 @@ function renderDiff(targetId, d, type) {
 
   // Stat summary.
   h += `<div class="stat-grid">
-    ${sBox(only1.length, 'Only in ' + esc(env1()), 'n-only1', 'filter-only1')}
-    ${sBox(changed.length, 'Changed', 'n-changed', 'filter-changed')}
-    ${sBox(only2.length, 'Only in ' + esc(env2()), 'n-only2', 'filter-only2')}
-    ${sBox(identical, 'Identical', 'n-same', 'filter-same')}
+    ${sBox(only1.length, 'Only in ' + esc(env1()), 'n-only1', sectionId('only1'))}
+    ${sBox(changed.length, 'Changed', 'n-changed', sectionId('changed'))}
+    ${sBox(only2.length, 'Only in ' + esc(env2()), 'n-only2', sectionId('only2'))}
+    ${sBox(identical, 'Identical', 'n-same', sectionId('same'))}
   </div>`;
 
   // Only in env1.
@@ -6514,7 +6516,7 @@ function renderDiff(targetId, d, type) {
     h += collapsibleSection(
       `<span class="chip chip-del">&#8722; Only in ${esc(env1())} (${only1.length})</span>`,
       only1.map(r => `<tr><td class="mono">${esc(r[nameKey])}${explorerLink(type, r[nameKey])}</td>${metaCells(r, type)}</tr>`).join(''),
-      metaHeaders(type), 'only1', true
+      metaHeaders(type), sectionId('only1'), true
     );
   }
 
@@ -6536,7 +6538,7 @@ function renderDiff(targetId, d, type) {
     }).join('');
     h += collapsibleSection(
       `<span class="chip chip-chg">&#9650; Changed (${changed.length})</span>`,
-      rows, ['Name','Differences'], 'changed', true
+      rows, ['Name','Differences'], sectionId('changed'), true
     );
   }
 
@@ -6545,7 +6547,7 @@ function renderDiff(targetId, d, type) {
     h += collapsibleSection(
       `<span class="chip chip-add">&#43; Only in ${esc(env2())} (${only2.length})</span>`,
       only2.map(r => `<tr><td class="mono">${esc(r[nameKey])}${explorerLink(type, r[nameKey])}</td>${metaCells(r, type)}</tr>`).join(''),
-      metaHeaders(type), 'only2', true
+      metaHeaders(type), sectionId('only2'), true
     );
   }
 
@@ -6701,13 +6703,8 @@ document.addEventListener('keydown', event => {
   toggleSection(head.dataset.sectionId, head);
 });
 
-function sBox(n, label, cls, filterId) {
-  const sectionId = {
-    'filter-only1': 'only1',
-    'filter-changed': 'changed',
-    'filter-only2': 'only2',
-    'filter-same': 'same',
-  }[filterId] || filterId || '';
+function sBox(n, label, cls, targetSectionId) {
+  const sectionId = targetSectionId || '';
   const click = sectionId ? ` onclick="toggleSectionById('${sectionId}')"` : '';
   return `<div class="stat-box" title="${sectionId ? 'Click to expand/collapse section' : ''}"${click}>
     <div class="stat-num ${cls}">${n}</div>
