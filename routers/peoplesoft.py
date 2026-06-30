@@ -1037,10 +1037,10 @@ def peoplesoft_cis(env: str = "HCM", q: str = "", limit: int = 100):
 
 @router.get("/api/peoplesoft/approvals")
 def peoplesoft_approvals(env: str = "HCM", q: str = "", status: str = "", limit: int = 100):
-    """Search Approval Framework workflow definitions (PSAWDEFN)."""
+    """Search Approval Workflow Engine transaction definitions (PS_EOAW_TXN)."""
     result = psdb.search_approvals(env, q=q, status=status or None, limit=limit)
     for item in result.get("items", []):
-        aid = item.get("awdefnid")
+        aid = item.get("eoawprcs_id")
         if aid:
             item.setdefault("_links", {})["admin"] = f"/admin/object/approval/{aid}"
     return result
@@ -1092,8 +1092,8 @@ def peoplesoft_related_content(env: str = "HCM", q: str = "", limit: int = 100):
 
 
 @router.get("/api/peoplesoft/search-definitions")
-def peoplesoft_search_definitions(env: str = "HCM", q: str = "", status: str = "", limit: int = 100):
-    return psdb.search_search_definitions(env, q=q, status=status or None, limit=limit)
+def peoplesoft_search_definitions(env: str = "HCM", q: str = "", limit: int = 100):
+    return psdb.search_search_definitions(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/search-categories")

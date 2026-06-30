@@ -154,14 +154,21 @@ Continue expanding object coverage.
 - Portal Registry
 - Application Packages
 - Message Catalog
-- Approval Framework
-- XML Publisher Reports
-- Navigation Collections
-- Event Mappings
-- Related Content
-- Search Definitions
-- Search Categories
-- Drop Zones
+- Approval Framework (rewritten 2026-06-30 against verified EOAW tables: PS_EOAW_TXN/PRCS/STAGE/STEP/PATH)
+- XML Publisher Reports (rewritten 2026-06-30 against verified PSXPRPTDEFN/PSXPDATASRC/PSXPRPTTMPL/PSXPTMPLDEFN/PSXPRPTOUTFMT)
+- Search Definitions (rewritten 2026-06-30 against verified PSPTSF_SD keyed by PTSF_SOURCE_NAME; prior version used APPCLASSID which is blank on all rows)
+- Search Categories (rewritten 2026-06-30 against verified PSPTSF_SRCCAT keyed by PTSF_SRCCAT_NAME)
+
+### ⚠️ Stub Providers (no live backing tables found in verified HCM schema)
+
+Live schema verification (2026-06-30) found no SYSADM tables for these features.
+All four are gracefully guarded by `has_table()` in psdb.py/graphdb.py and return empty/error results without crashing.
+Marked `"stub": True` in OBJECT_REGISTRY. Table-name candidates in ptmetadata.py preserved for future investigation on other environments.
+
+- Navigation Collections — `PTNC_COLLECTION` does not exist (PSPTPNCOLL is Push Notification Collections, 3 rows, unrelated feature)
+- Event Mappings — `PSEFMAPPINGDEFN` does not exist
+- Related Content — `PSRELCONDEFN` does not exist
+- Drop Zones — `PSPTDZDEFN` does not exist
 
 ### Remaining Providers
 
@@ -381,13 +388,24 @@ PeopleSoft Explorer should become the definitive engineering, observability, and
 
 # Next Slice
 
-The following providers are ready to implement in the next session cycle.
+## Session 2026-06-30 Completed
 
-## Phase 5 — Immediate Next Providers
+All existing providers have been rewritten against the verified live SYSADM schema:
+- Approval Framework, XML Publisher, Search Definitions, Search Categories: fully rewritten and live-verified end-to-end
+- Navigation Collections, Event Mappings, Related Content, Drop Zones: confirmed as stubs (no backing tables in HCM); gracefully handled via `has_table()` guards; marked `"stub": True` in OBJECT_REGISTRY
 
-- **WorkCenters** — PeopleSoft WorkCenter definitions; search and detail view
-- **Dashboards** — dashboard definition discovery and explorer
-- **Homepage Tiles** — tile registry discovery and explorer
+## Phase 5 — Next Providers to Implement
+
+New providers should follow the established verification methodology:
+1. Query `all_tables`/`all_tab_columns` to find the real table and column names
+2. Pull live sample rows to confirm usable keys (never assume PeopleTools naming conventions)
+3. Write psdb.py → ptmetadata.py → graphdb.py → uom.py → routers/peoplesoft.py → routers/admin.py in that order
+4. Compile-check and smoke-test at each layer before proceeding
+
+Candidates in priority order:
+- **WorkCenters** — verify backing table (likely `PSPTWORKCTRL` or similar); search and detail view
+- **Dashboards** — verify backing table; dashboard definition discovery and explorer
+- **Homepage Tiles** — verify backing table (possibly `PS_AGC_TILE_TBL` or `PS_HCTS_TILE_SEC`, both found in live schema); tile registry discovery and explorer
 - **BI Publisher report definitions** — distinct from XML Publisher; report bursting and scheduling metadata
 
 After those four, the remaining Phase 5 providers are: Branding, Page Composer.

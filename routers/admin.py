@@ -10926,17 +10926,12 @@ a{color:#00e5ff;text-decoration:none} a:hover{text-decoration:underline}
 <script>
 const ENV = localStorage.getItem('dsEnv') || 'HCM';
 const STATUS_LABELS = {'A':['chip-ok','Active'], 'I':['chip-muted','Inactive']};
-const PT_LABELS = {'0':'No Approval','1':'User','2':'Role','3':'Query','4':'App Class','5':'Supervisory','6':'Position','7':'Dept Security','8':'Role User'};
 
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function statusChip(s) {
   const [cls, label] = STATUS_LABELS[String(s||'').trim()] || ['chip-muted', s||'?'];
   return `<span class="chip ${cls}">${label}</span>`;
-}
-function ptChip(pt) {
-  const label = PT_LABELS[String(pt||'')] || String(pt||'');
-  return label ? `<span class="chip chip-info">${esc(label)}</span>` : '';
 }
 
 async function doSearch() {
@@ -10953,39 +10948,52 @@ async function doSearch() {
   document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
   if (!items.length) { list.innerHTML = '<div class="muted">No approval definitions found.</div>'; return; }
   list.innerHTML = items.map((a, i) =>
-    `<div class="item" id="item-${i}" onclick="selectApproval('${esc(a.awdefnid)}', ${i})">
-       <div class="item-name">${statusChip(a.status)}${esc(a.awdefnid)}</div>
+    `<div class="item" id="item-${i}" onclick="selectApproval('${esc(a.eoawprcs_id)}', ${i})">
+       <div class="item-name">${esc(a.eoawprcs_id)}</div>
        <div class="item-meta">${esc((a.descr||'').slice(0,60))}</div>
      </div>`
   ).join('');
   window._awItems = items;
 }
 
-async function selectApproval(awdefnid, idx) {
+async function selectApproval(eoawprcsId, idx) {
   document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
   const el = document.getElementById(`item-${idx}`);
   if (el) el.classList.add('sel');
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/approval/${encodeURIComponent(awdefnid)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/approval/${encodeURIComponent(eoawprcsId)}?env=${ENV}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const ov = d.overview || {};
-  const adminUrl = `/admin/object/approval/${esc(awdefnid)}`;
+  const adminUrl = `/admin/object/approval/${esc(eoawprcsId)}`;
   let html = `
     <div style="margin-bottom:12px">
-      ${statusChip(ov.status)}
-      <span style="font-family:monospace;font-size:14px;font-weight:bold">${esc(awdefnid)}</span>
+      <span style="font-family:monospace;font-size:14px;font-weight:bold">${esc(eoawprcsId)}</span>
       &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
     </div>
     ${ov.description ? `<div style="color:#aac;font-size:12px;margin-bottom:10px">${esc(ov.description)}</div>` : ''}
     <div style="margin-bottom:12px">
+      <div class="stat"><b>${ov.process_definition_count||0}</b>Process Defs</div>
       <div class="stat"><b>${ov.stage_count||0}</b>Stages</div>
-      <div class="stat"><b>${ov.path_count||0}</b>Paths</div>
       <div class="stat"><b>${ov.step_count||0}</b>Steps</div>
+      <div class="stat"><b>${ov.path_count||0}</b>Paths</div>
       ${ov.owner ? `<div class="stat"><b>${esc(ov.owner)}</b>Owner</div>` : ''}
     </div>`;
+
+  const procDefs = (d.sections||[]).find(s => s.name === 'Process Definitions');
+  if (procDefs && procDefs.items && procDefs.items.length) {
+    html += '<h2>Process Definitions</h2><div style="border:1px solid #1e3040">';
+    html += procDefs.items.map(pd => `
+      <div class="step-row">
+        ${pd.relationship ? `<span class="chip ${pd.relationship === 'Active' ? 'chip-ok' : 'chip-muted'}" style="font-size:10px">${esc(pd.relationship)}</span>` : ''}
+        ${pd.default ? '<span class="chip chip-info" style="font-size:10px">Default</span>' : ''}
+        <span style="font-family:monospace;font-size:11px">${esc(pd.title||'')}</span>
+        ${pd.admin_role ? `<span style="font-size:10px;color:#556;margin-left:8px">Admin Role: ${esc(pd.admin_role)}</span>` : ''}
+      </div>`).join('');
+    html += '</div>';
+  }
 
   const stages = (d.sections||[]).find(s => s.name === 'Stages');
   if (stages && stages.items && stages.items.length) {
@@ -10993,7 +11001,7 @@ async function selectApproval(awdefnid, idx) {
     html += stages.items.map(s => `
       <div class="stage-row">
         <div class="stage-title">${s.relationship ? `<span class="chip chip-info">${esc(s.relationship)}</span>` : ''}${esc(s.title||'')}</div>
-        <div class="stage-meta">${s.path_count||0} path${(s.path_count||0)!==1?'s':''} · ${s.step_count||0} step${(s.step_count||0)!==1?'s':''}</div>
+        <div class="stage-meta">${s.step_count||0} step${(s.step_count||0)!==1?'s':''}</div>
       </div>`).join('');
   }
 
@@ -11004,7 +11012,18 @@ async function selectApproval(awdefnid, idx) {
       <div class="step-row">
         ${st.relationship ? `<span class="chip chip-info" style="font-size:10px">${esc(st.relationship)}</span>` : ''}
         <span style="font-family:monospace;font-size:11px">${esc(st.title||'')}</span>
-        ${st.userlist ? `<span style="font-size:10px;color:#556;margin-left:8px">List: ${esc(st.userlist)}</span>` : ''}
+        ${st.min_approvers ? `<span style="font-size:10px;color:#556;margin-left:8px">Min Approvers: ${esc(st.min_approvers)}</span>` : ''}
+      </div>`).join('');
+    html += '</div>';
+  }
+
+  const paths = (d.sections||[]).find(s => s.name === 'Paths');
+  if (paths && paths.items && paths.items.length) {
+    html += '<h2>Paths</h2><div style="border:1px solid #1e3040">';
+    html += paths.items.map(p => `
+      <div class="step-row">
+        ${p.relationship ? `<span class="chip chip-info" style="font-size:10px">${esc(p.relationship)}</span>` : ''}
+        <span style="font-family:monospace;font-size:11px">${esc(p.title||'')}</span>
       </div>`).join('');
     html += '</div>';
   }
@@ -11468,7 +11487,7 @@ let _mode = 'reports';
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function dsChip(type) {
-  const labels = {A:'App Engine',Q:'PS Query',S:'SQL',C:'Connected Query',G:'Group',F:'File'};
+  const labels = {XML:'XML',CQR:'Connected Query',QRY:'PS Query',XMD:'XML Data',RST:'REST'};
   const label = labels[String(type||'')] || String(type||'');
   return label ? `<span class="chip chip-ds">${esc(label)}</span>` : '';
 }
@@ -11501,15 +11520,15 @@ async function doSearch() {
   if (!items.length) { list.innerHTML = '<div class="muted">No results found.</div>'; return; }
   if (_mode === 'reports') {
     list.innerHTML = items.map((r, i) =>
-      `<div class="item" id="item-${i}" onclick="selectReport('${esc(r.reportid)}', ${i})">
-         <div class="item-name">${esc(r.reportid)}</div>
-         <div class="item-meta">${esc((r.descr||'').slice(0,55))}${r.datasrcid ? ` · DS: ${esc(r.datasrcid)}` : ''}</div>
+      `<div class="item" id="item-${i}" onclick="selectReport('${esc(r.report_defn_id)}', ${i})">
+         <div class="item-name">${esc(r.report_defn_id)}</div>
+         <div class="item-meta">${esc((r.descr||'').slice(0,55))}${r.ds_id ? ` · DS: ${esc(r.ds_id)}` : ''}</div>
        </div>`
     ).join('');
   } else {
     list.innerHTML = items.map((r, i) =>
-      `<div class="item" id="item-${i}" onclick="selectDatasource('${esc(r.datasrcid)}', ${i})">
-         <div class="item-name">${dsChip(r.datasrctype)}${esc(r.datasrcid)}</div>
+      `<div class="item" id="item-${i}" onclick="selectDatasource('${esc(r.ds_id)}', ${i})">
+         <div class="item-name">${dsChip(r.ds_type)}${esc(r.ds_id)}</div>
          <div class="item-meta">${esc((r.descr||'').slice(0,60))}</div>
        </div>`
     ).join('');
@@ -11517,21 +11536,22 @@ async function doSearch() {
   window._xpubItems = items;
 }
 
-async function selectReport(reportid, idx) {
+async function selectReport(reportDefnId, idx) {
   document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
   const el = document.getElementById(`item-${idx}`);
   if (el) el.classList.add('sel');
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/xml_publisher_report/${encodeURIComponent(reportid)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/xml_publisher_report/${encodeURIComponent(reportDefnId)}?env=${ENV}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading report.</div>'; return; }
 
   const ov = d.overview || {};
-  const adminUrl = `/admin/object/xml_publisher_report/${esc(reportid)}`;
+  const adminUrl = `/admin/object/xml_publisher_report/${esc(reportDefnId)}`;
   let html = `
     <div style="margin-bottom:12px">
-      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#cc44aa">${esc(reportid)}</span>
+      ${ov.status_label ? `<span class="chip ${ov.status_label === 'Active' ? 'chip-ok' : 'chip-muted'}">${esc(ov.status_label)}</span>` : ''}
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#cc44aa">${esc(reportDefnId)}</span>
       &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
     </div>`;
 
@@ -11539,12 +11559,13 @@ async function selectReport(reportid, idx) {
 
   html += `<div style="margin-bottom:12px">
     <div class="stat"><b>${ov.template_count||0}</b>Templates</div>
+    <div class="stat"><b>${ov.output_format_count||0}</b>Output Formats</div>
     ${ov.owner ? `<div class="stat"><b>${esc(ov.owner)}</b>Owner</div>` : ''}
   </div>`;
 
-  if (ov.datasrcid) {
+  if (ov.ds_id) {
     html += `<div class="kv-grid" style="margin-bottom:12px">
-      <div class="kv-key">Data Source</div><div class="kv-val">${esc(ov.datasrcid)}</div>`;
+      <div class="kv-key">Data Source</div><div class="kv-val">${esc(ov.ds_id)}</div>`;
     if (ov.datasrc_descr) {
       html += `<div class="kv-key">DS Description</div><div class="kv-val">${esc(ov.datasrc_descr)}</div>`;
     }
@@ -11557,21 +11578,31 @@ async function selectReport(reportid, idx) {
   const tmplSection = (d.sections||[]).find(s => s.name === 'Templates');
   if (tmplSection && tmplSection.items && tmplSection.items.length) {
     html += '<h2>Templates / Layouts</h2><div style="border:1px solid #1a0818">';
-    html += tmplSection.items.map(t => {
-      const statusCls = t.relationship === 'Active' ? 'chip-ok' : 'chip-muted';
-      return `<div class="tmpl-row">
-        <span class="chip ${statusCls}">${esc(t.relationship||'')}</span>
+    html += tmplSection.items.map(t => `
+      <div class="tmpl-row">
+        ${t.default ? '<span class="chip chip-ok">Default</span>' : ''}
+        ${t.relationship ? `<span class="chip chip-info">${esc(t.relationship)}</span>` : ''}
         <span style="font-family:monospace;flex:1">${esc(t.title||'')}</span>
-        ${t.effdt ? `<span style="font-size:10px;color:#556">${esc(t.effdt)}</span>` : ''}
-      </div>`;
-    }).join('');
+        ${t.lang ? `<span style="font-size:10px;color:#556">${esc(t.lang)}</span>` : ''}
+      </div>`).join('');
+    html += '</div>';
+  }
+
+  const fmtSection = (d.sections||[]).find(s => s.name === 'Output Formats');
+  if (fmtSection && fmtSection.items && fmtSection.items.length) {
+    html += '<h2>Output Formats</h2><div style="border:1px solid #1a0818">';
+    html += fmtSection.items.map(f => `
+      <div class="tmpl-row">
+        ${f.default ? '<span class="chip chip-ok">Default</span>' : ''}
+        <span style="font-family:monospace;flex:1">${esc(f.title||'')}</span>
+      </div>`).join('');
     html += '</div>';
   }
 
   detail.innerHTML = html;
 }
 
-async function selectDatasource(datasrcid, idx) {
+async function selectDatasource(dsId, idx) {
   document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
   const el = document.getElementById(`item-${idx}`);
   if (el) el.classList.add('sel');
@@ -11580,12 +11611,13 @@ async function selectDatasource(datasrcid, idx) {
   if (!item) { detail.innerHTML = '<div class="muted">No data.</div>'; return; }
   detail.innerHTML = `
     <div style="margin-bottom:12px">
-      ${dsChip(item.datasrctype)}
-      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#aa3366">${esc(datasrcid)}</span>
+      ${dsChip(item.ds_type)}
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#aa3366">${esc(dsId)}</span>
     </div>
     <div class="kv-grid">
       <div class="kv-key">Description</div><div class="kv-val">${esc(item.descr||'—')}</div>
-      <div class="kv-key">Type</div><div class="kv-val">${esc(item.datasrctype_label||item.datasrctype||'—')}</div>
+      <div class="kv-key">Type</div><div class="kv-val">${esc(item.ds_type_label||item.ds_type||'—')}</div>
+      <div class="kv-key">Active</div><div class="kv-val">${esc(item.active_flag||'—')}</div>
     </div>`;
 }
 
@@ -11976,13 +12008,8 @@ a{color:#2299ee;text-decoration:none} a:hover{text-decoration:underline}
 .muted{color:#556;font-style:italic}
 </style>
 <div class="topbar">
-  <input id="sdSearch" type="text" placeholder="Search definition ID or description..." style="width:280px"
+  <input id="sdSearch" type="text" placeholder="Search source name or description..." style="width:280px"
          onkeydown="if(event.key==='Enter')doSearch()">
-  <select id="sdStatus" onchange="doSearch()">
-    <option value="">All Statuses</option>
-    <option value="A">Active</option>
-    <option value="I">Inactive</option>
-  </select>
   <button onclick="doSearch()">Search</button>
   <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
 </div>
@@ -12000,64 +12027,58 @@ a{color:#2299ee;text-decoration:none} a:hover{text-decoration:underline}
 const ENV = localStorage.getItem('dsEnv') || 'HCM';
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function statusChip(s) {
-  if (s==='A'||s==='Active') return '<span class="chip chip-ok">Active</span>';
-  if (s==='I'||s==='Inactive') return '<span class="chip chip-muted">Inactive</span>';
-  return '';
+function typeChip(s) {
+  return s ? `<span class="chip chip-info">${esc(s)}</span>` : '';
 }
 
 async function doSearch() {
   const q = document.getElementById('sdSearch').value.trim();
-  const status = document.getElementById('sdStatus').value;
   const list = document.getElementById('list');
   list.innerHTML = '<div class="muted">Loading...</div>';
   const params = new URLSearchParams({env: ENV, limit: 200});
   if (q) params.set('q', q);
-  if (status) params.set('status', status);
   const d = await api(`/api/peoplesoft/search-definitions?${params}`);
   if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
   const items = d.items || [];
   document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
   if (!items.length) { list.innerHTML = '<div class="muted">No search definitions found.</div>'; return; }
   list.innerHTML = items.map((r, i) =>
-    `<div class="item" id="item-${i}" onclick="selectDef('${esc(r.srcdefnid)}', ${i})">
-       <div class="item-name">${statusChip(r.status)}${esc(r.srcdefnid)}</div>
-       <div class="item-meta">${esc((r.descr||'').slice(0,60))}</div>
+    `<div class="item" id="item-${i}" onclick="selectDef('${esc(r.ptsf_source_name)}', ${i})">
+       <div class="item-name">${esc(r.ptsf_source_name)}</div>
+       <div class="item-meta">${esc((r.descr100||'').slice(0,60))}</div>
      </div>`
   ).join('');
 }
 
-async function selectDef(srcdefnid, idx) {
+async function selectDef(sourceName, idx) {
   document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
   const el = document.getElementById(`item-${idx}`);
   if (el) el.classList.add('sel');
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/search_definition/${encodeURIComponent(srcdefnid)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/search_definition/${encodeURIComponent(sourceName)}?env=${ENV}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
   const ov = d.overview || {};
-  const adminUrl = `/admin/object/search_definition/${esc(srcdefnid)}`;
+  const adminUrl = `/admin/object/search_definition/${esc(sourceName)}`;
   const sections = d.sections || [];
   const overviewSec = sections.find(s => s.id === 'overview') || {};
   const rows = overviewSec.rows || [];
   const fieldsSec = sections.find(s => s.id === 'fields');
-  const catsSec = sections.find(s => s.id === 'categories');
+  const pgSec = sections.find(s => s.id === 'panel_groups');
 
   let html = `
     <div style="margin-bottom:12px">
-      ${statusChip(ov.status)}
-      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#2299ee">${esc(srcdefnid)}</span>
+      ${typeChip(ov.source_type)}
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#2299ee">${esc(sourceName)}</span>
       &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
     </div>`;
 
   if (rows.length) {
     html += `<div class="kv-grid">`;
     for (const row of rows) {
-      if (row.label !== 'Status') {
-        html += `<div class="kv-key">${esc(row.label)}</div><div class="kv-val">${esc(String(row.value||''))}</div>`;
-      }
+      html += `<div class="kv-key">${esc(row.label)}</div><div class="kv-val">${esc(String(row.value||''))}</div>`;
     }
     html += `</div>`;
   }
@@ -12065,7 +12086,7 @@ async function selectDef(srcdefnid, idx) {
   const counts = d._uom?._raw?.counts || {};
   html += `<div style="margin:10px 0">`
     + `<span class="stat"><b>${counts.fields||0}</b>Fields</span>`
-    + `<span class="stat"><b>${counts.categories||0}</b>Categories</span>`
+    + `<span class="stat"><b>${counts.panel_groups||0}</b>Panel Groups</span>`
     + `</div>`;
 
   if (fieldsSec && (fieldsSec.items||[]).length) {
@@ -12079,17 +12100,18 @@ async function selectDef(srcdefnid, idx) {
     ).join('');
   }
 
-  if (catsSec && (catsSec.items||[]).length) {
-    html += `<h2>${esc(catsSec.title)}</h2>`;
-    html += catsSec.items.map(c =>
+  if (pgSec && (pgSec.items||[]).length) {
+    html += `<h2>${esc(pgSec.title)}</h2>`;
+    html += pgSec.items.map(p =>
       `<div class="field-row">
-         <span style="font-family:monospace;color:#d7faff">${esc(c.name)}</span>
-         ${c.meta ? `<span style="color:#aac;font-size:11px">${esc(c.meta)}</span>` : ''}
+         <span style="font-family:monospace;color:#d7faff">${esc(p.name)}</span>
+         ${(p.chips||[]).map(c=>`<span class="chip chip-muted">${esc(c.label)}</span>`).join('')}
+         ${p.meta ? `<span style="color:#aac;font-size:11px">${esc(p.meta)}</span>` : ''}
        </div>`
     ).join('');
   }
 
-  if (!rows.length && !fieldsSec && !catsSec) {
+  if (!rows.length && !fieldsSec && !pgSec) {
     html += `<div class="muted">No detail available.</div>`;
   }
 
@@ -12121,10 +12143,14 @@ button{background:#7744ee;border:none;padding:5px 12px;cursor:pointer;font-size:
 .item-meta{font-size:10px;color:#556;margin-top:2px}
 .chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;margin-right:3px}
 .chip-info{background:#10001a;border:1px solid #7744ee44;color:#7744ee}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #7744ee33;background:#10001a;font-size:11px;margin:2px}
+.stat b{color:#7744ee;font-size:16px;display:block}
 .kv-grid{display:grid;grid-template-columns:140px 1fr;gap:3px 12px;font-size:12px;margin-bottom:10px}
 .kv-key{color:#556;text-align:right}
 .kv-val{color:#d7faff;font-family:monospace}
-.field-row{padding:5px 10px;border-bottom:1px solid #10001a;font-size:11px}
+.field-row{padding:5px 10px;border-bottom:1px solid #10001a;font-size:11px;display:flex;gap:8px;align-items:baseline}
+.field-row:hover{background:#0a0014}
 a{color:#7744ee;text-decoration:none} a:hover{text-decoration:underline}
 .muted{color:#556;font-style:italic}
 </style>
@@ -12149,6 +12175,10 @@ const ENV = localStorage.getItem('dsEnv') || 'HCM';
 async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function fieldChip(c) {
+  return `<span class="chip ${esc(c.cls||'chip-info')}">${esc(c.label)}</span>`;
+}
+
 async function doSearch() {
   const q = document.getElementById('scSearch').value.trim();
   const list = document.getElementById('list');
@@ -12161,32 +12191,35 @@ async function doSearch() {
   document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
   if (!items.length) { list.innerHTML = '<div class="muted">No search categories found.</div>'; return; }
   list.innerHTML = items.map((r, i) =>
-    `<div class="item" id="item-${i}" onclick="selectCat('${esc(r.srccatid)}', ${i})">
-       <div class="item-name">${esc(r.srccatid)}</div>
-       <div class="item-meta">${esc((r.descr||'').slice(0,60))}</div>
+    `<div class="item" id="item-${i}" onclick="selectCat('${esc(r.ptsf_srccat_name)}', ${i})">
+       <div class="item-name">${esc(r.ptsf_srccat_name)}</div>
+       <div class="item-meta">${esc((r.descr100||'').slice(0,60))}</div>
      </div>`
   ).join('');
 }
 
-async function selectCat(srccatid, idx) {
+async function selectCat(srccatName, idx) {
   document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
   const el = document.getElementById(`item-${idx}`);
   if (el) el.classList.add('sel');
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="muted">Loading...</div>';
 
-  const d = await api(`/api/peoplesoft/object/search_category/${encodeURIComponent(srccatid)}?env=${ENV}`);
+  const d = await api(`/api/peoplesoft/object/search_category/${encodeURIComponent(srccatName)}?env=${ENV}`);
   if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
 
-  const adminUrl = `/admin/object/search_category/${esc(srccatid)}`;
+  const adminUrl = `/admin/object/search_category/${esc(srccatName)}`;
   const sections = d.sections || [];
   const overviewSec = sections.find(s => s.id === 'overview') || {};
   const rows = overviewSec.rows || [];
-  const defnSec = sections.find(s => s.id === 'definitions');
+  const sboSec = sections.find(s => s.id === 'sbo_links');
+  const dispSec = sections.find(s => s.id === 'display_fields');
+  const advSec = sections.find(s => s.id === 'advanced_fields');
+  const facetSec = sections.find(s => s.id === 'facets');
 
   let html = `
     <div style="margin-bottom:12px">
-      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#7744ee">${esc(srccatid)}</span>
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#7744ee">${esc(srccatName)}</span>
       &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
     </div>`;
 
@@ -12198,14 +12231,28 @@ async function selectCat(srccatid, idx) {
     html += `</div>`;
   }
 
-  if (defnSec && (defnSec.items||[]).length) {
-    html += `<h2>${esc(defnSec.title)}</h2>`;
-    html += defnSec.items.map(it =>
-      `<div class="field-row"><span style="font-family:monospace;color:#d7faff">${esc(it.name)}</span></div>`
-    ).join('');
+  const counts = d._uom?._raw?.counts || {};
+  html += `<div style="margin:10px 0">`
+    + `<span class="stat"><b>${counts.sbo_links||0}</b>SBO Links</span>`
+    + `<span class="stat"><b>${counts.display_fields||0}</b>Display Fields</span>`
+    + `<span class="stat"><b>${counts.advanced_fields||0}</b>Advanced Fields</span>`
+    + `<span class="stat"><b>${counts.facets||0}</b>Facets</span>`
+    + `</div>`;
+
+  for (const sec of [sboSec, dispSec, advSec, facetSec]) {
+    if (sec && (sec.items||[]).length) {
+      html += `<h2>${esc(sec.title)}</h2>`;
+      html += sec.items.map(it =>
+        `<div class="field-row">
+           <span style="font-family:monospace;color:#d7faff">${esc(it.name)}</span>
+           ${(it.chips||[]).map(fieldChip).join('')}
+           ${it.meta ? `<span style="color:#556;font-size:10px">${esc(it.meta)}</span>` : ''}
+         </div>`
+      ).join('');
+    }
   }
 
-  if (!rows.length && !defnSec) {
+  if (!rows.length && !sboSec && !dispSec && !advSec && !facetSec) {
     html += `<div class="muted">No detail available.</div>`;
   }
 

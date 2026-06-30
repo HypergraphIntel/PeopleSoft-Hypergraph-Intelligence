@@ -116,3 +116,5 @@
 {"timestamp": "2026-06-30T16:37:17.650677+00:00", "action": "schema_columns", "env": "HCM", "owner": "SYSADM", "object_name": "PS_JOB"}
 {"timestamp": "2026-06-30T16:37:22.220530+00:00", "action": "schema_columns", "env": "HCM", "owner": "SYSADM", "object_name": "PS_JOB"}
 {"timestamp": "2026-06-30T16:37:35.179389+00:00", "action": "schema_columns", "env": "HCM", "owner": "SYSADM", "object_name": "PS_JOBCDGRD_FEDSBR"}
+{"timestamp": "2026-06-30T19:57:37.629869+00:00", "action": "validate", "sql": "SELECT OPRID, OPRDEFNDESC, EMPLID, EMAILID, ACCTLOCK, OPRTYPE, LASTSIGNONDTTM, FAILEDLOGINS FROM SYSADM.PSOPRDEFN WHERE ROWNUM <= 3", "allowed": true, "statement_type": "SELECT", "blocked_reason": null}
+{"timestamp": "2026-06-30T19:57:38.456719+00:00", "action": "execute", "query_id": "9cdbb364-8c22-48cc-a26b-21db5035e2f4", "env": "HCM", "sql": "SELECT OPRID, OPRDEFNDESC, EMPLID, EMAILID, ACCTLOCK, OPRTYPE, LASTSIGNONDTTM, FAILEDLOGINS FROM SYSADM.PSOPRDEFN WHERE ROWNUM <= 3", "elapsed_ms": 22, "row_count": 3, "status": "success", "page": 1, "page_size": 100}

@@ -2321,3 +2321,99 @@ Implemented two more Phase 5 providers in the same session cycle: Search Categor
 **`ROADMAP.md`**: Search Categories and Drop Zones promoted to Completed Providers; platform status updated to 22 smoke test pages; "Next Slice" section rewritten for WorkCenters, Dashboards, Homepage Tiles, BI Publisher.
 
 **Verification:** `python -m py_compile` on all seven touched files → ALL OK (pre-existing `\-` SyntaxWarning in the unrelated pcsearch tokenizer regex, not introduced here). `python3 -c "import main"` → OK.
+
+---
+
+## Schema Verification and Provider Rewrites (2026-06-30)
+
+This session performed a systematic schema verification of all Phase 5 providers added in the prior session cycle, discovering that several were implemented against assumed/guessed table and column names that do not match the live HCM SYSADM schema. All five providers were fully rewritten using a live-DB-first methodology: query `all_tables`/`all_tab_columns` → pull sample rows to verify usable keys → rewrite psdb.py → compile-check → smoke-test → propagate through ptmetadata.py/graphdb.py/uom.py/admin.py.
+
+### Methodology
+
+Every provider rewrite followed the same pattern:
+1. Query `all_tables`/`all_tab_columns` for SYSADM owner to find the real table name and columns
+2. Pull sample rows to confirm which column is actually populated as a unique key (not just a plausible PeopleTools name)
+3. Scan for related sub-tables via `all_tables WHERE table_name LIKE 'PREFIX%'`
+4. Write psdb.py functions; compile-check; smoke-test against live HCM DB
+5. Propagate the verified shape through ptmetadata.py → graphdb.py → uom.py → admin.py
+6. Final end-to-end smoke-test via `uom.*_payload('HCM', '<real object name>')`
+
+### Approval Framework
+
+**Correction:** Prior implementation used wrong table names. The live SYSADM schema uses the EOAW (Enterprise Online Approval Workflow) table family: `PS_EOAW_TXN` (header, keyed by `EOAWPRCS_ID`), `PS_EOAW_PRCS` (process definitions), `PS_EOAW_STAGE`, `PS_EOAW_STEP`, `PS_EOAW_PATH`.
+
+**`connectors/psdb.py`**: `search_approvals()` / `get_approval()` rewritten against EOAW tables. `get_approval()` returns `{definition, process_definitions, default_process_definition, stages, steps, paths, counts, warnings}`.
+
+**`connectors/ptmetadata.py`**: `OBJECT_REGISTRY["approval"]` discovery/search tables corrected to `PS_EOAW_TXN`/`EOAWPRCS_ID`.
+
+**`connectors/graphdb.py`**: `approvals()` rewritten to query `PS_EOAW_TXN`.
+
+**`connectors/uom.py`**: `approval_object()`, `sections_for_approval()`, `approval_payload()` rewritten to consume new `get_approval()` shape. Added `_EOAW_STATUS_CHIP`. Sections: Definition / Process Definitions / Stages / Steps / Paths.
+
+**`routers/admin.py`**: `/admin/approval` page rewritten: removed per-item status chip from search list, added Process Definitions section with default chip, renamed `awdefnid` → `eoawprcsId`, added Paths section.
+
+**Verification:** `uom.approval_payload('HCM', 'AbsenceCancelation')` → `process_definition_count: 8`, sections `['Definition', 'Process Definitions', 'Stages', 'Steps', 'Paths']`.
+
+### XML Publisher Reports
+
+**Correction:** Column names and join structure were incorrect in prior implementation.
+
+**`connectors/psdb.py`**: `search_xpub_reports()` / `search_xpub_datasources()` / `get_xpub_report()` rewritten against `PSXPRPTDEFN` (header), `PSXPDATASRC` (datasource), `PSXPRPTCAT` (category), `PSXPRPTTMPL` JOIN `PSXPTMPLDEFN` (templates), `PSXPRPTOUTFMT` (output formats). Fixed a self-join bug (PSXPRPTTMPL was accidentally joined to itself). Returns `{definition, datasource, category, templates, output_formats, counts, warnings}`.
+
+**`connectors/ptmetadata.py`**: `OBJECT_REGISTRY["xml_publisher_report"]` discovery/search tables corrected to `PSXPRPTDEFN`/`REPORT_DEFN_ID`.
+
+**`connectors/graphdb.py`**: `xpub_reports()` rewritten to query `PSXPRPTDEFN` with `REPORT_DEFN_ID` key.
+
+**`connectors/uom.py`**: `xpub_report_object()`, `sections_for_xpub_report()`, `xpub_report_payload()` rewritten with new field names. Added Output Formats section.
+
+**`routers/admin.py`**: `/admin/xpub` page rewritten: renamed `reportid`/`datasrcid` → `report_defn_id`/`ds_id`, added Output Formats section rendering, added `active_flag` display in datasource detail.
+
+**Verification:** `uom.xpub_report_payload('HCM', 'PYW2AS09N_CO')` → 1 template, 1 output format (PDF).
+
+### Search Definitions
+
+**Critical correction:** Prior implementation assumed `APPCLASSID` was the primary key on `PSPTSF_SD`. Live verification showed `APPCLASSID` is blank on every one of 114 rows (`COUNT(*) WHERE TRIM(APPCLASSID) IS NOT NULL` → 0). The real unique key is `PTSF_SOURCE_NAME` (114 distinct values = all rows). The feature table is also `PSPTSF_SD` (not `PTSF_SRCDEFN` as prior code assumed). Sub-tables `PSPTSF_SD_ATTR` (attributes/fields, 4938 rows) and `PSPTSF_SD_PNLGP` (panel groups, 116 rows) are keyed by the definition's `PTSF_SBO_NAME`, not by `PTSF_SOURCE_NAME` directly.
+
+**`connectors/psdb.py`**: `search_search_definitions()` / `get_search_definition()` rewritten against `PSPTSF_SD` keyed by `PTSF_SOURCE_NAME`. Removed `status` parameter (no status concept on this table). Sub-table lookups use `ptsf_sbo_name` as foreign key.
+
+**`connectors/ptmetadata.py`**: `OBJECT_REGISTRY["search_definition"]` corrected to `PSPTSF_SD`/`PTSF_SOURCE_NAME`.
+
+**`connectors/graphdb.py`**: `search_definitions()` rewritten against `PSPTSF_SD`.
+
+**`connectors/uom.py`**: `search_definition_object()`, `sections_for_search_definition()`, `search_definition_payload()` rewritten with new field names. Sections: Overview / Fields / Panel Groups.
+
+**`routers/peoplesoft.py`**: Removed stale `status` query parameter from `/api/peoplesoft/search-definitions`.
+
+**`routers/admin.py`**: `/admin/srchdef` page rewritten: removed status filter, renamed `srcdefnid`→`ptsf_source_name`, replaced statusChip with typeChip, renamed "categories" section to "panel_groups".
+
+**Verification:** `uom.search_definition_payload('HCM', 'COMP_SRCH_TRW_CQ')` → 49 fields, 1 panel group.
+
+### Search Categories
+
+**Correction:** Prior implementation used wrong table (`PTSF_SRCAT`); real table is `PSPTSF_SRCCAT` (122 rows), keyed by `PTSF_SRCCAT_NAME`. Sub-tables all keyed by `PTSF_SRCCAT_NAME`: `PSPTSF_CATPTSD` (SBO links, 0 rows in HCM), `PSPTSF_CATDSPFD` (display fields, 150 rows), `PSPTSF_CATADVFD` (advanced search fields, 2929 rows), `PSPTSF_CATFACET` (facets, 404 rows).
+
+**`connectors/psdb.py`**: `search_search_categories()` / `get_search_category()` rewritten against real tables. Returns `{definition, sbo_links, display_fields, advanced_fields, facets, counts, warnings}`.
+
+**`connectors/ptmetadata.py`**: `OBJECT_REGISTRY["search_category"]` corrected to `PSPTSF_SRCCAT`/`PTSF_SRCCAT_NAME`.
+
+**`connectors/graphdb.py`**: `search_categories()` rewritten against `PSPTSF_SRCCAT`.
+
+**`connectors/uom.py`**: `search_category_object()`, `sections_for_search_category()`, `search_category_payload()` rewritten with new field names. Sections: Overview / SBO Links (when present) / Display Fields / Advanced Search Fields / Facets. Blank-padded CHAR columns filtered via `_clean()` helper to avoid rendering whitespace-only rows.
+
+**`routers/admin.py`**: `/admin/srchcat` page rewritten: renamed `srccatid`→`ptsf_srccat_name`, `descr`→`descr100`, replaced "definitions" section with "sbo_links"/"display_fields"/"advanced_fields"/"facets" sections, added stat counters for all four sub-table types, added `.chip-muted`/`.stat`/`.field-row` flex styles.
+
+**Verification:** `uom.search_category_payload('HCM', 'HC_HR_RW_EMP_VACC_INDEX')` → Overview, Display Fields (1), Advanced Search Fields (15), Facets (1). `uom.search_category_payload('HCM', 'PTIAINCUSTINSIGHT_SRCH')` → Overview, Display Fields (1), Advanced Search Fields (23), Facets (22).
+
+### Navigation Collections, Event Mappings, Related Content, Drop Zones — Confirmed Stubs
+
+Live schema verification found no backing tables for any of these four features in the HCM SYSADM schema:
+- Navigation Collections: `PTNC_COLLECTION` does not exist; `PSPTPNCOLL` is Push Notification Collections (3 rows, different feature)
+- Event Mappings: `PSEFMAPPINGDEFN` does not exist
+- Related Content: `PSRELCONDEFN` does not exist
+- Drop Zones: `PSPTDZDEFN` does not exist
+
+All four already had `has_table()` guards in psdb.py and graphdb.py producing graceful empty/error results. Added `"stub": True` marker to all four `OBJECT_REGISTRY` entries in ptmetadata.py to make the unverified status explicit for callers.
+
+**`ROADMAP.md`**: Corrected Completed Providers list; added ⚠️ Stub Providers section; rewrote Next Slice section with verification methodology and verified HomepageTile table candidates (`PS_AGC_TILE_TBL`, `PS_HCTS_TILE_SEC` found in live schema).
+
+**Verification:** `python -m py_compile` on all six files → ALL OK. `uom.search_category_payload('HCM', 'DOES_NOT_EXIST_XYZ')` → `None` (graceful not-found).

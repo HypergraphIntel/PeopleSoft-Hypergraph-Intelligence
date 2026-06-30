@@ -4423,134 +4423,165 @@ def message_set_info(env_name, set_nbr):
     return dict(rows[0]) if rows else None
 
 
-# ── Approval Framework ────────────────────────────────────────────────────────
+# ── Approval Framework (Approval Workflow Engine / EOAW) ──────────────────────
+#
+# Verified against the live SYSADM schema: the legacy PSAWDEFN/PSAWSTAGEDEFN/
+# PSAWPATHDEFN/PSAWSTEPDEFN tables referenced by an earlier revision of this
+# module do not exist. The real, populated AWE schema uses the EOAW-prefixed
+# tables below. PS_EOAW_TXN is the top-level "Transaction" (what's being
+# approved, e.g. Absence Cancelation); each transaction has one or more
+# effective-dated PS_EOAW_PRCS "Process Definitions" (routing variants);
+# each process definition has PS_EOAW_STAGE -> PS_EOAW_STEP -> PS_EOAW_PATH.
 
-_AW_STATUS = {"A": "Active", "I": "Inactive"}
-_AW_PROCESS_TYPE = {
-    "0": "No Approval",
-    "1": "User",
-    "2": "Role",
-    "3": "Query",
-    "4": "Application Class",
-    "5": "Supervisory",
-    "6": "Position",
-    "7": "Department Security",
-    "8": "Role User",
-}
+_EOAW_EFF_STATUS = {"A": "Active", "I": "Inactive"}
 
 
 def search_approvals(env_name, q="", status=None, limit=100):
-    """Search PSAWDEFN approval workflow definitions."""
+    """Search PS_EOAW_TXN approval transaction definitions."""
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PSAWDEFN"):
-        return {"items": [], "warnings": ["PSAWDEFN not accessible"]}
+    if not ptmetadata.has_table(env_name, "PS_EOAW_TXN"):
+        return {"items": [], "warnings": ["PS_EOAW_TXN not accessible"]}
 
     clauses = []
     params = {}
     if q:
-        clauses.append("(UPPER(AWDEFNID) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
+        clauses.append("(UPPER(EOAWPRCS_ID) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
         params["q"] = f"%{q}%"
         params["q2"] = f"%{q}%"
-    if status:
-        clauses.append("STATUS = :status")
-        params["status"] = status.upper()
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     sql = f"""
-        SELECT AWDEFNID, DESCR, STATUS, OBJECTOWNERID, LASTUPDOPRID, LASTUPDDTTM
-          FROM SYSADM.PSAWDEFN
+        SELECT EOAWPRCS_ID, DESCR, OBJECTOWNERID, PACKAGEROOT, EOAWAPPR_COMPONENT
+          FROM SYSADM.PS_EOAW_TXN
          {where}
-         ORDER BY AWDEFNID
+         ORDER BY EOAWPRCS_ID
          FETCH FIRST :lim ROWS ONLY
     """
     params["lim"] = limit
     try:
         rows = query(env_name, sql, params)
     except Exception as exc:
-        return {"items": [], "warnings": [f"PSAWDEFN search failed: {exc}"]}
+        return {"items": [], "warnings": [f"PS_EOAW_TXN search failed: {exc}"]}
 
-    items = []
-    for row in rows:
-        item = dict(row)
-        item["status_label"] = _AW_STATUS.get(str(item.get("status") or "").strip(), str(item.get("status") or ""))
-        items.append(item)
+    items = [dict(row) for row in rows]
+
+    if status and ptmetadata.has_table(env_name, "PS_EOAW_PRCS"):
+        try:
+            active_ids = {
+                r["eoawprcs_id"] for r in query(env_name, """
+                    SELECT DISTINCT EOAWPRCS_ID FROM SYSADM.PS_EOAW_PRCS
+                     WHERE EFF_STATUS = :st
+                """, {"st": status.upper()})
+            }
+            items = [it for it in items if it.get("eoawprcs_id") in active_ids]
+        except Exception:
+            pass
+
     return {"items": items, "count": len(items), "warnings": []}
 
 
-def get_approval(env_name, awdefnid):
-    """Fetch an approval definition with its stages, paths, and step counts."""
+def get_approval(env_name, eoawprcs_id):
+    """Fetch an approval transaction with its process definitions, stages, steps, and paths."""
     from connectors import ptmetadata
     warnings = []
+    eoawprcs_id_u = eoawprcs_id
 
-    if not ptmetadata.has_table(env_name, "PSAWDEFN"):
-        return {"definition": None, "stages": [], "warnings": ["PSAWDEFN not accessible"]}
+    if not ptmetadata.has_table(env_name, "PS_EOAW_TXN"):
+        return {"definition": None, "process_definitions": [], "stages": [], "steps": [], "paths": [],
+                "warnings": ["PS_EOAW_TXN not accessible"]}
 
     defn_rows = query(env_name, """
-        SELECT AWDEFNID, DESCR, STATUS, OBJECTOWNERID, LASTUPDOPRID, LASTUPDDTTM
-          FROM SYSADM.PSAWDEFN
-         WHERE AWDEFNID = :id
-    """, {"id": awdefnid.upper()})
-    defn = dict(defn_rows[0]) if defn_rows else None
-    if defn:
-        defn["status_label"] = _AW_STATUS.get(str(defn.get("status") or "").strip(), "")
+        SELECT EOAWPRCS_ID, DESCR, OBJECTOWNERID, PACKAGEROOT, APPCLASS_PATH,
+               MENUNAME, PNLNAME, EOAWAPPR_COMPONENT, EOAWENTRY_COMP,
+               EOAW_EMAIL, EOAW_WORKLIST, EOAW_PUSH
+          FROM SYSADM.PS_EOAW_TXN
+         WHERE EOAWPRCS_ID = :id
+    """, {"id": eoawprcs_id_u})
+    if not defn_rows:
+        return {"error": "not_found", "warnings": [f"Approval Transaction {eoawprcs_id!r} not found"]}
+    defn = dict(defn_rows[0])
+
+    process_definitions = []
+    if ptmetadata.has_table(env_name, "PS_EOAW_PRCS"):
+        try:
+            proc_rows = query(env_name, """
+                SELECT EOAWDEFN_ID, EFFDT, EFF_STATUS, DESCR, EOAWADMIN_ROLENAME,
+                       EOAWAUTO_APPROVE, EOAWDEFN_DEFAULT, EOAWDEFN_PRIORITY
+                  FROM SYSADM.PS_EOAW_PRCS
+                 WHERE EOAWPRCS_ID = :id
+                 ORDER BY EOAWDEFN_PRIORITY, EOAWDEFN_ID
+            """, {"id": eoawprcs_id_u})
+            for pr in proc_rows:
+                row = dict(pr)
+                row["eff_status_label"] = _EOAW_EFF_STATUS.get(str(row.get("eff_status") or ""), row.get("eff_status") or "")
+                process_definitions.append(row)
+        except Exception as exc:
+            warnings.append(f"PS_EOAW_PRCS: {exc}")
+
+    default_defn_id = None
+    for pd in process_definitions:
+        if pd.get("eoawdefn_default") == "Y":
+            default_defn_id = pd.get("eoawdefn_id")
+            break
+    if default_defn_id is None:
+        active = [pd for pd in process_definitions if pd.get("eff_status") == "A"]
+        if active or process_definitions:
+            default_defn_id = (active or process_definitions)[0].get("eoawdefn_id")
 
     stages = []
-    if ptmetadata.has_table(env_name, "PSAWSTAGEDEFN"):
-        try:
-            stage_rows = query(env_name, """
-                SELECT STAGE_NO, DESCR, PROCESS_TYPE
-                  FROM SYSADM.PSAWSTAGEDEFN
-                 WHERE AWDEFNID = :id
-                 ORDER BY STAGE_NO
-            """, {"id": awdefnid.upper()})
-            for sr in stage_rows:
-                stage = dict(sr)
-                stage["process_type_label"] = _AW_PROCESS_TYPE.get(str(stage.get("process_type") or ""), "")
-                stages.append(stage)
-        except Exception as exc:
-            warnings.append(f"PSAWSTAGEDEFN: {exc}")
-
-    paths = []
-    if ptmetadata.has_table(env_name, "PSAWPATHDEFN"):
-        try:
-            path_rows = query(env_name, """
-                SELECT STAGE_NO, PATH_NO, DESCR, PROCESS_TYPE
-                  FROM SYSADM.PSAWPATHDEFN
-                 WHERE AWDEFNID = :id
-                 ORDER BY STAGE_NO, PATH_NO
-            """, {"id": awdefnid.upper()})
-            for pr in path_rows:
-                path = dict(pr)
-                path["process_type_label"] = _AW_PROCESS_TYPE.get(str(path.get("process_type") or ""), "")
-                paths.append(path)
-        except Exception as exc:
-            warnings.append(f"PSAWPATHDEFN: {exc}")
-
     steps = []
-    if ptmetadata.has_table(env_name, "PSAWSTEPDEFN"):
-        try:
-            step_rows = query(env_name, """
-                SELECT STAGE_NO, PATH_NO, STEP_NO, DESCR, PROCESS_TYPE, AWUSERLISTID
-                  FROM SYSADM.PSAWSTEPDEFN
-                 WHERE AWDEFNID = :id
-                 ORDER BY STAGE_NO, PATH_NO, STEP_NO
-            """, {"id": awdefnid.upper()})
-            for sr2 in step_rows:
-                step = dict(sr2)
-                step["process_type_label"] = _AW_PROCESS_TYPE.get(str(step.get("process_type") or ""), "")
-                steps.append(step)
-        except Exception as exc:
-            warnings.append(f"PSAWSTEPDEFN: {exc}")
+    paths = []
+    if default_defn_id is not None:
+        if ptmetadata.has_table(env_name, "PS_EOAW_STAGE"):
+            try:
+                stage_rows = query(env_name, """
+                    SELECT EOAWSTAGE_NBR, DESCR, EOAWLEVEL, SEQ_NBR
+                      FROM SYSADM.PS_EOAW_STAGE
+                     WHERE EOAWPRCS_ID = :id AND EOAWDEFN_ID = :defn
+                     ORDER BY EOAWSTAGE_NBR
+                """, {"id": eoawprcs_id_u, "defn": default_defn_id})
+                stages = [dict(r) for r in (stage_rows or [])]
+            except Exception as exc:
+                warnings.append(f"PS_EOAW_STAGE: {exc}")
+
+        if ptmetadata.has_table(env_name, "PS_EOAW_STEP"):
+            try:
+                step_rows = query(env_name, """
+                    SELECT EOAWSTAGE_NBR, EOAWSTEP_NBR, EOAWPATH_ID, DESCR,
+                           EOAWROLENAME, EOAWAPPROVER_LIST, EOAWMIN_APPROVERS, EOAWSELF_APPROVAL
+                      FROM SYSADM.PS_EOAW_STEP
+                     WHERE EOAWPRCS_ID = :id AND EOAWDEFN_ID = :defn
+                     ORDER BY EOAWSTAGE_NBR, EOAWSTEP_NBR
+                """, {"id": eoawprcs_id_u, "defn": default_defn_id})
+                steps = [dict(r) for r in (step_rows or [])]
+            except Exception as exc:
+                warnings.append(f"PS_EOAW_STEP: {exc}")
+
+        if ptmetadata.has_table(env_name, "PS_EOAW_PATH"):
+            try:
+                path_rows = query(env_name, """
+                    SELECT EOAWSTAGE_NBR, EOAWPATH_ID, DESCR, EOAWNUMBER_DAYS,
+                           EOAWNUMBER_HOURS, EOAWESCALATN_OPTN
+                      FROM SYSADM.PS_EOAW_PATH
+                     WHERE EOAWPRCS_ID = :id AND EOAWDEFN_ID = :defn
+                     ORDER BY EOAWSTAGE_NBR, EOAWPATH_ID
+                """, {"id": eoawprcs_id_u, "defn": default_defn_id})
+                paths = [dict(r) for r in (path_rows or [])]
+            except Exception as exc:
+                warnings.append(f"PS_EOAW_PATH: {exc}")
 
     return {
         "definition": defn,
+        "process_definitions": process_definitions,
+        "default_process_definition": default_defn_id,
         "stages": stages,
-        "paths": paths,
         "steps": steps,
+        "paths": paths,
         "counts": {
+            "process_definitions": len(process_definitions),
             "stages": len(stages),
-            "paths": len(paths),
             "steps": len(steps),
+            "paths": len(paths),
         },
         "warnings": warnings,
     }
@@ -4558,52 +4589,52 @@ def get_approval(env_name, awdefnid):
 
 # ---------------------------------------------------------------------------
 # XML Publisher
+#
+# Verified against the live SYSADM schema: the legacy PSXPREPORTDEFN table
+# referenced by an earlier revision of this module does not exist. The real,
+# populated XML Publisher schema is PSXPRPTDEFN (report definitions, keyed by
+# REPORT_DEFN_ID), linked to PSXPDATASRC (data sources, keyed by DS_ID) and
+# PSXPRPTCAT (report categories, keyed by REPORT_CATEGORY_ID). Templates are
+# linked via PSXPRPTTMPL (REPORT_DEFN_ID -> TMPLDEFN_ID) to PSXPTMPLDEFN
+# (template definitions).
 # ---------------------------------------------------------------------------
 
 _XPUB_DATASRC_TYPE = {
-    "A": "Application Engine",
-    "Q": "PS Query",
-    "S": "SQL",
-    "C": "Connected Query",
-    "G": "Group",
-    "F": "File",
+    "XML": "XML",
+    "CQR": "Connected Query",
+    "QRY": "PS Query",
+    "XMD": "XML Data",
+    "RST": "REST",
 }
 
-_XPUB_TEMPLATE_FORMAT = {
-    "RTF":   "RTF",
-    "XSL":   "XSL",
-    "XLSXI": "Excel",
-    "ETEXT": "eText",
-    "PDF":   "PDF Form",
-    "FLASH": "Flash",
-}
-
-_XPUB_OUTPUT_FORMAT = {
-    "PDF":  "PDF",
-    "XLS":  "Excel",
-    "RTF":  "RTF",
-    "HTML": "HTML",
-    "CSV":  "CSV",
-    "XMLP": "XML",
-    "XML":  "XML",
-    "PCLP": "PCL",
+_XPUB_REPORT_STATUS = {
+    "A": "Active",
+    "I": "Inactive",
 }
 
 
 def search_xpub_reports(env_name, q="", limit=100):
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PSXPREPORTDEFN"):
-        return {"items": [], "warnings": ["PSXPREPORTDEFN not accessible"]}
+    if not ptmetadata.has_table(env_name, "PSXPRPTDEFN"):
+        return {"items": [], "warnings": ["PSXPRPTDEFN not accessible"]}
     pat = f"%{q.upper()}%" if q else "%"
     try:
         rows = query(env_name, """
-            SELECT REPORTID, DESCR, OBJECTOWNERID, DATASRCID
-              FROM SYSADM.PSXPREPORTDEFN
-             WHERE UPPER(REPORTID) LIKE :pat OR UPPER(DESCR) LIKE :pat
-             ORDER BY REPORTID
+            SELECT REPORT_DEFN_ID, DESCR, OBJECTOWNERID, DS_ID, DS_TYPE,
+                   REPORT_CATEGORY_ID, PT_REPORT_STATUS, PT_TEMPLATE_TYPE
+              FROM SYSADM.PSXPRPTDEFN
+             WHERE UPPER(REPORT_DEFN_ID) LIKE :pat OR UPPER(DESCR) LIKE :pat
+             ORDER BY REPORT_DEFN_ID
              FETCH FIRST :lim ROWS ONLY
         """, {"pat": pat, "lim": limit})
-        return {"items": [dict(r) for r in (rows or [])], "warnings": []}
+        items = []
+        for r in (rows or []):
+            row = dict(r)
+            row["pt_report_status_label"] = _XPUB_REPORT_STATUS.get(
+                str(row.get("pt_report_status") or ""), row.get("pt_report_status") or ""
+            )
+            items.append(row)
+        return {"items": items, "warnings": []}
     except Exception as exc:
         return {"items": [], "warnings": [str(exc)]}
 
@@ -4615,79 +4646,105 @@ def search_xpub_datasources(env_name, q="", limit=100):
     pat = f"%{q.upper()}%" if q else "%"
     try:
         rows = query(env_name, """
-            SELECT DATASRCID, DESCR, DATASRCTYPE
+            SELECT DS_ID, DESCR, DS_TYPE, ACTIVE_FLAG, OBJECTOWNERID
               FROM SYSADM.PSXPDATASRC
-             WHERE UPPER(DATASRCID) LIKE :pat OR UPPER(DESCR) LIKE :pat
-             ORDER BY DATASRCID
+             WHERE UPPER(DS_ID) LIKE :pat OR UPPER(DESCR) LIKE :pat
+             ORDER BY DS_ID
              FETCH FIRST :lim ROWS ONLY
         """, {"pat": pat, "lim": limit})
         results = []
         for r in (rows or []):
             row = dict(r)
-            row["datasrctype_label"] = _XPUB_DATASRC_TYPE.get(str(row.get("datasrctype") or ""), row.get("datasrctype") or "")
+            row["ds_type_label"] = _XPUB_DATASRC_TYPE.get(str(row.get("ds_type") or ""), row.get("ds_type") or "")
             results.append(row)
         return {"items": results, "warnings": []}
     except Exception as exc:
         return {"items": [], "warnings": [str(exc)]}
 
 
-def get_xpub_report(env_name, reportid):
+def get_xpub_report(env_name, report_defn_id):
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PSXPREPORTDEFN"):
-        return {"error": "not_accessible", "warnings": ["PSXPREPORTDEFN not accessible"]}
+    if not ptmetadata.has_table(env_name, "PSXPRPTDEFN"):
+        return {"error": "not_accessible", "warnings": ["PSXPRPTDEFN not accessible"]}
     warnings = []
-    reportid = reportid.upper()
     rows = query(env_name, """
-        SELECT REPORTID, DESCR, OBJECTOWNERID, DATASRCID, LASTUPDOPRID, LASTUPDDTTM
-          FROM SYSADM.PSXPREPORTDEFN
-         WHERE REPORTID = :id
-    """, {"id": reportid})
+        SELECT REPORT_DEFN_ID, DESCR, OBJECTOWNERID, DS_ID, DS_TYPE,
+               REPORT_CATEGORY_ID, PT_REPORT_STATUS, PT_TEMPLATE_TYPE,
+               LASTUPDOPRID, LASTUPDDTTM
+          FROM SYSADM.PSXPRPTDEFN
+         WHERE REPORT_DEFN_ID = :id
+    """, {"id": report_defn_id})
     if not rows:
-        return {"error": "not_found", "warnings": [f"Report {reportid!r} not found"]}
+        return {"error": "not_found", "warnings": [f"Report {report_defn_id!r} not found"]}
     defn = dict(rows[0])
+    defn["pt_report_status_label"] = _XPUB_REPORT_STATUS.get(
+        str(defn.get("pt_report_status") or ""), defn.get("pt_report_status") or ""
+    )
 
     datasrc = None
-    if defn.get("datasrcid") and ptmetadata.has_table(env_name, "PSXPDATASRC"):
+    if defn.get("ds_id") and ptmetadata.has_table(env_name, "PSXPDATASRC"):
         try:
             ds_rows = query(env_name, """
-                SELECT DATASRCID, DESCR, DATASRCTYPE
+                SELECT DS_ID, DESCR, DS_TYPE, ACTIVE_FLAG
                   FROM SYSADM.PSXPDATASRC
-                 WHERE DATASRCID = :id
-            """, {"id": defn["datasrcid"]})
+                 WHERE DS_ID = :id
+            """, {"id": defn["ds_id"]})
             if ds_rows:
                 datasrc = dict(ds_rows[0])
-                datasrc["datasrctype_label"] = _XPUB_DATASRC_TYPE.get(
-                    str(datasrc.get("datasrctype") or ""), datasrc.get("datasrctype") or ""
+                datasrc["ds_type_label"] = _XPUB_DATASRC_TYPE.get(
+                    str(datasrc.get("ds_type") or ""), datasrc.get("ds_type") or ""
                 )
         except Exception as exc:
             warnings.append(f"PSXPDATASRC: {exc}")
 
+    category = None
+    if defn.get("report_category_id") and ptmetadata.has_table(env_name, "PSXPRPTCAT"):
+        try:
+            cat_rows = query(env_name, """
+                SELECT REPORT_CATEGORY_ID, DESCR, OBJECTOWNERID
+                  FROM SYSADM.PSXPRPTCAT
+                 WHERE REPORT_CATEGORY_ID = :id
+            """, {"id": defn["report_category_id"]})
+            if cat_rows:
+                category = dict(cat_rows[0])
+        except Exception as exc:
+            warnings.append(f"PSXPRPTCAT: {exc}")
+
     templates = []
-    if ptmetadata.has_table(env_name, "PSXPTEMPLDEFN"):
+    if ptmetadata.has_table(env_name, "PSXPRPTTMPL") and ptmetadata.has_table(env_name, "PSXPTMPLDEFN"):
         try:
             tmpl_rows = query(env_name, """
-                SELECT PSFBDILANGCD, TEMPLATEFORMAT, OUTPUTFORMAT, EFFDT, EFF_STATUS
-                  FROM SYSADM.PSXPTEMPLDEFN
-                 WHERE REPORTID = :id
-                 ORDER BY PSFBDILANGCD, EFFDT DESC
-            """, {"id": reportid})
-            for t in (tmpl_rows or []):
-                tmpl = dict(t)
-                tmpl["templateformat_label"] = _XPUB_TEMPLATE_FORMAT.get(
-                    str(tmpl.get("templateformat") or ""), tmpl.get("templateformat") or ""
-                )
-                tmpl["outputformat_label"] = _XPUB_OUTPUT_FORMAT.get(
-                    str(tmpl.get("outputformat") or ""), tmpl.get("outputformat") or ""
-                )
-                templates.append(tmpl)
+                SELECT l.TMPLDEFN_ID, l.IS_DEFAULT, d.DESCR, d.PT_TEMPLATE_TYPE,
+                       d.DIST_CHANNEL, d.TMPLLANGCD
+                  FROM SYSADM.PSXPRPTTMPL l
+                  JOIN SYSADM.PSXPTMPLDEFN d ON d.TMPLDEFN_ID = l.TMPLDEFN_ID
+                 WHERE l.REPORT_DEFN_ID = :id
+                 ORDER BY l.IS_DEFAULT DESC, d.TMPLDEFN_ID
+            """, {"id": report_defn_id})
+            templates = [dict(t) for t in (tmpl_rows or [])]
         except Exception as exc:
-            warnings.append(f"PSXPTEMPLDEFN: {exc}")
+            warnings.append(f"PSXPRPTTMPL/PSXPTMPLDEFN: {exc}")
+
+    output_formats = []
+    if ptmetadata.has_table(env_name, "PSXPRPTOUTFMT"):
+        try:
+            fmt_rows = query(env_name, """
+                SELECT PT_FORMAT_TYPE, IS_DEFAULT
+                  FROM SYSADM.PSXPRPTOUTFMT
+                 WHERE REPORT_DEFN_ID = :id
+                 ORDER BY IS_DEFAULT DESC, PT_FORMAT_TYPE
+            """, {"id": report_defn_id})
+            output_formats = [dict(f) for f in (fmt_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSXPRPTOUTFMT: {exc}")
 
     return {
         "definition": defn,
         "datasource": datasrc,
+        "category": category,
         "templates": templates,
-        "counts": {"templates": len(templates)},
+        "output_formats": output_formats,
+        "counts": {"templates": len(templates), "output_formats": len(output_formats)},
         "warnings": warnings,
     }
 
@@ -4918,93 +4975,107 @@ def get_related_content(env_name, relconid):
 
 # ---------------------------------------------------------------------------
 # Search Definitions (PeopleSoft Search Framework, PTSF)
+#
+# Verified against the live SYSADM schema: the legacy PTSF_SRCDEFN/PTSF_SRCMAP
+# tables referenced by an earlier revision of this module do not exist. The
+# real, populated Search Framework schema is PSPTSF_SD (Search Definitions).
+# Note PSPTSF_SD.APPCLASSID is blank on every row in the live data; the actual
+# unique key is PTSF_SOURCE_NAME. Each definition references a Search Business
+# Object (PTSF_SBO_NAME) whose indexed/displayed fields live in
+# PSPTSF_SD_ATTR and whose component/page-group registrations live in
+# PSPTSF_SD_PNLGP, both keyed by PTSF_SBO_NAME (not by the source name).
 # ---------------------------------------------------------------------------
 
-_SRCH_STATUS = {
-    "A": "Active",
-    "I": "Inactive",
+_SRCH_SOURCE_TYPE = {
+    "A": "Application Class",
+    "C": "Connected Query",
+    "Q": "PS Query",
 }
 
 
-def search_search_definitions(env_name, q="", status=None, limit=100):
+def search_search_definitions(env_name, q="", limit=100):
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PTSF_SRCDEFN"):
-        return {"items": [], "warnings": ["PTSF_SRCDEFN not accessible"]}
+    if not ptmetadata.has_table(env_name, "PSPTSF_SD"):
+        return {"items": [], "warnings": ["PSPTSF_SD not accessible"]}
     clauses = []
     params = {"lim": limit}
     if q:
-        clauses.append("(UPPER(SRCDEFNID) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
+        clauses.append("(UPPER(PTSF_SOURCE_NAME) LIKE UPPER(:q) OR UPPER(DESCR100) LIKE UPPER(:q2))")
         params["q"] = f"%{q}%"
         params["q2"] = f"%{q}%"
-    if status:
-        clauses.append("STATUS = :status")
-        params["status"] = status.upper()
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     try:
         rows = query(env_name, f"""
-            SELECT SRCDEFNID, DESCR, STATUS, OBJECTOWNERID, LASTUPDDTTM
-              FROM SYSADM.PTSF_SRCDEFN
+            SELECT PTSF_SOURCE_NAME, DESCR100, PTSF_SOURCE_TYPE, PTSF_SBO_NAME, OBJECTOWNERID
+              FROM SYSADM.PSPTSF_SD
              {where}
-             ORDER BY SRCDEFNID
+             ORDER BY PTSF_SOURCE_NAME
              FETCH FIRST :lim ROWS ONLY
         """, params)
         results = []
         for r in (rows or []):
             row = dict(r)
-            row["status_label"] = _SRCH_STATUS.get(str(row.get("status") or ""), row.get("status") or "")
+            row["ptsf_source_type_label"] = _SRCH_SOURCE_TYPE.get(
+                str(row.get("ptsf_source_type") or ""), row.get("ptsf_source_type") or ""
+            )
             results.append(row)
         return {"items": results, "warnings": []}
     except Exception as exc:
         return {"items": [], "warnings": [str(exc)]}
 
 
-def get_search_definition(env_name, srcdefnid):
+def get_search_definition(env_name, source_name):
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PTSF_SRCDEFN"):
-        return {"error": "not_accessible", "warnings": ["PTSF_SRCDEFN not accessible"]}
+    if not ptmetadata.has_table(env_name, "PSPTSF_SD"):
+        return {"error": "not_accessible", "warnings": ["PSPTSF_SD not accessible"]}
     warnings = []
-    srcdefnid = srcdefnid.upper()
     rows = query(env_name, """
-        SELECT SRCDEFNID, DESCR, STATUS, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
-          FROM SYSADM.PTSF_SRCDEFN
-         WHERE SRCDEFNID = :id
-    """, {"id": srcdefnid})
+        SELECT PTSF_SOURCE_NAME, DESCR100, PTSF_SOURCE_TYPE, PTSF_SBO_NAME,
+               OBJECTOWNERID, PACKAGEROOT, PTSF_ISGBLSRCH, PTSF_KEYWORDS,
+               PTSF_CONTENT_URL, LASTUPDDTTM, LASTUPDOPRID, LASTREFRESHDTTM
+          FROM SYSADM.PSPTSF_SD
+         WHERE PTSF_SOURCE_NAME = :id
+    """, {"id": source_name})
     if not rows:
-        return {"error": "not_found", "warnings": [f"Search Definition {srcdefnid!r} not found"]}
+        return {"error": "not_found", "warnings": [f"Search Definition {source_name!r} not found"]}
     defn = dict(rows[0])
-    defn["status_label"] = _SRCH_STATUS.get(str(defn.get("status") or ""), defn.get("status") or "")
+    defn["ptsf_source_type_label"] = _SRCH_SOURCE_TYPE.get(
+        str(defn.get("ptsf_source_type") or ""), defn.get("ptsf_source_type") or ""
+    )
+    sbo_name = defn.get("ptsf_sbo_name")
 
     fields = []
-    if ptmetadata.has_table(env_name, "PTSF_SRCMAP"):
+    if sbo_name and ptmetadata.has_table(env_name, "PSPTSF_SD_ATTR"):
         try:
             fld_rows = query(env_name, """
-                SELECT FIELDNAME, SRCKINDID, SEQNO
-                  FROM SYSADM.PTSF_SRCMAP
-                 WHERE SRCDEFNID = :id
-                 ORDER BY SEQNO
-            """, {"id": srcdefnid})
+                SELECT PTSF_SRCATTR_NAME, QRYFLDNAME, QRYNAME, SEQNUM,
+                       PTSF_ISFIELDTOIDX, PTSF_ISFLDTODISPL, PTSF_IS_FACETED
+                  FROM SYSADM.PSPTSF_SD_ATTR
+                 WHERE PTSF_SBO_NAME = :sbo
+                 ORDER BY SEQNUM
+            """, {"sbo": sbo_name})
             fields = [dict(r) for r in (fld_rows or [])]
         except Exception as exc:
-            warnings.append(f"PTSF_SRCMAP: {exc}")
+            warnings.append(f"PSPTSF_SD_ATTR: {exc}")
 
-    categories = []
-    if ptmetadata.has_table(env_name, "PTSF_SRCAT"):
+    panel_groups = []
+    if sbo_name and ptmetadata.has_table(env_name, "PSPTSF_SD_PNLGP"):
         try:
-            cat_rows = query(env_name, """
-                SELECT SRCCATID, DESCR
-                  FROM SYSADM.PTSF_SRCAT
-                 WHERE SRCDEFNID = :id
-                 ORDER BY SRCCATID
-            """, {"id": srcdefnid})
-            categories = [dict(r) for r in (cat_rows or [])]
+            pg_rows = query(env_name, """
+                SELECT PNLGRPNAME, MARKET, PTSF_SRCH_CRITERIA
+                  FROM SYSADM.PSPTSF_SD_PNLGP
+                 WHERE PTSF_SBO_NAME = :sbo
+                 ORDER BY MARKET
+            """, {"sbo": sbo_name})
+            panel_groups = [dict(r) for r in (pg_rows or [])]
         except Exception as exc:
-            warnings.append(f"PTSF_SRCAT: {exc}")
+            warnings.append(f"PSPTSF_SD_PNLGP: {exc}")
 
     return {
         "definition": defn,
         "fields": fields,
-        "categories": categories,
-        "counts": {"fields": len(fields), "categories": len(categories)},
+        "panel_groups": panel_groups,
+        "counts": {"fields": len(fields), "panel_groups": len(panel_groups)},
         "warnings": warnings,
     }
 
@@ -5103,25 +5174,33 @@ def get_drop_zone(env_name, dzname):
 
 # ---------------------------------------------------------------------------
 # Search Categories (PeopleSoft Search Framework, PTSF)
+#
+# Verified against the live SYSADM schema: the legacy PTSF_SRCAT table
+# referenced by an earlier revision of this module does not exist. The real,
+# populated schema is PSPTSF_SRCCAT, keyed by PTSF_SRCCAT_NAME. Categories
+# reference a Search Business Object (PTSF_SBO_NAME) via PSPTSF_CATPTSD —
+# the same SBO concept used by Search Definitions (see PSPTSF_SD above).
+# Display/advanced search fields and facets live in PSPTSF_CATDSPFD,
+# PSPTSF_CATADVFD, and PSPTSF_CATFACET, all keyed by PTSF_SRCCAT_NAME.
 # ---------------------------------------------------------------------------
 
 def search_search_categories(env_name, q="", limit=100):
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PTSF_SRCAT"):
-        return {"items": [], "warnings": ["PTSF_SRCAT not accessible"]}
+    if not ptmetadata.has_table(env_name, "PSPTSF_SRCCAT"):
+        return {"items": [], "warnings": ["PSPTSF_SRCCAT not accessible"]}
     clauses = []
     params = {"lim": limit}
     if q:
-        clauses.append("(UPPER(SRCCATID) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
+        clauses.append("(UPPER(PTSF_SRCCAT_NAME) LIKE UPPER(:q) OR UPPER(DESCR100) LIKE UPPER(:q2))")
         params["q"] = f"%{q}%"
         params["q2"] = f"%{q}%"
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     try:
         rows = query(env_name, f"""
-            SELECT SRCCATID, DESCR, SRCDEFNID
-              FROM SYSADM.PTSF_SRCAT
+            SELECT PTSF_SRCCAT_NAME, DESCR100, MARKET, OBJECTOWNERID, PTSF_SRCH_ENG
+              FROM SYSADM.PSPTSF_SRCCAT
              {where}
-             ORDER BY SRCCATID
+             ORDER BY PTSF_SRCCAT_NAME
              FETCH FIRST :lim ROWS ONLY
         """, params)
         return {"items": [dict(r) for r in (rows or [])], "warnings": []}
@@ -5129,37 +5208,85 @@ def search_search_categories(env_name, q="", limit=100):
         return {"items": [], "warnings": [str(exc)]}
 
 
-def get_search_category(env_name, srccatid):
+def get_search_category(env_name, srccat_name):
     from connectors import ptmetadata
-    if not ptmetadata.has_table(env_name, "PTSF_SRCAT"):
-        return {"error": "not_accessible", "warnings": ["PTSF_SRCAT not accessible"]}
+    if not ptmetadata.has_table(env_name, "PSPTSF_SRCCAT"):
+        return {"error": "not_accessible", "warnings": ["PSPTSF_SRCCAT not accessible"]}
     warnings = []
-    srccatid = srccatid.upper()
     rows = query(env_name, """
-        SELECT SRCCATID, DESCR, SRCDEFNID
-          FROM SYSADM.PTSF_SRCAT
-         WHERE SRCCATID = :id
-    """, {"id": srccatid})
+        SELECT PTSF_SRCCAT_NAME, DESCR100, MARKET, OBJECTOWNERID, PACKAGEROOT,
+               MENUNAME, PNLGRPNAME, PTSF_SRCH_ENG, PTSF_DISPLAY_TYPE,
+               PTSF_ISGBLSRCH, PTSF_ALLOW_DUPS, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSPTSF_SRCCAT
+         WHERE PTSF_SRCCAT_NAME = :id
+    """, {"id": srccat_name})
     if not rows:
-        return {"error": "not_found", "warnings": [f"Search Category {srccatid!r} not found"]}
+        return {"error": "not_found", "warnings": [f"Search Category {srccat_name!r} not found"]}
     defn = dict(rows[0])
 
-    definitions = []
-    if ptmetadata.has_table(env_name, "PTSF_SRCAT"):
+    sbo_links = []
+    if ptmetadata.has_table(env_name, "PSPTSF_CATPTSD"):
         try:
-            defn_rows = query(env_name, """
-                SELECT SRCDEFNID
-                  FROM SYSADM.PTSF_SRCAT
-                 WHERE SRCCATID = :id
-                 ORDER BY SRCDEFNID
-            """, {"id": srccatid})
-            definitions = [dict(r) for r in (defn_rows or [])]
+            sbo_rows = query(env_name, """
+                SELECT PTSF_SBO_NAME, MSGNODENAME
+                  FROM SYSADM.PSPTSF_CATPTSD
+                 WHERE PTSF_SRCCAT_NAME = :id
+                 ORDER BY PTSF_SBO_NAME
+            """, {"id": srccat_name})
+            sbo_links = [dict(r) for r in (sbo_rows or [])]
         except Exception as exc:
-            warnings.append(f"PTSF_SRCAT: {exc}")
+            warnings.append(f"PSPTSF_CATPTSD: {exc}")
+
+    display_fields = []
+    if ptmetadata.has_table(env_name, "PSPTSF_CATDSPFD"):
+        try:
+            fld_rows = query(env_name, """
+                SELECT PTSF_SRCATTR_NAME, PTSF_FLD_DISP_TYPE, SEQNO
+                  FROM SYSADM.PSPTSF_CATDSPFD
+                 WHERE PTSF_SRCCAT_NAME = :id
+                 ORDER BY SEQNO
+            """, {"id": srccat_name})
+            display_fields = [dict(r) for r in (fld_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSPTSF_CATDSPFD: {exc}")
+
+    advanced_fields = []
+    if ptmetadata.has_table(env_name, "PSPTSF_CATADVFD"):
+        try:
+            fld_rows = query(env_name, """
+                SELECT PTSF_SRCATTR_NAME, SEQNO
+                  FROM SYSADM.PSPTSF_CATADVFD
+                 WHERE PTSF_SRCCAT_NAME = :id
+                 ORDER BY SEQNO
+            """, {"id": srccat_name})
+            advanced_fields = [dict(r) for r in (fld_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSPTSF_CATADVFD: {exc}")
+
+    facets = []
+    if ptmetadata.has_table(env_name, "PSPTSF_CATFACET"):
+        try:
+            facet_rows = query(env_name, """
+                SELECT PTSF_FACET_NAME, PTSF_FACET_ORDER, PTSF_FCT_MULTISEL, SEQNO
+                  FROM SYSADM.PSPTSF_CATFACET
+                 WHERE PTSF_SRCCAT_NAME = :id
+                 ORDER BY PTSF_FACET_ORDER
+            """, {"id": srccat_name})
+            facets = [dict(r) for r in (facet_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSPTSF_CATFACET: {exc}")
 
     return {
         "definition": defn,
-        "definitions": definitions,
-        "counts": {"definitions": len(definitions)},
+        "sbo_links": sbo_links,
+        "display_fields": display_fields,
+        "advanced_fields": advanced_fields,
+        "facets": facets,
+        "counts": {
+            "sbo_links": len(sbo_links),
+            "display_fields": len(display_fields),
+            "advanced_fields": len(advanced_fields),
+            "facets": len(facets),
+        },
         "warnings": warnings,
     }

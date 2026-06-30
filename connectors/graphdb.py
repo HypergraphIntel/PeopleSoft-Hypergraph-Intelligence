@@ -748,16 +748,16 @@ def build(env="HCM", limit=50, persist=True):
         return len(rows)
 
     def approvals():
-        if not ptmetadata.has_table(env, "PSAWDEFN"):
+        if not ptmetadata.has_table(env, "PS_EOAW_TXN"):
             return 0
         rows = psdb.query(env, f"""
-            SELECT AWDEFNID, DESCR, STATUS, OBJECTOWNERID
-              FROM SYSADM.PSAWDEFN
+            SELECT EOAWPRCS_ID, DESCR, OBJECTOWNERID
+              FROM SYSADM.PS_EOAW_TXN
              WHERE ROWNUM <= {limit}
-             ORDER BY AWDEFNID
+             ORDER BY EOAWPRCS_ID
         """) or []
         for r in rows:
-            aid = r.get("awdefnid")
+            aid = r.get("eoawprcs_id")
             if not aid:
                 continue
             add_node(graph, "approval", aid, r.get("descr") or aid, r)
@@ -831,51 +831,51 @@ def build(env="HCM", limit=50, persist=True):
         return len(rows)
 
     def xpub_reports():
-        if not ptmetadata.has_table(env, "PSXPREPORTDEFN"):
+        if not ptmetadata.has_table(env, "PSXPRPTDEFN"):
             return 0
         rows = psdb.query(env, f"""
-            SELECT REPORTID, DESCR, OBJECTOWNERID, DATASRCID
-              FROM SYSADM.PSXPREPORTDEFN
+            SELECT REPORT_DEFN_ID, DESCR, OBJECTOWNERID, DS_ID
+              FROM SYSADM.PSXPRPTDEFN
              WHERE ROWNUM <= {limit}
-             ORDER BY REPORTID
+             ORDER BY REPORT_DEFN_ID
         """) or []
         for r in rows:
-            rid = r.get("reportid")
+            rid = r.get("report_defn_id")
             if not rid:
                 continue
             add_node(graph, "xml_publisher_report", rid, r.get("descr") or rid, r)
         return len(rows)
 
     def search_definitions():
-        if not ptmetadata.has_table(env, "PTSF_SRCDEFN"):
+        if not ptmetadata.has_table(env, "PSPTSF_SD"):
             return 0
         rows = psdb.query(env, f"""
-            SELECT SRCDEFNID, DESCR, STATUS, OBJECTOWNERID
-              FROM SYSADM.PTSF_SRCDEFN
+            SELECT PTSF_SOURCE_NAME, DESCR100, PTSF_SOURCE_TYPE, OBJECTOWNERID
+              FROM SYSADM.PSPTSF_SD
              WHERE ROWNUM <= {limit}
-             ORDER BY SRCDEFNID
+             ORDER BY PTSF_SOURCE_NAME
         """) or []
         for r in rows:
-            sid = r.get("srcdefnid")
+            sid = r.get("ptsf_source_name")
             if not sid:
                 continue
-            add_node(graph, "search_definition", sid, r.get("descr") or sid, r)
+            add_node(graph, "search_definition", sid, r.get("descr100") or sid, r)
         return len(rows)
 
     def search_categories():
-        if not ptmetadata.has_table(env, "PTSF_SRCAT"):
+        if not ptmetadata.has_table(env, "PSPTSF_SRCCAT"):
             return 0
         rows = psdb.query(env, f"""
-            SELECT SRCCATID, DESCR, SRCDEFNID
-              FROM SYSADM.PTSF_SRCAT
+            SELECT PTSF_SRCCAT_NAME, DESCR100, OBJECTOWNERID
+              FROM SYSADM.PSPTSF_SRCCAT
              WHERE ROWNUM <= {limit}
-             ORDER BY SRCCATID
+             ORDER BY PTSF_SRCCAT_NAME
         """) or []
         for r in rows:
-            cid = r.get("srccatid")
+            cid = r.get("ptsf_srccat_name")
             if not cid:
                 continue
-            add_node(graph, "search_category", cid, r.get("descr") or cid, r)
+            add_node(graph, "search_category", cid, r.get("descr100") or cid, r)
         return len(rows)
 
     def drop_zones():

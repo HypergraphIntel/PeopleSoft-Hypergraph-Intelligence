@@ -4144,129 +4144,152 @@ def menu_payload(env, menuname):
     }
 
 
-_AW_STATUS_CHIP = {"A": ("chip-ok", "Active"), "I": ("chip-muted", "Inactive")}
-_AW_PROCESS_LABELS = {
-    "0": "No Approval", "1": "User", "2": "Role", "3": "Query",
-    "4": "App Class", "5": "Supervisory", "6": "Position",
-    "7": "Dept Security", "8": "Role User",
-}
+_EOAW_STATUS_CHIP = {"A": ("chip-ok", "Active"), "I": ("chip-muted", "Inactive")}
 
 
-def approval_object(env, awdefnid):
-    data = psdb.get_approval(env, awdefnid.upper())
-    defn = data.get("definition")
+def approval_object(env, eoawprcs_id):
+    data = psdb.get_approval(env, eoawprcs_id)
+    if "error" in data:
+        return {
+            "environment": env.upper(),
+            "type": "approval",
+            "name": eoawprcs_id,
+            "display_name": eoawprcs_id,
+            "description": "",
+            "status": "not_found",
+            "data": data,
+            "warnings": [{"code": w, "message": w} for w in data.get("warnings", [])],
+            "_links": {"admin": object_url("approval", eoawprcs_id)},
+        }
+    defn = data.get("definition") or {}
     return {
         "environment": env.upper(),
         "type": "approval",
-        "name": awdefnid.upper(),
-        "display_name": awdefnid.upper(),
-        "description": str(defn.get("descr") or "").strip() if defn else "",
-        "status": "resolved" if defn else "not_found",
+        "name": defn.get("eoawprcs_id", eoawprcs_id),
+        "display_name": defn.get("eoawprcs_id", eoawprcs_id),
+        "description": str(defn.get("descr") or "").strip(),
+        "status": "resolved",
         "data": data,
         "warnings": [{"code": w, "message": w} for w in data.get("warnings", [])],
-        "_links": {"admin": object_url("approval", awdefnid.upper())},
+        "_links": {"admin": object_url("approval", defn.get("eoawprcs_id", eoawprcs_id))},
     }
 
 
 def sections_for_approval(obj):
     data = obj.get("data") or {}
     defn = data.get("definition") or {}
+    process_definitions = data.get("process_definitions") or []
     stages = data.get("stages") or []
     paths = data.get("paths") or []
     steps = data.get("steps") or []
+    default_defn_id = data.get("default_process_definition")
     sections = []
 
     overview = {}
     if defn.get("descr"):
         overview["Description"] = str(defn["descr"]).strip()
-    st = str(defn.get("status") or "").strip()
-    if st:
-        _, label = _AW_STATUS_CHIP.get(st, ("chip-muted", st))
-        overview["Status"] = label
+    if defn.get("packageroot"):
+        overview["Package Root"] = str(defn["packageroot"]).strip()
+    if defn.get("appclass_path"):
+        overview["App Class Path"] = str(defn["appclass_path"]).strip()
+    if defn.get("eoawappr_component"):
+        overview["Approval Component"] = str(defn["eoawappr_component"]).strip()
+    if defn.get("menuname"):
+        overview["Menu"] = str(defn["menuname"]).strip()
     if defn.get("objectownerid"):
         overview["Owner"] = str(defn["objectownerid"]).strip()
-    if defn.get("lastupdoprid"):
-        overview["Last Updated By"] = str(defn["lastupdoprid"]).strip()
-    if defn.get("lastupddttm"):
-        overview["Last Updated"] = str(defn["lastupddttm"])
+    overview["Email"] = "Yes" if str(defn.get("eoaw_email") or "") == "Y" else "No"
+    overview["Worklist"] = "Yes" if str(defn.get("eoaw_worklist") or "") == "Y" else "No"
+    overview["Push"] = "Yes" if str(defn.get("eoaw_push") or "") == "Y" else "No"
     counts = data.get("counts") or {}
     if counts:
+        overview["Process Definitions"] = str(counts.get("process_definitions", 0))
         overview["Stages"] = str(counts.get("stages", 0))
-        overview["Paths"] = str(counts.get("paths", 0))
         overview["Steps"] = str(counts.get("steps", 0))
+        overview["Paths"] = str(counts.get("paths", 0))
     sections.append({"name": "Definition", "items": [], "data": overview})
+
+    if process_definitions:
+        pd_items = []
+        for pd in process_definitions:
+            _, status_label = _EOAW_STATUS_CHIP.get(str(pd.get("eff_status") or ""), ("chip-muted", pd.get("eff_status") or ""))
+            is_default = pd.get("eoawdefn_id") == default_defn_id
+            pd_items.append({
+                "title": f"{pd.get('eoawdefn_id')}: {str(pd.get('descr') or '').strip()}",
+                "relationship": status_label,
+                "admin_role": str(pd.get("eoawadmin_rolename") or "").strip() or None,
+                "auto_approve": pd.get("eoawauto_approve") == "Y",
+                "default": is_default,
+            })
+        sections.append({"name": "Process Definitions", "items": pd_items, "count": len(pd_items)})
 
     if stages:
         stage_items = []
-        # Group paths and steps by stage for display
-        paths_by_stage = {}
-        for p in paths:
-            sn = p.get("stage_no")
-            paths_by_stage.setdefault(sn, []).append(p)
-        steps_by_stage_path = {}
-        for st2 in steps:
-            key = (st2.get("stage_no"), st2.get("path_no"))
-            steps_by_stage_path.setdefault(key, []).append(st2)
-
+        steps_by_stage = {}
+        for s in steps:
+            steps_by_stage.setdefault(s.get("eoawstage_nbr"), []).append(s)
         for stage in stages:
-            sn = stage.get("stage_no")
-            pt_label = _AW_PROCESS_LABELS.get(str(stage.get("process_type") or ""), "")
-            stage_paths = paths_by_stage.get(sn, [])
+            sn = stage.get("eoawstage_nbr")
             stage_items.append({
                 "title": f"Stage {sn}: {str(stage.get('descr') or '').strip()}",
-                "relationship": pt_label or None,
+                "relationship": f"Level {stage.get('eoawlevel')}" if stage.get("eoawlevel") is not None else None,
                 "stage_no": sn,
-                "path_count": len(stage_paths),
-                "step_count": sum(
-                    len(steps_by_stage_path.get((sn, p.get("path_no")), []))
-                    for p in stage_paths
-                ),
+                "step_count": len(steps_by_stage.get(sn, [])),
             })
-        sections.append({
-            "name": "Stages",
-            "items": stage_items,
-            "count": len(stage_items),
-        })
+        sections.append({"name": "Stages", "items": stage_items, "count": len(stage_items)})
 
     if steps:
         step_items = []
-        for st3 in steps:
-            pt_label = _AW_PROCESS_LABELS.get(str(st3.get("process_type") or ""), "")
-            userlist = str(st3.get("awuserlistid") or "").strip()
+        for st in steps:
+            approver = str(st.get("eoawapprover_list") or "").strip() or str(st.get("eoawrolename") or "").strip()
             step_items.append({
                 "title": (
-                    f"S{st3.get('stage_no')} P{st3.get('path_no')} "
-                    f"Step {st3.get('step_no')}: {str(st3.get('descr') or '').strip()}"
+                    f"Stage {st.get('eoawstage_nbr')} Step {st.get('eoawstep_nbr')}: "
+                    f"{str(st.get('descr') or '').strip()}"
                 ),
-                "relationship": pt_label or None,
-                "userlist": userlist or None,
+                "relationship": approver or None,
+                "min_approvers": st.get("eoawmin_approvers"),
+                "path_id": st.get("eoawpath_id"),
             })
         sections.append({"name": "Steps", "items": step_items, "count": len(step_items)})
+
+    if paths:
+        path_items = []
+        for p in paths:
+            escal = []
+            if p.get("eoawnumber_days"):
+                escal.append(f"{p['eoawnumber_days']}d")
+            if p.get("eoawnumber_hours"):
+                escal.append(f"{p['eoawnumber_hours']}h")
+            path_items.append({
+                "title": f"Stage {p.get('eoawstage_nbr')} Path {p.get('eoawpath_id')}: {str(p.get('descr') or '').strip()}",
+                "relationship": " ".join(escal) or None,
+            })
+        sections.append({"name": "Paths", "items": path_items, "count": len(path_items)})
 
     return [s for s in sections if s.get("data") or s.get("items")]
 
 
-def approval_payload(env, awdefnid):
-    obj = approval_object(env, awdefnid)
+def approval_payload(env, eoawprcs_id):
+    obj = approval_object(env, eoawprcs_id)
     data = obj.get("data") or {}
     defn = data.get("definition") or {}
     counts = data.get("counts") or {}
     return {
         "environment": env.upper(),
         "type": "approval",
-        "name": awdefnid.upper(),
-        "display_name": awdefnid.upper(),
+        "name": obj["name"],
+        "display_name": obj["display_name"],
         "description": obj.get("description", ""),
         "status": obj.get("status", "unknown"),
         "overview": {
             "description": str(defn.get("descr") or "").strip(),
-            "status": str(defn.get("status") or "").strip(),
-            "status_label": obj.get("data", {}).get("definition", {}).get("status_label", ""),
+            "package_root": str(defn.get("packageroot") or "").strip() or None,
             "owner": str(defn.get("objectownerid") or "").strip() or None,
-            "last_updated_by": str(defn.get("lastupdoprid") or "").strip() or None,
+            "process_definition_count": counts.get("process_definitions", 0),
             "stage_count": counts.get("stages", 0),
-            "path_count": counts.get("paths", 0),
             "step_count": counts.get("steps", 0),
+            "path_count": counts.get("paths", 0),
         },
         "sections": sections_for_approval(obj),
         "warnings": obj.get("warnings", []),
@@ -4379,12 +4402,11 @@ def message_catalog_payload(env, name):
 
 
 _XPUB_DATASRC_CHIP = {
-    "A": ("chip-info",  "App Engine"),
-    "Q": ("chip-info",  "PS Query"),
-    "S": ("chip-info",  "SQL"),
-    "C": ("chip-info",  "Connected Query"),
-    "G": ("chip-info",  "Group"),
-    "F": ("chip-info",  "File"),
+    "XML": ("chip-info", "XML"),
+    "CQR": ("chip-info", "Connected Query"),
+    "QRY": ("chip-info", "PS Query"),
+    "XMD": ("chip-info", "XML Data"),
+    "RST": ("chip-info", "REST"),
 }
 
 _XPUB_STATUS_CHIP = {
@@ -4393,19 +4415,19 @@ _XPUB_STATUS_CHIP = {
 }
 
 
-def xpub_report_object(env, reportid):
-    data = psdb.get_xpub_report(env, reportid.upper())
+def xpub_report_object(env, report_defn_id):
+    data = psdb.get_xpub_report(env, report_defn_id.upper())
     defn = data.get("definition")
     return {
         "environment": env.upper(),
         "type": "xml_publisher_report",
-        "name": reportid.upper(),
-        "display_name": reportid.upper(),
+        "name": report_defn_id.upper(),
+        "display_name": report_defn_id.upper(),
         "description": str(defn.get("descr") or "").strip() if defn else "",
         "status": "resolved" if defn else "not_found",
         "data": data,
         "warnings": [{"code": w, "message": w} for w in data.get("warnings", [])],
-        "_links": {"admin": object_url("xml_publisher_report", reportid.upper())},
+        "_links": {"admin": object_url("xml_publisher_report", report_defn_id.upper())},
     }
 
 
@@ -4413,7 +4435,9 @@ def sections_for_xpub_report(obj):
     data = obj.get("data") or {}
     defn = data.get("definition") or {}
     datasrc = data.get("datasource") or {}
+    category = data.get("category") or {}
     templates = data.get("templates") or []
+    output_formats = data.get("output_formats") or []
     sections = []
 
     overview = {}
@@ -4421,10 +4445,16 @@ def sections_for_xpub_report(obj):
         overview["Description"] = str(defn["descr"]).strip()
     if defn.get("objectownerid"):
         overview["Owner"] = str(defn["objectownerid"]).strip()
-    if defn.get("datasrcid"):
-        overview["Data Source"] = str(defn["datasrcid"]).strip()
-    if datasrc.get("datasrctype_label"):
-        overview["Data Source Type"] = datasrc["datasrctype_label"]
+    st = str(defn.get("pt_report_status") or "").strip()
+    if st:
+        _, status_label = _XPUB_STATUS_CHIP.get(st, ("chip-muted", st))
+        overview["Status"] = status_label
+    if defn.get("pt_template_type"):
+        overview["Template Type"] = str(defn["pt_template_type"]).strip()
+    if defn.get("ds_id"):
+        overview["Data Source"] = str(defn["ds_id"]).strip()
+    if category.get("descr"):
+        overview["Category"] = str(category["descr"]).strip()
     if defn.get("lastupdoprid"):
         overview["Last Updated By"] = str(defn["lastupdoprid"]).strip()
     if defn.get("lastupddttm"):
@@ -4435,24 +4465,31 @@ def sections_for_xpub_report(obj):
     if templates:
         tmpl_items = []
         for t in templates:
-            lang = str(t.get("psfbdilangcd") or "").strip()
-            fmt = t.get("templateformat_label") or str(t.get("templateformat") or "")
-            out = t.get("outputformat_label") or str(t.get("outputformat") or "")
-            effdt = str(t.get("effdt") or "")[:10]
-            eff_status = str(t.get("eff_status") or "").strip()
-            _, status_label = _XPUB_STATUS_CHIP.get(eff_status, ("chip-muted", eff_status))
+            lang = str(t.get("tmpllangcd") or "").strip()
+            ttype = str(t.get("pt_template_type") or "").strip()
+            is_default = t.get("is_default") == "Y"
             tmpl_items.append({
-                "title": f"{lang} — {fmt} → {out}",
-                "relationship": status_label,
-                "effdt": effdt,
+                "title": f"{t.get('tmpldefn_id')}: {str(t.get('descr') or '').strip()}",
+                "relationship": ttype or None,
+                "lang": lang or None,
+                "default": is_default,
             })
         sections.append({"name": "Templates", "items": tmpl_items, "count": len(tmpl_items)})
+
+    if output_formats:
+        fmt_items = []
+        for f in output_formats:
+            fmt_items.append({
+                "title": str(f.get("pt_format_type") or "").strip(),
+                "default": f.get("is_default") == "Y",
+            })
+        sections.append({"name": "Output Formats", "items": fmt_items, "count": len(fmt_items)})
 
     return [s for s in sections if s.get("data") or s.get("items")]
 
 
-def xpub_report_payload(env, reportid):
-    obj = xpub_report_object(env, reportid)
+def xpub_report_payload(env, report_defn_id):
+    obj = xpub_report_object(env, report_defn_id)
     data = obj.get("data") or {}
     defn = data.get("definition") or {}
     datasrc = data.get("datasource") or {}
@@ -4460,18 +4497,20 @@ def xpub_report_payload(env, reportid):
     return {
         "environment": env.upper(),
         "type": "xml_publisher_report",
-        "name": reportid.upper(),
-        "display_name": reportid.upper(),
+        "name": report_defn_id.upper(),
+        "display_name": report_defn_id.upper(),
         "description": obj.get("description", ""),
         "status": obj.get("status", "unknown"),
         "overview": {
             "description": str(defn.get("descr") or "").strip(),
             "owner": str(defn.get("objectownerid") or "").strip() or None,
-            "datasrcid": str(defn.get("datasrcid") or "").strip() or None,
+            "ds_id": str(defn.get("ds_id") or "").strip() or None,
             "datasrc_descr": str(datasrc.get("descr") or "").strip() or None,
-            "datasrc_type": str(datasrc.get("datasrctype") or "").strip() or None,
-            "datasrc_type_label": datasrc.get("datasrctype_label") or None,
+            "datasrc_type": str(datasrc.get("ds_type") or "").strip() or None,
+            "datasrc_type_label": datasrc.get("ds_type_label") or None,
+            "status_label": defn.get("pt_report_status_label") or None,
             "template_count": counts.get("templates", 0),
+            "output_format_count": counts.get("output_formats", 0),
         },
         "sections": sections_for_xpub_report(obj),
         "warnings": obj.get("warnings", []),
@@ -4742,26 +4781,26 @@ def related_content_payload(env, relconid):
     }
 
 
-_SRCH_STATUS_CHIP = {
-    "Active":   "chip-success",
-    "Inactive": "chip-muted",
+_SRCH_SOURCE_TYPE_CHIP = {
+    "Application Class": "chip-info",
+    "Connected Query":   "chip-info",
+    "PS Query":          "chip-info",
 }
 
 
-def search_definition_object(env, srcdefnid):
-    data = psdb.get_search_definition(env, srcdefnid.upper())
+def search_definition_object(env, source_name):
+    data = psdb.get_search_definition(env, source_name.upper())
     if "error" in data:
         return None
     defn = data.get("definition", {})
-    status_label = defn.get("status_label") or defn.get("status") or ""
     return {
         "type": "search_definition",
-        "name": defn.get("srcdefnid", srcdefnid),
-        "title": defn.get("descr") or srcdefnid,
-        "status": status_label,
+        "name": defn.get("ptsf_source_name", source_name),
+        "title": defn.get("descr100") or source_name,
+        "source_type": defn.get("ptsf_source_type_label"),
         "owner": defn.get("objectownerid"),
         "_raw": data,
-        "_links": {"admin": object_url("search_definition", srcdefnid.upper())},
+        "_links": {"admin": object_url("search_definition", source_name.upper())},
         "warnings": data.get("warnings", []),
     }
 
@@ -4770,15 +4809,19 @@ def sections_for_search_definition(obj):
     raw = obj.get("_raw", {})
     defn = raw.get("definition", {})
     fields = raw.get("fields", [])
-    categories = raw.get("categories", [])
+    panel_groups = raw.get("panel_groups", [])
     counts = raw.get("counts", {})
     sections = []
 
     overview_rows = [
-        ("ID", defn.get("srcdefnid")),
-        ("Description", defn.get("descr")),
-        ("Status", defn.get("status_label")),
+        ("Source Name", defn.get("ptsf_source_name")),
+        ("Description", defn.get("descr100")),
+        ("Source Type", defn.get("ptsf_source_type_label")),
+        ("Search Business Object", defn.get("ptsf_sbo_name")),
         ("Owner", defn.get("objectownerid")),
+        ("Package Root", str(defn.get("packageroot") or "").strip() or None),
+        ("Global Search", "Yes" if str(defn.get("ptsf_isgblsrch") or "").strip() == "Y" else None),
+        ("Last Refreshed", defn.get("lastrefreshdttm")),
         ("Last Updated", defn.get("lastupddttm")),
         ("Last Updated By", defn.get("lastupdoprid")),
     ]
@@ -4788,32 +4831,40 @@ def sections_for_search_definition(obj):
     if fields:
         field_items = []
         for f in fields:
+            chips = []
+            if str(f.get("ptsf_isfieldtoidx") or "").strip() == "Y":
+                chips.append({"label": "Indexed", "cls": "chip-info"})
+            if str(f.get("ptsf_isfldtodispl") or "").strip() == "Y":
+                chips.append({"label": "Displayed", "cls": "chip-info"})
+            if str(f.get("ptsf_is_faceted") or "").strip() == "Y":
+                chips.append({"label": "Faceted", "cls": "chip-info"})
+            name = str(f.get("ptsf_srcattr_name") or "").strip() or f.get("qryfldname", "")
             field_items.append({
-                "name": f.get("fieldname", ""),
-                "label": f.get("fieldname", ""),
-                "chips": [{"label": f.get("srckindid") or "", "cls": "chip-info"}] if f.get("srckindid") else [],
-                "meta": f"seq {f.get('seqno', '')}" if f.get("seqno") is not None else "",
+                "name": name,
+                "label": name,
+                "chips": chips,
+                "meta": f"seq {f.get('seqnum', '')} · {f.get('qryfldname', '')}",
             })
         sections.append({"id": "fields", "title": f"Fields ({counts.get('fields', len(fields))})",
                          "items": field_items})
 
-    if categories:
-        cat_items = []
-        for c in categories:
-            cat_items.append({
-                "name": c.get("srccatid", ""),
-                "label": c.get("srccatid", ""),
-                "chips": [],
-                "meta": c.get("descr", ""),
+    if panel_groups:
+        pg_items = []
+        for pg in panel_groups:
+            pg_items.append({
+                "name": str(pg.get("pnlgrpname") or "").strip() or "(none)",
+                "label": str(pg.get("pnlgrpname") or "").strip() or "(none)",
+                "chips": [{"label": pg.get("market"), "cls": "chip-muted"}] if pg.get("market") else [],
+                "meta": str(pg.get("ptsf_srch_criteria") or "").strip(),
             })
-        sections.append({"id": "categories", "title": f"Categories ({counts.get('categories', len(categories))})",
-                         "items": cat_items})
+        sections.append({"id": "panel_groups", "title": f"Panel Groups ({counts.get('panel_groups', len(panel_groups))})",
+                         "items": pg_items})
 
     return sections
 
 
-def search_definition_payload(env, srcdefnid):
-    obj = search_definition_object(env, srcdefnid)
+def search_definition_payload(env, source_name):
+    obj = search_definition_object(env, source_name)
     if obj is None:
         return None
     return {
@@ -4821,7 +4872,7 @@ def search_definition_payload(env, srcdefnid):
         "name": obj["name"],
         "title": obj["title"],
         "overview": {
-            "status": obj.get("status"),
+            "source_type": obj.get("source_type"),
             "owner": obj.get("owner"),
         },
         "sections": sections_for_search_definition(obj),
@@ -4831,18 +4882,18 @@ def search_definition_payload(env, srcdefnid):
     }
 
 
-def search_category_object(env, srccatid):
-    data = psdb.get_search_category(env, srccatid.upper())
+def search_category_object(env, srccatname):
+    data = psdb.get_search_category(env, srccatname.upper())
     if "error" in data:
         return None
     defn = data.get("definition", {})
     return {
         "type": "search_category",
-        "name": defn.get("srccatid", srccatid),
-        "title": defn.get("descr") or srccatid,
-        "srcdefnid": defn.get("srcdefnid"),
+        "name": defn.get("ptsf_srccat_name", srccatname),
+        "title": defn.get("descr100") or srccatname,
+        "sbo_name": (data.get("sbo_links") or [{}])[0].get("ptsf_sbo_name"),
         "_raw": data,
-        "_links": {"admin": object_url("search_category", srccatid.upper())},
+        "_links": {"admin": object_url("search_category", srccatname.upper())},
         "warnings": data.get("warnings", []),
     }
 
@@ -4850,35 +4901,93 @@ def search_category_object(env, srccatid):
 def sections_for_search_category(obj):
     raw = obj.get("_raw", {})
     defn = raw.get("definition", {})
-    definitions = raw.get("definitions", [])
+    sbo_links = raw.get("sbo_links", [])
+    display_fields = raw.get("display_fields", [])
+    advanced_fields = raw.get("advanced_fields", [])
+    facets = raw.get("facets", [])
     counts = raw.get("counts", {})
     sections = []
 
+    def _clean(v):
+        v = str(v or "").strip()
+        return v or None
+
     overview_rows = [
-        ("ID", defn.get("srccatid")),
-        ("Description", defn.get("descr")),
-        ("Search Definition", defn.get("srcdefnid")),
+        ("Name", _clean(defn.get("ptsf_srccat_name"))),
+        ("Description", _clean(defn.get("descr100"))),
+        ("Owner", _clean(defn.get("objectownerid"))),
+        ("Market", _clean(defn.get("market"))),
+        ("Package Root", _clean(defn.get("packageroot"))),
+        ("Menu", _clean(defn.get("menuname"))),
+        ("Panel Group", _clean(defn.get("pnlgrpname"))),
+        ("Search Engine", _clean(defn.get("ptsf_srch_eng"))),
+        ("Display Type", _clean(defn.get("ptsf_display_type"))),
+        ("Global Search", "Yes" if _clean(defn.get("ptsf_isgblsrch")) == "Y" else None),
+        ("Allow Duplicates", "Yes" if _clean(defn.get("ptsf_allow_dups")) == "Y" else None),
+        ("Last Updated", defn.get("lastupddttm")),
+        ("Last Updated By", _clean(defn.get("lastupdoprid"))),
     ]
     sections.append({"id": "overview", "title": "Overview",
                      "rows": [{"label": k, "value": v} for k, v in overview_rows if v is not None]})
 
-    if definitions:
-        defn_items = []
-        for d in definitions:
-            defn_items.append({
-                "name": d.get("srcdefnid", ""),
-                "label": d.get("srcdefnid", ""),
+    if sbo_links:
+        sbo_items = []
+        for s in sbo_links:
+            sbo_items.append({
+                "name": s.get("ptsf_sbo_name", ""),
+                "label": s.get("ptsf_sbo_name", ""),
                 "chips": [],
-                "meta": "",
+                "meta": s.get("msgnodename", ""),
             })
-        sections.append({"id": "definitions", "title": f"Search Definitions ({counts.get('definitions', len(definitions))})",
-                         "items": defn_items})
+        sections.append({"id": "sbo_links", "title": f"Search Business Objects ({counts.get('sbo_links', len(sbo_links))})",
+                         "items": sbo_items})
+
+    if display_fields:
+        fld_items = []
+        for f in display_fields:
+            name = _clean(f.get("ptsf_srcattr_name")) or "(unnamed)"
+            disp_type = _clean(f.get("ptsf_fld_disp_type"))
+            chips = [{"label": disp_type, "cls": "chip-info"}] if disp_type else []
+            fld_items.append({
+                "name": name,
+                "label": name,
+                "chips": chips,
+                "meta": f"Seq {f.get('seqno')}" if f.get("seqno") is not None else "",
+            })
+        sections.append({"id": "display_fields", "title": f"Display Fields ({counts.get('display_fields', len(display_fields))})",
+                         "items": fld_items})
+
+    if advanced_fields:
+        adv_items = []
+        for f in advanced_fields:
+            adv_items.append({
+                "name": f.get("ptsf_srcattr_name", ""),
+                "label": f.get("ptsf_srcattr_name", ""),
+                "chips": [],
+                "meta": f"Seq {f.get('seqno')}" if f.get("seqno") is not None else "",
+            })
+        sections.append({"id": "advanced_fields", "title": f"Advanced Search Fields ({counts.get('advanced_fields', len(advanced_fields))})",
+                         "items": adv_items})
+
+    if facets:
+        facet_items = []
+        for f in facets:
+            chips = [{"label": "Multi-select", "cls": "chip-muted"}] if f.get("ptsf_fct_multisel") == "Y" else []
+            order = _clean(f.get("ptsf_facet_order"))
+            facet_items.append({
+                "name": f.get("ptsf_facet_name", ""),
+                "label": f.get("ptsf_facet_name", ""),
+                "chips": chips,
+                "meta": f"Order {order}" if order else "",
+            })
+        sections.append({"id": "facets", "title": f"Facets ({counts.get('facets', len(facets))})",
+                         "items": facet_items})
 
     return sections
 
 
-def search_category_payload(env, srccatid):
-    obj = search_category_object(env, srccatid)
+def search_category_payload(env, srccatname):
+    obj = search_category_object(env, srccatname)
     if obj is None:
         return None
     return {
@@ -4886,7 +4995,7 @@ def search_category_payload(env, srccatid):
         "name": obj["name"],
         "title": obj["title"],
         "overview": {
-            "srcdefnid": obj.get("srcdefnid"),
+            "sbo_name": obj.get("sbo_name"),
         },
         "sections": sections_for_search_category(obj),
         "warnings": obj.get("warnings", []),
