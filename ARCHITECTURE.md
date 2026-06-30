@@ -1,4 +1,5 @@
-# DeathStar Platform Architecture
+# PeopleSoft Explorer
+*Project Codename: DeathStar*
 
 # Vision
 
@@ -32,6 +33,21 @@ These pillars share a common foundation:
 - Runtime providers
 
 This architecture allows new PeopleSoft object types, runtime providers, and analysis engines to be added with minimal changes to the surrounding platform.
+
+---
+
+## Engineering Principles
+
+Every subsystem should follow these principles.
+
+- Read-only by default
+- Discover before assuming
+- Version-aware metadata
+- Provider-based architecture
+- Graceful degradation
+- Runtime and metadata are first-class citizens
+- Every object participates in the Knowledge Graph
+- Every feature is API-first
 
 ---
 
