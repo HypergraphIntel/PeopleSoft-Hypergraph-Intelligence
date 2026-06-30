@@ -589,11 +589,11 @@
 
 # Upcoming Priorities
 
-## Medium Priority
+## Medium Priority — Completed
 
--   Advanced Portal Registry reconstruction
--   Graph indexing
--   Advanced dependency analysis
+-   Advanced Portal Registry reconstruction: Two bugs fixed — `portal_registry_portals()` root detection changed from `TRIM(PORTAL_PRNTOBJNAME) = ' '` to `LENGTH(TRIM(PORTAL_PRNTOBJNAME)) = 0`; `portal_registry_breadcrumbs_fast()` CONNECT BY query updated to include `AND UPPER(PORTAL_NAME) = UPPER(:pn)` in both the START WITH clause and CONNECT BY predicate, plus `NOCYCLE`, eliminating cross-portal row multiplication.
+-   Graph indexing: Five new bulk graph providers added to `graphdb.build()`: `menus` (PSMENUDEFN + PSMENUITEM → menu→component CONTAINS edges), `trees` (PSTREEDEFN → tree→record USES edges), `sql_definitions` (PSSQLDEFN standalone type=0), `queries` (PSQRYDEFN public OPRID=' '), `component_interfaces` (PSBCDEFN → ci→component WRAPS edges). Each uses a single SQL call with ROWNUM limit. WRAPS edge type added to EDGE_TYPES and DEPENDENCY_EDGES. OBJECT_REGISTRY entries for tree/query/ci/menu updated with correct column names and relationship declarations.
+-   Advanced dependency analysis: `graphdb.impact(env, node, depth)` combines forward + reverse `dependency_tree()` traversal and returns per-direction type summaries. `GET /api/graph/impact/{node_id}` endpoint added. Graph Explorer gains an IMPACT tab with type+name picker, depth selector, and side-by-side upstream/downstream panels grouped by node type with clickable object links.
 
 ## Blocked
 

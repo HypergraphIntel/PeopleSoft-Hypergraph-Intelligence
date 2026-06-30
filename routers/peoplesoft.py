@@ -660,6 +660,44 @@ def peoplesoft_portal_registry_security(portal_objname: str, env: str = "HCM"):
     }
 
 
+@router.get("/api/peoplesoft/portal/portals")
+def portal_portals(env: str = "HCM"):
+    """List all portals with counts and root folder."""
+    return psdb.portal_registry_portals(env)
+
+
+@router.get("/api/peoplesoft/portal/folders")
+def portal_folder_children(
+    portal_name: str = "EMPLOYEE",
+    parent: str = "PORTAL_ROOT_OBJECT",
+    folders_only: bool = False,
+    env: str = "HCM",
+):
+    """Return immediate children of a portal folder — used for lazy tree navigation."""
+    rows = safe_rows(lambda: psdb.portal_registry_folder_children(env, portal_name, parent, include_crefs=not folders_only))
+    return [
+        {
+            **r,
+            "has_children": bool(safe_rows(lambda rr=r: psdb.portal_registry_folder_children(env, portal_name, rr["portal_objname"], include_crefs=False)))
+            if r.get("portal_reftype") == "F" else False,
+            "_links": {"admin": f"/admin/portal?portal={r.get('portal_objname', '')}"},
+        }
+        for r in rows
+    ]
+
+
+@router.get("/api/peoplesoft/portal/breadcrumbs/{portal_objname}")
+def portal_breadcrumbs_fast(portal_objname: str, portal_name: str = "EMPLOYEE", env: str = "HCM"):
+    """Fast breadcrumb chain using Oracle CONNECT BY (single query)."""
+    return psdb.portal_registry_breadcrumbs_fast(env, portal_objname, portal_name)
+
+
+@router.get("/api/peoplesoft/portal/analysis")
+def portal_analysis(portal_name: str = "EMPLOYEE", env: str = "HCM"):
+    """Structural analysis: orphans, empty folders, top-referenced components."""
+    return psdb.portal_registry_analysis(env, portal_name)
+
+
 @router.get("/api/peoplesoft/oprids")
 def search_oprids(env: str = "HCM", q: str = ""):
     return psdb.search_oprids(env, q)

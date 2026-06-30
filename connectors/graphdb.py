@@ -29,8 +29,9 @@ EDGE_TYPES = {
 }
 
 EDGE_TYPES.add("ROUTES")
+EDGE_TYPES.add("WRAPS")
 
-DEPENDENCY_EDGES = {"USES", "CONTAINS", "REFERENCES", "DEPENDS_ON", "CALLS", "READS", "WRITES", "SECURES", "EXPOSES", "ROUTES"}
+DEPENDENCY_EDGES = {"USES", "CONTAINS", "REFERENCES", "DEPENDS_ON", "CALLS", "READS", "WRITES", "SECURES", "EXPOSES", "ROUTES", "WRAPS"}
 
 
 def empty_graph(env="HCM"):
@@ -637,6 +638,115 @@ def build(env="HCM", limit=50, persist=True):
                     graph["warnings"].append(w)
         return total
 
+    def menus():
+        if not ptmetadata.has_table(env, "PSMENUDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT d.MENUNAME, d.DESCR, d.MENUTYPE, d.OBJECTOWNERID,
+                   i.PNLGRPNAME AS component
+              FROM (SELECT MENUNAME, DESCR, MENUTYPE, OBJECTOWNERID
+                      FROM SYSADM.PSMENUDEFN
+                     WHERE ROWNUM <= {limit}) d
+              LEFT JOIN SYSADM.PSMENUITEM i
+                ON i.MENUNAME = d.MENUNAME
+               AND TRIM(i.PNLGRPNAME) IS NOT NULL
+               AND i.PNLGRPNAME != ' '
+        """) or []
+        seen = set()
+        for r in rows:
+            mn = r.get("menuname")
+            if not mn:
+                continue
+            if mn not in seen:
+                add_node(graph, "menu", mn, r.get("descr") or mn, r)
+                seen.add(mn)
+            comp = r.get("component")
+            if comp and comp.strip():
+                add_node(graph, "component", comp, comp, {})
+                add_edge(graph, "menu", mn, "component", comp, "CONTAINS", r)
+        return len(seen)
+
+    def trees():
+        if not ptmetadata.has_table(env, "PSTREEDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT TREENAME, SETID, SETCNTRLVALUE, TREESTRCTPNM,
+                   TREE_RECNAME, DESCR, EFF_STATUS, OBJECTOWNERID
+              FROM SYSADM.PSTREEDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY TREENAME, EFFDT DESC
+        """) or []
+        seen = set()
+        for r in rows:
+            tn = r.get("treename")
+            if not tn or tn in seen:
+                continue
+            seen.add(tn)
+            add_node(graph, "tree", tn, r.get("descr") or tn, r)
+            strct_rec = r.get("treestrctpnm")
+            if strct_rec and strct_rec.strip():
+                add_node(graph, "record", strct_rec, strct_rec, {})
+                add_edge(graph, "tree", tn, "record", strct_rec, "USES", r)
+            leaf_rec = r.get("tree_recname")
+            if leaf_rec and leaf_rec.strip() and leaf_rec != strct_rec:
+                add_node(graph, "record", leaf_rec, leaf_rec, {})
+                add_edge(graph, "tree", tn, "record", leaf_rec, "USES", r)
+        return len(seen)
+
+    def sql_definitions():
+        if not ptmetadata.has_table(env, "PSSQLDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT SQLID, SQLTYPE, OBJECTOWNERID, LASTUPDDTTM
+              FROM SYSADM.PSSQLDEFN
+             WHERE SQLTYPE = 0
+               AND ROWNUM <= {limit}
+             ORDER BY SQLID
+        """) or []
+        for r in rows:
+            sqlid = r.get("sqlid")
+            if sqlid:
+                add_node(graph, "sql_definition", sqlid, sqlid, r)
+        return len(rows)
+
+    def queries():
+        if not ptmetadata.has_table(env, "PSQRYDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT QRYNAME, OPRID, DESCR, QRYFOLDER, QRYTYPE,
+                   LASTUPDDTTM, LASTUPDOPRID
+              FROM SYSADM.PSQRYDEFN
+             WHERE OPRID = ' '
+               AND ROWNUM <= {limit}
+             ORDER BY QRYNAME
+        """) or []
+        for r in rows:
+            qn = r.get("qryname")
+            if qn:
+                add_node(graph, "query", qn, r.get("descr") or qn, r)
+        return len(rows)
+
+    def component_interfaces():
+        if not ptmetadata.has_table(env, "PSBCDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT b.BCNAME, b.DESCR, b.VERSION, b.BCTYPE,
+                   b.PNLGRPNAME AS component, b.OBJECTOWNERID, b.LASTUPDDTTM
+              FROM SYSADM.PSBCDEFN b
+             WHERE ROWNUM <= {limit}
+             ORDER BY b.BCNAME
+        """) or []
+        for r in rows:
+            ci_name = r.get("bcname")
+            if not ci_name:
+                continue
+            add_node(graph, "ci", ci_name, r.get("descr") or ci_name, r)
+            comp = r.get("component")
+            if comp and comp.strip():
+                add_node(graph, "component", comp, comp, {})
+                add_edge(graph, "ci", ci_name, "component", comp, "WRAPS", r)
+        return len(rows)
+
     for name, loader in (
         ("operators", operators),
         ("roles", roles),
@@ -647,6 +757,11 @@ def build(env="HCM", limit=50, persist=True):
         ("peoplecode", peoplecode_programs),
         ("application_engines", application_engines),
         ("integration_broker", integration_broker),
+        ("menus", menus),
+        ("trees", trees),
+        ("sql_definitions", sql_definitions),
+        ("queries", queries),
+        ("component_interfaces", component_interfaces),
     ):
         provider(graph, name, loader)
 
@@ -792,6 +907,45 @@ def forward_reverse_neighbors(forward, reverse, node):
 def dependency_tree(env, node, reverse=False, depth=3):
     direction = "in" if reverse else "out"
     return neighbors(env, node, direction=direction, depth=depth, edge_types=DEPENDENCY_EDGES)
+
+
+def impact(env, node, depth=3):
+    """Combined forward + reverse dependency traversal for impact analysis.
+
+    Returns:
+      - the node itself
+      - forward_deps: things this node depends on (depth levels out)
+      - reverse_deps: things that depend on this node (impact if it changes)
+      - summary counts by type for each direction
+    """
+    graph = current(env)
+    node_data = graph["nodes"].get(node)
+    if not node_data:
+        return {"found": False, "node": None, "forward_deps": {}, "reverse_deps": {}, "summary": {}}
+
+    forward_result = dependency_tree(env, node, reverse=False, depth=depth)
+    reverse_result = dependency_tree(env, node, reverse=True, depth=depth)
+
+    def summarize(result):
+        by_type = defaultdict(int)
+        for n in result.get("nodes", []):
+            ndata = graph["nodes"].get(n["id"])
+            if ndata:
+                by_type[ndata["type"]] += 1
+        return dict(sorted(by_type.items()))
+
+    return {
+        "found": True,
+        "node": node_data,
+        "forward_deps": forward_result,
+        "reverse_deps": reverse_result,
+        "summary": {
+            "forward_by_type": summarize(forward_result),
+            "reverse_by_type": summarize(reverse_result),
+            "total_downstream": len(forward_result.get("nodes", [])),
+            "total_upstream": len(reverse_result.get("nodes", [])),
+        },
+    }
 
 
 def connected_components(env):

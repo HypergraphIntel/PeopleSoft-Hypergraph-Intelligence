@@ -7,22 +7,30 @@ router = APIRouter(prefix="/api/metadata", tags=["PeopleTools Metadata"])
 
 @router.get("/version")
 def metadata_version(env: str = "HCM"):
-    oracle_version, oracle_warning = ptmetadata.oracle_version(env)
-    peopletools_version, peopletools_warning = ptmetadata.peopletools_version(env)
-    schema, schema_warning = ptmetadata.current_schema(env)
+    """Return detected PeopleTools version with version-specific adapter context.
 
-    warnings = [
-        item for item in (oracle_warning, peopletools_warning, schema_warning)
-        if item
-    ]
+    Includes declared new tables, column aliases, and live probe results for
+    version-specific tables to confirm what is actually accessible.
+    """
+    adapter_data = ptmetadata.version_adapter(env)
+    tables_data = ptmetadata.version_tables(env)
+    key = adapter_data.get("adapter_key", "unknown")
+    adapter = adapter_data.get("adapter", {})
+
+    new_table_probes = {}
+    for t in adapter.get("new_tables", []):
+        new_table_probes[t] = ptmetadata.has_table(env, t)
 
     return {
         "environment": env.upper(),
-        "oracle_version": oracle_version,
-        "peopletools_version": peopletools_version,
-        "schema": schema,
-        "version_adapter": ptmetadata.version_adapter(env),
-        "warnings": warnings,
+        "peopletools_version": adapter_data.get("peopletools_version"),
+        "adapter_key": key,
+        "status": adapter.get("status", "unknown"),
+        "notes": adapter.get("notes", ""),
+        "new_tables_declared": adapter.get("new_tables", []),
+        "new_tables_accessible": new_table_probes,
+        "column_aliases": {f"{t}/{l}": c for (t, l), c in adapter.get("column_aliases", {}).items()},
+        "known_versions": list(ptmetadata.VERSION_ADAPTERS.keys()),
     }
 
 
@@ -93,36 +101,6 @@ def metadata_has_view(view_name: str, env: str = "HCM"):
     return {
         "view": view_name.upper(),
         "available": ptmetadata.has_view(env, view_name),
-    }
-
-
-@router.get("/version")
-def metadata_version(env: str = "HCM"):
-    """Return detected PeopleTools version with version-specific adapter context.
-
-    Includes declared new tables, column aliases, and live probe results for
-    version-specific tables to confirm what is actually accessible.
-    """
-    adapter_data = ptmetadata.version_adapter(env)
-    tables_data = ptmetadata.version_tables(env)
-    key = adapter_data.get("adapter_key", "unknown")
-    adapter = adapter_data.get("adapter", {})
-
-    # Probe whether the declared new tables for this version are actually accessible
-    new_table_probes = {}
-    for t in adapter.get("new_tables", []):
-        new_table_probes[t] = ptmetadata.has_table(env, t)
-
-    return {
-        "environment": env.upper(),
-        "peopletools_version": adapter_data.get("peopletools_version"),
-        "adapter_key": key,
-        "status": adapter.get("status", "unknown"),
-        "notes": adapter.get("notes", ""),
-        "new_tables_declared": adapter.get("new_tables", []),
-        "new_tables_accessible": new_table_probes,
-        "column_aliases": {f"{t}/{l}": c for (t, l), c in adapter.get("column_aliases", {}).items()},
-        "known_versions": list(ptmetadata.VERSION_ADAPTERS.keys()),
     }
 
 

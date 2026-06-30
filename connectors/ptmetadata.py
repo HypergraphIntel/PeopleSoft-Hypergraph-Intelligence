@@ -519,6 +519,7 @@ OBJECT_REGISTRY.setdefault("query", {
     "search": {"provider": "query", "table": "PSQRYDEFN", "name_column": "QRYNAME",
                "description_columns": ["DESCR"]},
     "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
 })
 
 OBJECT_REGISTRY.setdefault("tree", {
@@ -526,11 +527,14 @@ OBJECT_REGISTRY.setdefault("tree", {
     "icon": "git-branch",
     "graph_node_type": "tree",
     "object_page": "/admin/object/tree/{name}",
-    "discovery": {"table": "PSTREEDEFN", "name_column": "TREE_NAME"},
-    "search": {"table": "PSTREEDEFN", "name_column": "TREE_NAME",
+    "discovery": {"table": "PSTREEDEFN", "name_column": "TREENAME"},
+    "search": {"table": "PSTREEDEFN", "name_column": "TREENAME",
                "description_columns": ["DESCR"],
-               "extra_search_columns": ["TREE_STRCT_ID", "SETID"]},
+               "extra_search_columns": ["TREESTRCTPNM", "SETID", "OBJECTOWNERID"]},
     "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [
+        {"edge_type": "USES", "target_type": "record", "direction": "out", "label": "Structure Record"},
+    ],
 })
 
 OBJECT_REGISTRY.setdefault("ci", {
@@ -543,6 +547,9 @@ OBJECT_REGISTRY.setdefault("ci", {
                "description_columns": ["DESCR", "BCDISPLAYNAME"],
                "extra_search_columns": ["BCPGNAME", "SEARCHRECNAME", "ADDSRCHRECNAME", "OBJECTOWNERID"]},
     "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [
+        {"edge_type": "WRAPS", "target_type": "component", "direction": "out", "label": "Component"},
+    ],
 })
 
 OBJECT_REGISTRY.setdefault("menu", {
@@ -556,7 +563,7 @@ OBJECT_REGISTRY.setdefault("menu", {
                "extra_search_columns": ["MENUGROUP", "OBJECTOWNERID"]},
     "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
     "relationships": [
-        {"edge_type": "LISTS", "target_type": "component", "direction": "out", "label": "Components"},
+        {"edge_type": "CONTAINS", "target_type": "component", "direction": "out", "label": "Components"},
     ],
 })
 

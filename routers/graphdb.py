@@ -95,6 +95,12 @@ def graph_reverse_dependencies(node_id: str, env: str = "HCM", depth: int = 3):
     return graphdb.dependency_tree(env, node_id, reverse=True, depth=depth)
 
 
+@router.get("/impact/{node_id}")
+def graph_impact(node_id: str, env: str = "HCM", depth: int = 3):
+    """Combined impact analysis: what this node depends on + what depends on it."""
+    return graphdb.impact(env, node_id, depth=depth)
+
+
 @router.get("/search")
 def graph_search(env: str = "HCM", q: str = "", limit: int = 50):
     if not q.strip():

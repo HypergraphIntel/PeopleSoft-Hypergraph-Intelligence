@@ -2774,6 +2774,172 @@ def portal_registry_breadcrumbs(env_name, portal_objname, portal_name=None, max_
     return list(reversed(chain))
 
 
+def portal_registry_breadcrumbs_fast(env_name, portal_objname, portal_name=None):
+    """Build breadcrumb chain from leaf to root using Oracle CONNECT BY (single query).
+
+    START WITH filters on both PORTAL_OBJNAME and PORTAL_NAME to start with exactly
+    one leaf row, then walks upward via PRIOR PORTAL_PRNTOBJNAME = PORTAL_OBJNAME.
+    Returns list from root → leaf (depth DESC order).
+    """
+    pn = portal_name or "EMPLOYEE"
+    try:
+        rows = query(env_name, """
+            SELECT PORTAL_OBJNAME,
+                   PORTAL_LABEL,
+                   PORTAL_REFTYPE,
+                   PORTAL_PRNTOBJNAME,
+                   PORTAL_SEQ_NUM,
+                   LEVEL AS depth
+              FROM SYSADM.PSPRSMDEFN
+             WHERE UPPER(PORTAL_NAME) = UPPER(:pn)
+             START WITH UPPER(PORTAL_OBJNAME) = UPPER(:objname)
+                    AND UPPER(PORTAL_NAME)    = UPPER(:pn)
+           CONNECT BY NOCYCLE
+                      UPPER(PORTAL_NAME)          = UPPER(:pn)
+                  AND PRIOR PORTAL_PRNTOBJNAME    = PORTAL_OBJNAME
+                  AND TRIM(PRIOR PORTAL_PRNTOBJNAME) != ' '
+             ORDER BY depth DESC
+        """, {"pn": pn, "objname": portal_objname})
+        return rows
+    except Exception:
+        return portal_registry_breadcrumbs(env_name, portal_objname, portal_name)
+
+
+def portal_registry_folder_children(env_name, portal_name, parent_objname, include_crefs=True):
+    """Return immediate children of a portal folder, sorted by sequence number.
+
+    Used for lazy tree navigation — only fetches one level at a time.
+    include_crefs=False returns only sub-folders (for tree expand nodes).
+    """
+    reftype_filter = "" if include_crefs else "AND PORTAL_REFTYPE = 'F'"
+    try:
+        rows = query(env_name, f"""
+            SELECT PORTAL_OBJNAME,
+                   PORTAL_LABEL,
+                   PORTAL_REFTYPE,
+                   PORTAL_PRNTOBJNAME,
+                   PORTAL_SEQ_NUM,
+                   PORTAL_URI_SEG1,
+                   PORTAL_URI_SEG2,
+                   PORTAL_URI_SEG3,
+                   DESCR254,
+                   PORTAL_CREF_USGT
+              FROM SYSADM.PSPRSMDEFN
+             WHERE UPPER(PORTAL_NAME) = UPPER(:pn)
+               AND UPPER(PORTAL_PRNTOBJNAME) = UPPER(:parent)
+               {reftype_filter}
+             ORDER BY PORTAL_SEQ_NUM NULLS LAST, PORTAL_LABEL
+             FETCH FIRST 500 ROWS ONLY
+        """, {"pn": portal_name, "parent": parent_objname})
+        return rows
+    except Exception:
+        return []
+
+
+def portal_registry_portals(env_name):
+    """Return the list of portal names and their root-level statistics."""
+    try:
+        rows = query(env_name, """
+            SELECT PORTAL_NAME,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN PORTAL_REFTYPE = 'F' THEN 1 ELSE 0 END) AS folders,
+                   SUM(CASE WHEN PORTAL_REFTYPE = 'C' THEN 1 ELSE 0 END) AS content_refs,
+                   MIN(LASTUPDDTTM) AS oldest_update,
+                   MAX(LASTUPDDTTM) AS latest_update
+              FROM SYSADM.PSPRSMDEFN
+             GROUP BY PORTAL_NAME
+             ORDER BY total DESC
+        """)
+        # Find root folder for each portal
+        for r in rows:
+            root_rows = query(env_name, """
+                SELECT PORTAL_OBJNAME, PORTAL_LABEL
+                  FROM SYSADM.PSPRSMDEFN
+                 WHERE UPPER(PORTAL_NAME) = UPPER(:pn)
+                   AND PORTAL_REFTYPE = 'F'
+                   AND LENGTH(TRIM(PORTAL_PRNTOBJNAME)) = 0
+                 FETCH FIRST 1 ROWS ONLY
+            """, {"pn": r["portal_name"]})
+            if root_rows:
+                r["root_objname"] = root_rows[0]["portal_objname"]
+                r["root_label"] = root_rows[0]["portal_label"]
+            else:
+                r["root_objname"] = None
+                r["root_label"] = None
+        return rows
+    except Exception:
+        return []
+
+
+def portal_registry_analysis(env_name, portal_name):
+    """Structural analysis: orphans, depth distribution, most-referenced components."""
+    results = {}
+    try:
+        # Total counts
+        cnt = query(env_name, """
+            SELECT PORTAL_REFTYPE, COUNT(*) AS cnt
+              FROM SYSADM.PSPRSMDEFN
+             WHERE UPPER(PORTAL_NAME) = UPPER(:pn)
+             GROUP BY PORTAL_REFTYPE
+        """, {"pn": portal_name})
+        results["counts"] = {r["portal_reftype"]: r["cnt"] for r in cnt}
+
+        # Orphaned entries — parent doesn't exist in this portal
+        orphans = query(env_name, """
+            SELECT c.PORTAL_OBJNAME,
+                   c.PORTAL_LABEL,
+                   c.PORTAL_REFTYPE,
+                   c.PORTAL_PRNTOBJNAME
+              FROM SYSADM.PSPRSMDEFN c
+              LEFT JOIN SYSADM.PSPRSMDEFN p
+                ON UPPER(p.PORTAL_NAME)    = UPPER(c.PORTAL_NAME)
+               AND UPPER(p.PORTAL_OBJNAME) = UPPER(c.PORTAL_PRNTOBJNAME)
+             WHERE UPPER(c.PORTAL_NAME) = UPPER(:pn)
+               AND TRIM(c.PORTAL_PRNTOBJNAME) != ' '
+               AND TRIM(c.PORTAL_PRNTOBJNAME) != ''
+               AND p.PORTAL_OBJNAME IS NULL
+             FETCH FIRST 50 ROWS ONLY
+        """, {"pn": portal_name})
+        results["orphans"] = orphans
+        results["orphan_count"] = len(orphans)
+
+        # Most-referenced components (top 20 by content ref count)
+        top_components = query(env_name, """
+            SELECT UPPER(PORTAL_URI_SEG2) AS component,
+                   COUNT(*) AS ref_count
+              FROM SYSADM.PSPRSMDEFN
+             WHERE UPPER(PORTAL_NAME) = UPPER(:pn)
+               AND PORTAL_REFTYPE = 'C'
+               AND TRIM(PORTAL_URI_SEG2) != ' '
+               AND TRIM(PORTAL_URI_SEG2) != ''
+             GROUP BY UPPER(PORTAL_URI_SEG2)
+             ORDER BY ref_count DESC
+             FETCH FIRST 20 ROWS ONLY
+        """, {"pn": portal_name})
+        results["top_components"] = top_components
+
+        # Empty folders (folders with no children)
+        empty_folders = query(env_name, """
+            SELECT f.PORTAL_OBJNAME,
+                   f.PORTAL_LABEL,
+                   f.PORTAL_PRNTOBJNAME
+              FROM SYSADM.PSPRSMDEFN f
+              LEFT JOIN SYSADM.PSPRSMDEFN c
+                ON UPPER(c.PORTAL_NAME) = UPPER(f.PORTAL_NAME)
+               AND UPPER(c.PORTAL_PRNTOBJNAME) = UPPER(f.PORTAL_OBJNAME)
+             WHERE UPPER(f.PORTAL_NAME) = UPPER(:pn)
+               AND f.PORTAL_REFTYPE = 'F'
+               AND c.PORTAL_OBJNAME IS NULL
+             FETCH FIRST 30 ROWS ONLY
+        """, {"pn": portal_name})
+        results["empty_folders"] = empty_folders
+        results["empty_folder_count"] = len(empty_folders)
+
+    except Exception as exc:
+        results["error"] = str(exc)
+    return results
+
+
 def portal_registry_component_targets(env_name, portal_row):
     target = portal_row or {}
     component_name = (target.get("portal_uri_seg2") or "").strip()

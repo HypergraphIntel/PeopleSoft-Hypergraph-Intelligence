@@ -1752,6 +1752,7 @@ def admin_graph():
     <div class="tabs">
         <button class="tab-btn active" id="tabList" onclick="showTab('list')">LIST</button>
         <button class="tab-btn" id="tabVisual" onclick="showTab('visual')">VISUAL</button>
+        <button class="tab-btn" id="tabImpact" onclick="showTab('impact')">IMPACT</button>
     </div>
 
     <div id="listView">
@@ -1778,6 +1779,57 @@ def admin_graph():
             <svg id="kgSvg" width="100%" height="580" style="display:block;background:#030d14;border:1px solid #1e3040"></svg>
             <div id="kgLegend"></div>
             <div id="kgDetail" class="muted">Load a graph then switch to Visual to explore.</div>
+        </div>
+    </div>
+
+    <div id="impactView" style="display:none">
+        <div class="card">
+            <h2>Impact Analysis</h2>
+            <p class="muted" style="margin:0 0 12px">Analyse what a node depends on (downstream) and what depends on it (upstream impact).</p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <select id="impactNodeType" style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff;padding:7px;font-size:12px">
+                    <option value="">-- type --</option>
+                    <option value="operator">operator</option>
+                    <option value="role">role</option>
+                    <option value="permissionlist">permissionlist</option>
+                    <option value="component">component</option>
+                    <option value="page">page</option>
+                    <option value="record">record</option>
+                    <option value="field">field</option>
+                    <option value="peoplecode">peoplecode</option>
+                    <option value="application_engine">application_engine</option>
+                    <option value="menu">menu</option>
+                    <option value="tree">tree</option>
+                    <option value="sql_definition">sql_definition</option>
+                    <option value="query">query</option>
+                    <option value="ci">ci</option>
+                </select>
+                <input id="impactNodeName" type="text" placeholder="Object name..." style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff;padding:7px;font-size:12px;width:260px">
+                <select id="impactDepth" style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff;padding:7px;font-size:12px">
+                    <option value="1">depth 1</option>
+                    <option value="2">depth 2</option>
+                    <option value="3" selected>depth 3</option>
+                    <option value="4">depth 4</option>
+                    <option value="5">depth 5</option>
+                </select>
+                <button onclick="runImpact()" style="background:#00e5ff;color:#000;border:none;padding:8px 18px;cursor:pointer;font-size:12px;font-weight:bold">Analyse</button>
+            </div>
+            <div id="impactStatus" class="muted" style="margin-top:8px"></div>
+        </div>
+
+        <div class="graph" id="impactPanels" style="display:none">
+            <div class="card">
+                <h2>Upstream (Impact)</h2>
+                <p class="muted" style="margin:0 0 8px;font-size:11px">Objects that depend on this node — changes here ripple upward.</p>
+                <div id="impactSummaryReverse" style="margin-bottom:10px"></div>
+                <div id="impactReverse"></div>
+            </div>
+            <div class="card">
+                <h2>Downstream (Dependencies)</h2>
+                <p class="muted" style="margin:0 0 8px;font-size:11px">Objects this node depends on — what breaks if they change.</p>
+                <div id="impactSummaryForward" style="margin-bottom:10px"></div>
+                <div id="impactForward"></div>
+            </div>
         </div>
     </div>
 
@@ -1837,6 +1889,9 @@ function renderGraph(graph) {
         div.className = 'node';
         div.onclick = () => {
             document.getElementById('details').textContent = JSON.stringify(node, null, 2);
+            const typeEl = document.getElementById('impactNodeType');
+            const nameEl = document.getElementById('impactNodeName');
+            if (typeEl && nameEl) { typeEl.value = node.type || ''; nameEl.value = node.name || ''; }
             window.location.href = objectUrl(node.type, node.name);
         };
 
@@ -2028,9 +2083,57 @@ function showTab(name) {
   _activeTab = name;
   document.getElementById('listView').style.display = name==='list' ? '' : 'none';
   document.getElementById('visualView').style.display = name==='visual' ? '' : 'none';
+  document.getElementById('impactView').style.display = name==='impact' ? '' : 'none';
   document.getElementById('tabList').classList.toggle('active', name==='list');
   document.getElementById('tabVisual').classList.toggle('active', name==='visual');
+  document.getElementById('tabImpact').classList.toggle('active', name==='impact');
   if (name==='visual' && _kgNodes.length) kgDrawSvg();
+}
+
+function renderImpactNodes(nodes, containerId) {
+  const el = document.getElementById(containerId);
+  if (!nodes || !nodes.length) { el.innerHTML = '<span class="muted">None found.</span>'; return; }
+  const byType = {};
+  nodes.forEach(n => { byType[n.type] = byType[n.type] || []; byType[n.type].push(n); });
+  el.innerHTML = Object.keys(byType).sort().map(t => {
+    const items = byType[t].map(n => {
+      const href = objectUrl(n.type, n.name || n.id);
+      const label = escHtml(n.display_name || n.name || n.id);
+      return `<a href="${escHtml(href)}" style="display:inline-block;margin:2px 3px;padding:3px 7px;border-radius:2px;font-size:11px;border:1px solid #1e3040;background:#0a1820;color:#cdd6f4;text-decoration:none" onmouseenter="this.style.borderColor='#00e5ff'" onmouseleave="this.style.borderColor='#1e3040'">${label}</a>`;
+    }).join('');
+    return `<div style="margin-bottom:8px"><span style="color:#89b4fa;font-size:10px;display:block;margin-bottom:3px">[${escHtml(t.toUpperCase())}]</span>${items}</div>`;
+  }).join('');
+}
+
+function renderImpactSummary(byType, containerId) {
+  const el = document.getElementById(containerId);
+  if (!byType || !Object.keys(byType).length) { el.innerHTML = ''; return; }
+  el.innerHTML = Object.entries(byType).map(([t,c]) =>
+    `<span style="background:#0a1820;border:1px solid #1e304044;padding:2px 7px;border-radius:2px;font-size:11px;margin:2px 3px;display:inline-block"><span style="color:#89b4fa">${escHtml(t)}</span> <b style="color:#d7faff">${c}</b></span>`
+  ).join('');
+}
+
+async function runImpact() {
+  const type = document.getElementById('impactNodeType').value;
+  const name = document.getElementById('impactNodeName').value.trim().toUpperCase();
+  const depth = document.getElementById('impactDepth').value;
+  const status = document.getElementById('impactStatus');
+  if (!type || !name) { status.textContent = 'Enter a node type and name.'; return; }
+
+  const nodeId = `${type}:${name}`;
+  status.textContent = 'Analysing...';
+  document.getElementById('impactPanels').style.display = 'none';
+
+  const data = await api(`/api/graph/impact/${encodeURIComponent(nodeId)}?env=${ENV}&depth=${depth}`);
+  if (!data || !data.found) { status.textContent = `Node not found in graph: ${nodeId}. Build or rebuild the graph first.`; return; }
+
+  status.textContent = `Found: [${type}] ${name} — ${data.summary.total_upstream} upstream, ${data.summary.total_downstream} downstream`;
+  document.getElementById('impactPanels').style.display = '';
+
+  renderImpactSummary(data.summary.reverse_by_type, 'impactSummaryReverse');
+  renderImpactSummary(data.summary.forward_by_type, 'impactSummaryForward');
+  renderImpactNodes(data.reverse_deps.nodes, 'impactReverse');
+  renderImpactNodes(data.forward_deps.nodes, 'impactForward');
 }
 </script>""")
 
@@ -3136,14 +3239,22 @@ def admin_portal():
         <button onclick="loadPortal()">Open</button>
         <input id="oprid" placeholder="Explain OPRID">
         <button onclick="explainPortal()">Explain Access</button>
+        <select id="portalSelect" onchange="switchPortal()" style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff;padding:7px;font-size:12px">
+            <option value="">-- Portal Tree --</option>
+        </select>
+        <button onclick="showAnalysis()">Analyse</button>
     </div>
 
     <div id="status" class="muted" style="margin-top:12px;">Search or open a Portal Registry content reference.</div>
 
     <div class="layout">
         <div class="card">
-            <h2>Search Results</h2>
+            <h2>
+                <span id="leftPanelTitle">Search Results</span>
+                <button id="btnTreeMode" onclick="toggleTreeMode()" style="float:right;font-size:10px;padding:4px 8px;background:#1e5b66">Tree</button>
+            </h2>
             <div id="results" class="muted">No search run.</div>
+            <div id="treePanel" style="display:none;max-height:600px;overflow-y:auto"></div>
         </div>
 
         <div class="grid">
@@ -3186,12 +3297,20 @@ def admin_portal():
                 <h2>Explain Result</h2>
                 <div id="explain" class="muted">No explanation run.</div>
             </div>
+
+            <div class="card" id="analysisCard" style="display:none">
+                <h2>Portal Analysis</h2>
+                <div id="analysisContent" class="muted">No analysis run.</div>
+            </div>
         </div>
     </div>
 
 <script>
 const ENV = 'HCM';
 let currentPortal = '';
+let treeMode = false;
+let currentTreePortal = '';
+let portalRootMap = {};
 
 function esc(value) {
     return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -3239,6 +3358,116 @@ function rowHtml(row, titleKeys, detailKeys, url) {
 
 function adminUrl(type, name) {
     return `/admin/object/${encodeURIComponent(type)}/${encodeURIComponent(name)}`;
+}
+
+async function initPortalTree() {
+    const portals = await api(`/api/peoplesoft/portal/portals?env=${ENV}`);
+    if (!portals) return;
+    const sel = document.getElementById('portalSelect');
+    portals.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.portal_name;
+        opt.textContent = `${p.portal_name} (${p.total} entries)`;
+        sel.appendChild(opt);
+        if (p.root_objname) portalRootMap[p.portal_name] = p.root_objname;
+    });
+}
+
+function switchPortal() {
+    const pn = document.getElementById('portalSelect').value;
+    if (!pn) return;
+    currentTreePortal = pn;
+    if (!treeMode) toggleTreeMode();
+    else renderTree(pn, portalRootMap[pn] || 'PORTAL_ROOT_OBJECT');
+}
+
+function toggleTreeMode() {
+    treeMode = !treeMode;
+    document.getElementById('results').style.display = treeMode ? 'none' : '';
+    document.getElementById('treePanel').style.display = treeMode ? '' : 'none';
+    document.getElementById('leftPanelTitle').textContent = treeMode ? 'Portal Tree' : 'Search Results';
+    document.getElementById('btnTreeMode').textContent = treeMode ? 'Search' : 'Tree';
+    if (treeMode && currentTreePortal) {
+        renderTree(currentTreePortal, portalRootMap[currentTreePortal] || 'PORTAL_ROOT_OBJECT');
+    }
+}
+
+async function renderTree(portalName, parentObjname, containerEl, depth = 0) {
+    const panel = containerEl || document.getElementById('treePanel');
+    if (depth === 0) panel.innerHTML = '<span class="muted">Loading...</span>';
+
+    const rows = await api(`/api/peoplesoft/portal/folders?portal_name=${encodeURIComponent(portalName)}&parent=${encodeURIComponent(parentObjname)}&env=${ENV}`);
+    if (!rows) { panel.innerHTML = '<span class="muted">Failed to load.</span>'; return; }
+    if (depth === 0) panel.innerHTML = '';
+
+    rows.forEach(r => {
+        const isFolder = r.portal_reftype === 'F';
+        const indent = depth * 14;
+        const item = document.createElement('div');
+        item.style.cssText = `padding:3px 4px 3px ${indent + 4}px;cursor:pointer;font-size:12px;border-bottom:1px solid #0d1a22;`;
+        item.innerHTML = `<span style="color:${isFolder ? '#89b4fa' : '#cdd6f4'}">${isFolder ? '▶ ' : '• '}</span><span class="title" style="font-size:11px">${esc(r.portal_label || r.portal_objname)}</span> <span class="muted" style="font-size:10px">${esc(r.portal_objname)}</span>`;
+
+        if (isFolder) {
+            let expanded = false;
+            let childContainer = null;
+            item.onclick = async () => {
+                if (!expanded) {
+                    expanded = true;
+                    item.querySelector('span:first-child').textContent = '▼ ';
+                    childContainer = document.createElement('div');
+                    item.after(childContainer);
+                    await renderTree(portalName, r.portal_objname, childContainer, depth + 1);
+                } else {
+                    expanded = false;
+                    item.querySelector('span:first-child').textContent = '▶ ';
+                    if (childContainer) { childContainer.remove(); childContainer = null; }
+                }
+            };
+        } else {
+            item.onclick = () => loadPortal(r.portal_objname);
+        }
+
+        item.onmouseenter = () => item.style.background = '#0d1a22';
+        item.onmouseleave = () => item.style.background = '';
+        panel.appendChild(item);
+    });
+
+    if (rows.length === 0 && depth > 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = `padding:2px 4px 2px ${(depth + 1) * 14}px;font-size:11px;color:#6c7086;font-style:italic`;
+        empty.textContent = '(empty)';
+        panel.appendChild(empty);
+    }
+}
+
+async function showAnalysis() {
+    const pn = currentTreePortal || document.getElementById('portalSelect').value || 'EMPLOYEE';
+    if (!pn) { alert('Select a portal first.'); return; }
+    setStatus(`Analysing ${pn}...`);
+    const d = await api(`/api/peoplesoft/portal/analysis?portal_name=${encodeURIComponent(pn)}&env=${ENV}`);
+    if (!d) return;
+
+    const card = document.getElementById('analysisCard');
+    card.style.display = '';
+    const counts = d.counts || {};
+    const topComp = (d.top_components || []).slice(0, 10);
+
+    document.getElementById('analysisContent').innerHTML = `
+        <div style="margin-bottom:8px;font-size:12px">
+            <b>Portal:</b> ${esc(pn)} &nbsp;
+            <b>Folders:</b> ${counts['F'] || 0} &nbsp;
+            <b>Content Refs:</b> ${counts['C'] || 0} &nbsp;
+            <b>Orphans:</b> ${d.orphan_count || 0} &nbsp;
+            <b>Empty Folders:</b> ${d.empty_folder_count || 0}
+        </div>
+        ${d.orphan_count > 0 ? `<details style="font-size:11px"><summary style="cursor:pointer;color:#f9e2af">Orphaned entries (${d.orphan_count})</summary>
+            ${(d.orphans || []).map(r => `<div class="row">${esc(r.portal_objname)} → missing parent: ${esc(r.portal_prntobjname)}</div>`).join('')}</details>` : ''}
+        ${d.empty_folder_count > 0 ? `<details style="font-size:11px"><summary style="cursor:pointer;color:#6c7086">Empty folders (${d.empty_folder_count})</summary>
+            ${(d.empty_folders || []).map(r => `<div class="row">${esc(r.portal_label || r.portal_objname)}</div>`).join('')}</details>` : ''}
+        ${topComp.length ? `<div style="font-size:11px;margin-top:8px"><b>Top Components:</b>
+            ${topComp.map(r => `<div class="row clickable" onclick="window.location.href='/admin/object/component/${esc(r.component)}'">${esc(r.component)} <span class="muted">${r.ref_count} refs</span></div>`).join('')}</div>` : ''}
+    `;
+    setStatus(`Analysis complete for ${pn}.`);
 }
 
 async function searchPortal() {
@@ -3354,10 +3583,19 @@ document.getElementById('oprid').addEventListener('keydown', event => {
     if (event.key === 'Enter') explainPortal();
 });
 
-const params = new URLSearchParams(window.location.search);
-if (params.get('portal')) {
-    loadPortal(params.get('portal'));
-}
+(async function() {
+    await initPortalTree();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('portal')) {
+        loadPortal(params.get('portal'));
+    }
+    if (params.get('tree')) {
+        const pn = params.get('tree');
+        document.getElementById('portalSelect').value = pn;
+        currentTreePortal = pn;
+        toggleTreeMode();
+    }
+})();
 </script>""")
 
 
