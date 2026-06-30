@@ -233,6 +233,7 @@ def normalize_object_type(object_type: str) -> str:
         "application_engine": "application_engine",
         "sql_definition": "sql_definition",
         "service_operation": "service_operation",
+        "tree": "tree",
     }
     return aliases.get(object_type, object_type)
 
@@ -316,6 +317,12 @@ def object_payload(env, object_type, object_name):
     if object_type == "query":
         q_obj = uom.query_object(env, object_name)
         return uom.query_payload(q_obj)
+
+    if object_type == "tree":
+        tree_obj = uom.tree_object(env, object_name)
+        if tree_obj.get("status") == "not_found":
+            raise HTTPException(status_code=404, detail="Tree not found")
+        return attach_graph_context(uom.tree_payload(tree_obj), env)
 
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
@@ -1193,6 +1200,14 @@ def peoplesoft_graph(object_type: str, object_name: str, env: str = "HCM"):
 
     if object_type == "field":
         return uom.field_object(env, object_name)["_graph"]
+
+    if object_type == "tree":
+        tree_graph = uom.tree_object(env, object_name).get("_graph", {})
+        return {
+            "root": f"tree:{object_name.upper()}",
+            "nodes": tree_graph.get("nodes", []),
+            "edges": tree_graph.get("edges", []),
+        }
 
     nodes = {}
     edges = []

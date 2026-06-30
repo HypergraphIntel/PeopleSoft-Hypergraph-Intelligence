@@ -8,6 +8,59 @@ matters, and how it was verified.
 
 ## 2026-06-30
 
+### Tree UOM and Object Explorer Support
+
+Date/time: 2026-06-30 01:26:26 CDT
+
+- Added first-class read-only Tree object support to the Universal Object Model.
+- Registered Tree in the PeopleTools metadata registry so global search can find
+  `PSTREEDEFN` rows by tree name, description, structure ID, or setID.
+- Added Tree object payloads with definition metadata, tree structure records
+  and fields, levels, branch samples, node samples, leaf samples, effective-dated
+  variants, warnings, and graph preview sections.
+- Wired Tree into `/api/peoplesoft/object/tree/{name}`,
+  `/api/peoplesoft/graph/tree/{name}`, Object Explorer selectors, and Graph
+  Explorer selectors.
+
+Files modified:
+
+- `connectors/ptmetadata.py`
+- `connectors/uom.py`
+- `routers/peoplesoft.py`
+- `routers/admin.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+
+- Resolved Tree objects by `TREE_NAME` and selected the latest effective-dated
+  definition row, while showing the latest 50 variants for duplicate setID or
+  effective-date combinations.
+- Kept node, leaf, and branch sections capped at 200 rows each so large trees
+  remain navigable in the Object Explorer.
+- Linked tree structure records and fields into the UOM graph rather than
+  exploding every node and leaf into graph nodes.
+
+Bugs fixed:
+
+- Normalized related tree lookups to compare `EFFDT` by date so Oracle date
+  values returned through Python still match `PSTREENODE`, `PSTREELEAF`, and
+  related metadata rows.
+- Avoided passing unused bind values to Oracle queries after the driver rejected
+  extra placeholders for the variants lookup.
+
+Technical debt:
+
+- Removed Tree from the planned-only metadata placeholder list.
+- Remaining debt: Component Interface (CI) is still the remaining planned UOM
+  object type.
+
+Next recommended work:
+
+- Add CI metadata/UOM support as the next Object Explorer object-type slice.
+- Consider a dedicated Tree admin page only if users need full hierarchical
+  visualization beyond the canonical Object Explorer payload.
+
 ### Admin Shell Interaction Smoke Checks
 
 Date/time: 2026-06-30 01:16:04 CDT

@@ -2828,6 +2828,347 @@ def query_payload(q_obj):
     }
 
 
+def _tree_flag(value, yes="Yes", no="No"):
+    if value is None:
+        return ""
+    text = str(value).strip().upper()
+    if text in {"Y", "1", "T", "A"}:
+        return yes
+    if text in {"N", "0", "F", "I"}:
+        return no
+    return str(value)
+
+
+def _tree_row_links(row, env):
+    linked = attach_object_links(row, env)
+    tree_name = str(linked.get("tree_name") or "").strip()
+    if tree_name:
+        linked.setdefault("_links", {})["admin"] = object_url("tree", tree_name)
+    return linked
+
+
+def _tree_record_link(row, key, rel_label):
+    recname = str(row.get(key) or "").strip()
+    if not recname:
+        return None
+    return {
+        "relationship": rel_label,
+        "recname": recname,
+        "_links": {"admin": object_url("record", recname)},
+    }
+
+
+def _tree_field_link(row, rec_key, field_key, rel_label):
+    recname = str(row.get(rec_key) or "").strip()
+    fieldname = str(row.get(field_key) or "").strip()
+    if not recname or not fieldname:
+        return None
+    field_ref = f"{recname}.{fieldname}"
+    return {
+        "relationship": rel_label,
+        "recname": recname,
+        "fieldname": fieldname,
+        "name": field_ref,
+        "_links": {"admin": object_url("field", field_ref)},
+    }
+
+
+def tree_graph(env, tree_name, relationships=None):
+    relationships = relationships or tree_object(env, tree_name)["_relationships"]
+    name = tree_name.upper()
+    nodes = {}
+    edges = []
+
+    add_node(nodes, graph_node("tree", name))
+
+    for row in relationships.get("records", []):
+        recname = row.get("recname")
+        rel = row.get("relationship") or "uses_record"
+        if recname:
+            add_node(nodes, graph_node("record", recname, row))
+            edges.append(graph_edge("tree", name, "record", recname, rel))
+
+    for row in relationships.get("fields", []):
+        field_ref = row.get("name")
+        recname = row.get("recname")
+        if field_ref:
+            add_node(nodes, graph_node("field", field_ref, row))
+            edges.append(graph_edge("tree", name, "field", field_ref, row.get("relationship") or "uses_field"))
+        if recname:
+            add_node(nodes, graph_node("record", recname, row))
+            edges.append(graph_edge("record", recname, "field", field_ref, "contains_field"))
+
+    return {"nodes": list(nodes.values()), "edges": edges}
+
+
+def tree_object(env, tree_name):
+    warnings = []
+    name = tree_name.upper()
+
+    if not ptmetadata.has_table(env, "PSTREEDEFN"):
+        return canonical_base(
+            env, "tree", name,
+            display_name=name,
+            status="partial",
+            warnings=[ptmetadata.warning("pstreedefn_unavailable", "SYSADM.PSTREEDEFN is not accessible.")],
+        )
+
+    has_structure = ptmetadata.has_table(env, "PSTREESTRCT")
+    join_sql = """
+        left join sysadm.pstreestrct s
+               on s.tree_strct_id = d.tree_strct_id
+    """ if has_structure else ""
+    structure_cols = """
+            s.descr as tree_strct_descr,
+            s.node_recname, s.node_fieldname,
+            s.dtl_recname, s.dtl_fieldname,
+            s.level_recname, s.tree_strct_type,
+            s.setcntrl_ind
+    """ if has_structure else """
+            cast(null as varchar2(30)) as tree_strct_descr,
+            cast(null as varchar2(30)) as node_recname,
+            cast(null as varchar2(30)) as node_fieldname,
+            cast(null as varchar2(30)) as dtl_recname,
+            cast(null as varchar2(30)) as dtl_fieldname,
+            cast(null as varchar2(30)) as level_recname,
+            cast(null as varchar2(30)) as tree_strct_type,
+            cast(null as varchar2(1)) as setcntrl_ind
+    """
+
+    try:
+        rows = psdb.query(env, f"""
+            select
+                d.setid, d.setcntrlvalue, d.tree_name, d.effdt, d.eff_status,
+                d.version, d.tree_strct_id, d.descr, d.all_values, d.use_levels,
+                d.valid_tree, d.level_count, d.node_count, d.leaf_count,
+                d.tree_has_ranges, d.duplicate_leaf, d.tree_category,
+                d.tree_acc_method, d.tree_acc_selector, d.tree_acc_sel_opt,
+                d.lastupddttm, d.lastupdoprid,
+                {structure_cols}
+              from sysadm.pstreedefn d
+              {join_sql}
+             where d.tree_name = upper(:tree_name)
+             order by d.effdt desc, d.setid, d.setcntrlvalue
+             fetch first 1 rows only
+        """, {"tree_name": name})
+    except Exception as exc:
+        return canonical_base(
+            env, "tree", name,
+            display_name=name,
+            status="partial",
+            warnings=[ptmetadata.warning("tree_query_failed", str(exc))],
+        )
+
+    if not rows:
+        return canonical_base(
+            env, "tree", name,
+            display_name=name,
+            status="not_found",
+            warnings=[ptmetadata.warning("not_found", f"Tree {name} not found")],
+        )
+
+    raw = rows[0]
+    params = {
+        "tree_name": raw.get("tree_name"),
+        "setid": raw.get("setid"),
+        "setcntrlvalue": raw.get("setcntrlvalue"),
+        "effdt": str(raw.get("effdt") or "")[:10],
+    }
+
+    def run_related(label, table, sql, query_params=None):
+        if not ptmetadata.has_table(env, table):
+            warnings.append(ptmetadata.warning("metadata_unavailable", f"SYSADM.{table} is not accessible."))
+            return []
+        try:
+            return psdb.query(env, sql, query_params or params)
+        except Exception as exc:
+            warnings.append(ptmetadata.warning("relationship_unavailable", f"{label} unavailable: {exc}"))
+            return []
+
+    variants = run_related("tree variants", "PSTREEDEFN", """
+        select setid, setcntrlvalue, tree_name, effdt, eff_status, version,
+               tree_strct_id, descr, node_count, leaf_count
+          from sysadm.pstreedefn
+         where tree_name = upper(:tree_name)
+         order by effdt desc, setid, setcntrlvalue
+         fetch first 50 rows only
+    """, {"tree_name": name})
+
+    levels = run_related("tree levels", "PSTREELEVEL", """
+        select tree_level_num, tree_level, all_values
+          from sysadm.pstreelevel
+         where tree_name = upper(:tree_name)
+           and setid = :setid
+           and setcntrlvalue = :setcntrlvalue
+           and trunc(effdt) = to_date(:effdt, 'YYYY-MM-DD')
+         order by tree_level_num
+    """)
+
+    branches = run_related("tree branches", "PSTREEBRANCH", """
+        select tree_branch, parent_branch, branch_level_num, parent_node_num,
+               tree_level_num, tree_node_num, tree_node_num_end, node_count, leaf_count
+          from sysadm.pstreebranch
+         where tree_name = upper(:tree_name)
+           and setid = :setid
+           and setcntrlvalue = :setcntrlvalue
+           and trunc(effdt) = to_date(:effdt, 'YYYY-MM-DD')
+         order by branch_level_num, tree_branch
+         fetch first 200 rows only
+    """)
+
+    nodes = run_related("tree nodes", "PSTREENODE", """
+        select tree_node_num, tree_node, tree_branch, tree_node_num_end,
+               tree_level_num, tree_node_type, parent_node_num, parent_node_name
+          from sysadm.pstreenode
+         where tree_name = upper(:tree_name)
+           and setid = :setid
+           and setcntrlvalue = :setcntrlvalue
+           and trunc(effdt) = to_date(:effdt, 'YYYY-MM-DD')
+         order by tree_node_num
+         fetch first 200 rows only
+    """)
+
+    leaves = run_related("tree leaves", "PSTREELEAF", """
+        select tree_node_num, range_from, range_to, tree_branch, dynamic_range
+          from sysadm.pstreeleaf
+         where tree_name = upper(:tree_name)
+           and setid = :setid
+           and setcntrlvalue = :setcntrlvalue
+           and trunc(effdt) = to_date(:effdt, 'YYYY-MM-DD')
+         order by tree_node_num, range_from
+         fetch first 200 rows only
+    """)
+
+    records = [
+        item for item in (
+            _tree_record_link(raw, "node_recname", "node_record"),
+            _tree_record_link(raw, "dtl_recname", "detail_record"),
+            _tree_record_link(raw, "level_recname", "level_record"),
+        )
+        if item
+    ]
+    fields = [
+        item for item in (
+            _tree_field_link(raw, "node_recname", "node_fieldname", "node_field"),
+            _tree_field_link(raw, "dtl_recname", "dtl_fieldname", "detail_field"),
+        )
+        if item
+    ]
+
+    relationships = {
+        "variants": [_tree_row_links(row, env) for row in variants],
+        "levels": levels,
+        "branches": branches,
+        "nodes": nodes,
+        "leaves": leaves,
+        "records": records,
+        "fields": fields,
+    }
+    graph = tree_graph(env, name, relationships)
+
+    status = "active" if str(raw.get("eff_status") or "").upper() == "A" else "inactive"
+    return canonical_base(
+        env, "tree", name,
+        display_name=name,
+        description=raw.get("descr") or "",
+        owner=raw.get("setid") or "",
+        version=str(raw.get("version") or ""),
+        status=status,
+        warnings=warnings,
+        _links={
+            "self": api_url("tree", name),
+            "admin": object_url("tree", name),
+            "graph": graph_url("tree", name),
+        },
+        _relationships=relationships,
+        _graph=graph,
+        _metadata={
+            "environment": env.upper(),
+            "registry": ptmetadata.OBJECT_REGISTRY.get("tree", {}),
+            "raw": raw,
+            "sample_limits": {"nodes": 200, "leaves": 200, "branches": 200, "variants": 50},
+        },
+    )
+
+
+def sections_for_tree(tree):
+    rels = tree.get("_relationships", {})
+    raw = tree.get("_metadata", {}).get("raw", {})
+    graph_nodes = tree.get("_graph", {}).get("nodes", [])
+    graph_edges = tree.get("_graph", {}).get("edges", [])
+    return [
+        {"name": "Definition", "items": [], "data": {
+            "tree_name": tree["name"],
+            "description": tree.get("description") or "",
+            "setid": raw.get("setid") or "",
+            "setcntrlvalue": raw.get("setcntrlvalue") or "",
+            "effdt": raw.get("effdt") or "",
+            "status": tree.get("status"),
+            "version": raw.get("version") or "",
+            "tree_strct_id": raw.get("tree_strct_id") or "",
+            "valid_tree": _tree_flag(raw.get("valid_tree")),
+            "all_values": _tree_flag(raw.get("all_values")),
+            "use_levels": _tree_flag(raw.get("use_levels")),
+            "has_ranges": _tree_flag(raw.get("tree_has_ranges")),
+            "duplicate_leaf": _tree_flag(raw.get("duplicate_leaf")),
+            "node_count": raw.get("node_count"),
+            "leaf_count": raw.get("leaf_count"),
+            "level_count": raw.get("level_count"),
+            "lastupddttm": raw.get("lastupddttm") or "",
+            "lastupdoprid": raw.get("lastupdoprid") or "",
+        }},
+        {"name": "Tree Structure", "items": rels.get("records", []) + rels.get("fields", []), "data": {
+            "tree_strct_id": raw.get("tree_strct_id") or "",
+            "description": raw.get("tree_strct_descr") or "",
+            "tree_strct_type": raw.get("tree_strct_type") or "",
+            "set_controlled": _tree_flag(raw.get("setcntrl_ind")),
+            "node_recname": raw.get("node_recname") or "",
+            "node_fieldname": raw.get("node_fieldname") or "",
+            "detail_recname": raw.get("dtl_recname") or "",
+            "detail_fieldname": raw.get("dtl_fieldname") or "",
+            "level_recname": raw.get("level_recname") or "",
+        }},
+        {"name": "Levels", "items": rels.get("levels", []), "data": {"count": len(rels.get("levels", []))}},
+        {"name": "Branches", "items": rels.get("branches", []), "data": {
+            "count": len(rels.get("branches", [])),
+            "note": "Sample capped at 200 rows",
+        }},
+        {"name": "Nodes", "items": rels.get("nodes", []), "data": {
+            "count": len(rels.get("nodes", [])),
+            "defined_count": raw.get("node_count"),
+            "note": "Sample capped at 200 rows",
+        }},
+        {"name": "Leaves", "items": rels.get("leaves", []), "data": {
+            "count": len(rels.get("leaves", [])),
+            "defined_count": raw.get("leaf_count"),
+            "note": "Sample capped at 200 rows",
+        }},
+        {"name": "Effective-Dated Variants", "items": rels.get("variants", []), "data": {
+            "count": len(rels.get("variants", [])),
+            "note": "Latest 50 variants for this TREE_NAME",
+        }},
+        {"name": "Graph Preview", "items": graph_nodes, "data": {
+            "node_count": len(graph_nodes),
+            "edge_count": len(graph_edges),
+        }},
+        {"name": "Warnings", "items": tree.get("warnings", []), "data": {"count": len(tree.get("warnings", []))}},
+    ]
+
+
+def tree_payload(tree):
+    raw = tree.get("_metadata", {}).get("raw", {})
+    return {
+        "type": tree["type"], "name": tree["name"], "title": tree["display_name"],
+        "overview": {
+            "id": tree["id"], "display_name": tree["display_name"],
+            "description": tree.get("description") or "",
+            "status": tree["status"], **raw,
+        },
+        "sections": sections_for_tree(tree),
+        "_links": tree["_links"], "_uom": tree,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
     if object_type == "permission_list":
@@ -2867,6 +3208,8 @@ def canonical_object(env, object_type, name):
         return sql_object(env, name)
     if object_type == "query":
         return query_object(env, name)
+    if object_type == "tree":
+        return tree_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

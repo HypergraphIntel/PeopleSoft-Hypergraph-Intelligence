@@ -33,8 +33,6 @@
 
 ### Remaining
 
--   Broader visual design unification across legacy admin pages
-
 ------------------------------------------------------------------------
 
 ## Object Explorer Architecture
@@ -53,6 +51,8 @@
 -   Canonical pages for Operator, Role, Permission List, Record,
     Component, Page, Field, Portal Registry, Application Engine,
     Integration Broker objects
+-   Canonical Tree object pages backed by PSTREEDEFN/PSTREENODE/PSTREELEAF
+    metadata, with graph links to tree structure records and fields
 -   Breadcrumbs in Object Explorer (type-aware trail with field record parent support)
 -   Recently Viewed: relative timestamps, descriptions, per-item remove button
 
@@ -60,7 +60,7 @@
 
 ### Remaining
 
--   Remaining object types (Tree, CI)
+-   Remaining object types (CI)
 -   Improved visual hierarchy
 
 ------------------------------------------------------------------------
@@ -109,10 +109,11 @@
 ### Completed
 
 -   Query objects: `query_object()` / `sections_for_query()` / `query_payload()` — fetches PSQRYDEFN + PSQRYRECORD + PSQRYFIELD + PSQRYBIND for public queries (OPRID=\' \'); shows records with join types/aliases, output columns with headings/aggregates, and prompt parameters with field types
+-   Tree objects: `tree_object()` / `sections_for_tree()` / `tree_payload()` — fetches effective-dated PSTREEDEFN metadata with structure records/fields, levels, branches, node/leaf samples, variants, and graph preview
 
 ### Remaining
 
--   Tree / CI models
+-   CI models
 -   Shared relationship provider registration
 
 ------------------------------------------------------------------------

@@ -1364,6 +1364,7 @@ def admin_graph():
                 <option value="routing">IB Routing</option>
                 <option value="sql_definition">SQL Definition</option>
                 <option value="query">PS Query</option>
+                <option value="tree">Tree</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="loadGraph()">Explore</button>
@@ -1806,6 +1807,7 @@ def object_explorer_page(object_type="", object_name=""):
                 <option value="routing">IB Routing</option>
                 <option value="sql_definition">SQL Definition</option>
                 <option value="query">PS Query</option>
+                <option value="tree">Tree</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="openTypedObject()">Open</button>
@@ -1919,6 +1921,7 @@ function inferObject(row) {
     if (row.msgnodename) return objectUrl('node', row.msgnodename);
     if (row.queuename) return objectUrl('queue', row.queuename);
     if (row.portal_objname) return objectUrl('portal_registry', row.portal_objname);
+    if (row.tree_name) return objectUrl('tree', row.tree_name);
     return null;
 }
 
@@ -1927,14 +1930,14 @@ function labelFor(row) {
         row.pnlgrpname || row.pnlname || row.recname || row.fieldname || row.portal_objname || row.menuname ||
         row.reference || row.ae_step || row.ae_section || row.ae_applid ||
         row.routingdefnname || row.msgnodename || row.queuename || row.ptibapplname ||
-        row.ib_operationname || row.ae_step ||
+        row.ib_operationname || row.ae_step || row.tree_name || row.tree_node || row.tree_branch || row.range_from ||
         row.objectvalue1 || '(item)';
 }
 
 const _DETAIL_SKIP = new Set([
     '_links','name','reference','oprid','roleuser','rolename','classid','pnlgrpname','pnlname',
     'recname','fieldname','portal_objname','menuname','routingdefnname','msgnodename','queuename','ptibapplname',
-    'ib_operationname','ae_step','ae_section','ae_applid','objectvalue1',
+    'ib_operationname','ae_step','ae_section','ae_applid','tree_name','tree_node','tree_branch','range_from','objectvalue1',
     'has_peoplecode','encoded_reference','source','progseq','objectid1',
 ]);
 
@@ -2150,6 +2153,7 @@ function buildBreadcrumbs(type, name) {
         page:               ['Pages', null],
         application_engine: ['AE Programs', '/admin/ae'],
         sql_definition:     ['SQL Definitions', null],
+        tree:               ['Trees', null],
         peoplecode:         ['PeopleCode', null],
         operator:           ['Security', '/admin/security'],
         role:               ['Security', '/admin/security'],
@@ -4817,13 +4821,13 @@ const _acColCache = {};
 function _tokenBeforeCursor() {
   const ta  = $('sqlInput');
   const txt = ta.value.slice(0, ta.selectionStart);
-  const m   = txt.match(/[\w.]+$/);
+  const m   = txt.match(/[\\w.]+$/);
   return m ? m[0] : '';
 }
 
 function _extractAliases(sql) {
   const map = {};
-  const re = /(?:FROM|JOIN)\s+(?:SYSADM\.)?(\w+)\s+(?:AS\s+)?(\w+)/gi;
+  const re = /(?:FROM|JOIN)\\s+(?:SYSADM\\.)?(\\w+)\\s+(?:AS\\s+)?(\\w+)/gi;
   let m;
   const KEYWORDS = new Set(['WHERE','ON','INNER','LEFT','RIGHT','OUTER','CROSS','FULL','FETCH','ORDER','GROUP','HAVING','SET','AND','OR']);
   while ((m = re.exec(sql)) !== null) {

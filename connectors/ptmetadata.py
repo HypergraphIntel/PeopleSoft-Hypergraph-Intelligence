@@ -474,6 +474,18 @@ OBJECT_REGISTRY.setdefault("query", {
     "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
 })
 
+OBJECT_REGISTRY.setdefault("tree", {
+    "display_title": "Tree",
+    "icon": "git-branch",
+    "graph_node_type": "tree",
+    "object_page": "/admin/object/tree/{name}",
+    "discovery": {"table": "PSTREEDEFN", "name_column": "TREE_NAME"},
+    "search": {"table": "PSTREEDEFN", "name_column": "TREE_NAME",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["TREE_STRCT_ID", "SETID"]},
+    "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+})
+
 for object_type in [
     "menu",
     "content_reference",
@@ -482,7 +494,6 @@ for object_type in [
     "sql",
     "message",
     "ci",
-    "tree",
     "approval",
     "event_mapping",
     "related_content",
