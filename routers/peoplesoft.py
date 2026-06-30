@@ -359,6 +359,12 @@ def object_payload(env, object_type, object_name):
     if object_type == "search_definition":
         return uom.search_definition_payload(env, object_name)
 
+    if object_type == "search_category":
+        return uom.search_category_payload(env, object_name)
+
+    if object_type == "drop_zone":
+        return uom.drop_zone_payload(env, object_name)
+
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
 
@@ -1088,6 +1094,16 @@ def peoplesoft_related_content(env: str = "HCM", q: str = "", limit: int = 100):
 @router.get("/api/peoplesoft/search-definitions")
 def peoplesoft_search_definitions(env: str = "HCM", q: str = "", status: str = "", limit: int = 100):
     return psdb.search_search_definitions(env, q=q, status=status or None, limit=limit)
+
+
+@router.get("/api/peoplesoft/search-categories")
+def peoplesoft_search_categories(env: str = "HCM", q: str = "", limit: int = 100):
+    return psdb.search_search_categories(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/drop-zones")
+def peoplesoft_drop_zones_list(env: str = "HCM", q: str = "", limit: int = 100):
+    return psdb.search_drop_zones(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")

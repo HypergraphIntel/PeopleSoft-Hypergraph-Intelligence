@@ -156,6 +156,8 @@ DEFAULT_PAGES = [
     ("/admin/efmapping",  "#efSearch",   True, True,  []),
     ("/admin/relcontent", "#rcSearch",   True, True,  []),
     ("/admin/srchdef",    "#sdSearch",   True, True,  []),
+    ("/admin/srchcat",    "#scSearch",   True, True,  []),
+    ("/admin/dropzone",   "#dzSearch",   True, True,  []),
 ]
 
 

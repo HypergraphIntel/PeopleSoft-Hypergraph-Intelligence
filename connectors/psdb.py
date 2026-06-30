@@ -5007,3 +5007,159 @@ def get_search_definition(env_name, srcdefnid):
         "counts": {"fields": len(fields), "categories": len(categories)},
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# Drop Zones (PeopleTools page composer drop zones)
+# ---------------------------------------------------------------------------
+
+def search_drop_zones(env_name, q="", limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPTDZDEFN"):
+        return {"items": [], "warnings": ["PSPTDZDEFN not accessible"]}
+    clauses = []
+    params = {"lim": limit}
+    if q:
+        clauses.append("(UPPER(DZNAME) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
+        params["q"] = f"%{q}%"
+        params["q2"] = f"%{q}%"
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    try:
+        rows = query(env_name, f"""
+            SELECT DZNAME, DESCR, OBJECTOWNERID
+              FROM SYSADM.PSPTDZDEFN
+             {where}
+             ORDER BY DZNAME
+             FETCH FIRST :lim ROWS ONLY
+        """, params)
+        return {"items": [dict(r) for r in (rows or [])], "warnings": []}
+    except Exception as exc:
+        return {"items": [], "warnings": [str(exc)]}
+
+
+def get_drop_zone(env_name, dzname):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPTDZDEFN"):
+        return {"error": "not_accessible", "warnings": ["PSPTDZDEFN not accessible"]}
+    warnings = []
+    dzname = dzname.upper()
+    rows = query(env_name, """
+        SELECT DZNAME, DESCR, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSPTDZDEFN
+         WHERE DZNAME = :id
+    """, {"id": dzname})
+    if not rows:
+        return {"error": "not_found", "warnings": [f"Drop Zone {dzname!r} not found"]}
+    defn = dict(rows[0])
+
+    components = []
+    if ptmetadata.has_table(env_name, "PSPTDZCOMP"):
+        try:
+            comp_rows = query(env_name, """
+                SELECT PNLGRPNAME, COMPONENT
+                  FROM SYSADM.PSPTDZCOMP
+                 WHERE DZNAME = :id
+                 ORDER BY PNLGRPNAME
+            """, {"id": dzname})
+            components = [dict(r) for r in (comp_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSPTDZCOMP: {exc}")
+
+    pages = []
+    if ptmetadata.has_table(env_name, "PSPTDZPNL"):
+        try:
+            pnl_rows = query(env_name, """
+                SELECT PNLNAME, PAGE
+                  FROM SYSADM.PSPTDZPNL
+                 WHERE DZNAME = :id
+                 ORDER BY PNLNAME
+            """, {"id": dzname})
+            pages = [dict(r) for r in (pnl_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSPTDZPNL: {exc}")
+
+    items = []
+    if ptmetadata.has_table(env_name, "PSPTDZITEM"):
+        try:
+            item_rows = query(env_name, """
+                SELECT OBJECTVALUE1, OBJECTVALUE2, SEQNO
+                  FROM SYSADM.PSPTDZITEM
+                 WHERE DZNAME = :id
+                 ORDER BY SEQNO
+            """, {"id": dzname})
+            items = [dict(r) for r in (item_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSPTDZITEM: {exc}")
+
+    return {
+        "definition": defn,
+        "components": components,
+        "pages": pages,
+        "items": items,
+        "counts": {"components": len(components), "pages": len(pages), "items": len(items)},
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Search Categories (PeopleSoft Search Framework, PTSF)
+# ---------------------------------------------------------------------------
+
+def search_search_categories(env_name, q="", limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PTSF_SRCAT"):
+        return {"items": [], "warnings": ["PTSF_SRCAT not accessible"]}
+    clauses = []
+    params = {"lim": limit}
+    if q:
+        clauses.append("(UPPER(SRCCATID) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
+        params["q"] = f"%{q}%"
+        params["q2"] = f"%{q}%"
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    try:
+        rows = query(env_name, f"""
+            SELECT SRCCATID, DESCR, SRCDEFNID
+              FROM SYSADM.PTSF_SRCAT
+             {where}
+             ORDER BY SRCCATID
+             FETCH FIRST :lim ROWS ONLY
+        """, params)
+        return {"items": [dict(r) for r in (rows or [])], "warnings": []}
+    except Exception as exc:
+        return {"items": [], "warnings": [str(exc)]}
+
+
+def get_search_category(env_name, srccatid):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PTSF_SRCAT"):
+        return {"error": "not_accessible", "warnings": ["PTSF_SRCAT not accessible"]}
+    warnings = []
+    srccatid = srccatid.upper()
+    rows = query(env_name, """
+        SELECT SRCCATID, DESCR, SRCDEFNID
+          FROM SYSADM.PTSF_SRCAT
+         WHERE SRCCATID = :id
+    """, {"id": srccatid})
+    if not rows:
+        return {"error": "not_found", "warnings": [f"Search Category {srccatid!r} not found"]}
+    defn = dict(rows[0])
+
+    definitions = []
+    if ptmetadata.has_table(env_name, "PTSF_SRCAT"):
+        try:
+            defn_rows = query(env_name, """
+                SELECT SRCDEFNID
+                  FROM SYSADM.PTSF_SRCAT
+                 WHERE SRCCATID = :id
+                 ORDER BY SRCDEFNID
+            """, {"id": srccatid})
+            definitions = [dict(r) for r in (defn_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PTSF_SRCAT: {exc}")
+
+    return {
+        "definition": defn,
+        "definitions": definitions,
+        "counts": {"definitions": len(definitions)},
+        "warnings": warnings,
+    }

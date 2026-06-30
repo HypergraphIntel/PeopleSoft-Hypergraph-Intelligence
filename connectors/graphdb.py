@@ -862,6 +862,38 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "search_definition", sid, r.get("descr") or sid, r)
         return len(rows)
 
+    def search_categories():
+        if not ptmetadata.has_table(env, "PTSF_SRCAT"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT SRCCATID, DESCR, SRCDEFNID
+              FROM SYSADM.PTSF_SRCAT
+             WHERE ROWNUM <= {limit}
+             ORDER BY SRCCATID
+        """) or []
+        for r in rows:
+            cid = r.get("srccatid")
+            if not cid:
+                continue
+            add_node(graph, "search_category", cid, r.get("descr") or cid, r)
+        return len(rows)
+
+    def drop_zones():
+        if not ptmetadata.has_table(env, "PSPTDZDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT DZNAME, DESCR, OBJECTOWNERID
+              FROM SYSADM.PSPTDZDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY DZNAME
+        """) or []
+        for r in rows:
+            dz = r.get("dzname")
+            if not dz:
+                continue
+            add_node(graph, "drop_zone", dz, r.get("descr") or dz, r)
+        return len(rows)
+
     for name, loader in (
         ("operators", operators),
         ("roles", roles),
@@ -884,6 +916,8 @@ def build(env="HCM", limit=50, persist=True):
         ("event_mappings", event_mappings),
         ("related_content", related_content_defs),
         ("search_definitions", search_definitions),
+        ("search_categories", search_categories),
+        ("drop_zones", drop_zones),
     ):
         provider(graph, name, loader)
 

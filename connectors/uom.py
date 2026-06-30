@@ -4831,6 +4831,144 @@ def search_definition_payload(env, srcdefnid):
     }
 
 
+def search_category_object(env, srccatid):
+    data = psdb.get_search_category(env, srccatid.upper())
+    if "error" in data:
+        return None
+    defn = data.get("definition", {})
+    return {
+        "type": "search_category",
+        "name": defn.get("srccatid", srccatid),
+        "title": defn.get("descr") or srccatid,
+        "srcdefnid": defn.get("srcdefnid"),
+        "_raw": data,
+        "_links": {"admin": object_url("search_category", srccatid.upper())},
+        "warnings": data.get("warnings", []),
+    }
+
+
+def sections_for_search_category(obj):
+    raw = obj.get("_raw", {})
+    defn = raw.get("definition", {})
+    definitions = raw.get("definitions", [])
+    counts = raw.get("counts", {})
+    sections = []
+
+    overview_rows = [
+        ("ID", defn.get("srccatid")),
+        ("Description", defn.get("descr")),
+        ("Search Definition", defn.get("srcdefnid")),
+    ]
+    sections.append({"id": "overview", "title": "Overview",
+                     "rows": [{"label": k, "value": v} for k, v in overview_rows if v is not None]})
+
+    if definitions:
+        defn_items = []
+        for d in definitions:
+            defn_items.append({
+                "name": d.get("srcdefnid", ""),
+                "label": d.get("srcdefnid", ""),
+                "chips": [],
+                "meta": "",
+            })
+        sections.append({"id": "definitions", "title": f"Search Definitions ({counts.get('definitions', len(definitions))})",
+                         "items": defn_items})
+
+    return sections
+
+
+def search_category_payload(env, srccatid):
+    obj = search_category_object(env, srccatid)
+    if obj is None:
+        return None
+    return {
+        "type": "search_category",
+        "name": obj["name"],
+        "title": obj["title"],
+        "overview": {
+            "srcdefnid": obj.get("srcdefnid"),
+        },
+        "sections": sections_for_search_category(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
+def drop_zone_object(env, dzname):
+    data = psdb.get_drop_zone(env, dzname.upper())
+    if "error" in data:
+        return None
+    defn = data.get("definition", {})
+    return {
+        "type": "drop_zone",
+        "name": defn.get("dzname", dzname),
+        "title": defn.get("descr") or dzname,
+        "owner": defn.get("objectownerid"),
+        "_raw": data,
+        "_links": {"admin": object_url("drop_zone", dzname.upper())},
+        "warnings": data.get("warnings", []),
+    }
+
+
+def sections_for_drop_zone(obj):
+    raw = obj.get("_raw", {})
+    defn = raw.get("definition", {})
+    components = raw.get("components", [])
+    pages = raw.get("pages", [])
+    items = raw.get("items", [])
+    counts = raw.get("counts", {})
+    sections = []
+
+    overview_rows = [
+        ("Name", defn.get("dzname")),
+        ("Description", defn.get("descr")),
+        ("Owner", defn.get("objectownerid")),
+        ("Last Updated", defn.get("lastupddttm")),
+        ("Last Updated By", defn.get("lastupdoprid")),
+    ]
+    sections.append({"id": "overview", "title": "Overview",
+                     "rows": [{"label": k, "value": v} for k, v in overview_rows if v is not None]})
+
+    if components:
+        comp_items = [{"name": c.get("component", ""), "label": c.get("component", ""),
+                       "chips": [], "meta": c.get("pnlgrpname", "")} for c in components]
+        sections.append({"id": "components", "title": f"Components ({counts.get('components', len(components))})",
+                         "items": comp_items})
+
+    if pages:
+        page_items = [{"name": p.get("page", ""), "label": p.get("page", ""),
+                      "chips": [], "meta": p.get("pnlname", "")} for p in pages]
+        sections.append({"id": "pages", "title": f"Pages ({counts.get('pages', len(pages))})",
+                         "items": page_items})
+
+    if items:
+        item_items = [{"name": i.get("objectvalue1", ""), "label": i.get("objectvalue1", ""),
+                      "chips": [], "meta": i.get("objectvalue2", "")} for i in items]
+        sections.append({"id": "items", "title": f"Items ({counts.get('items', len(items))})",
+                         "items": item_items})
+
+    return sections
+
+
+def drop_zone_payload(env, dzname):
+    obj = drop_zone_object(env, dzname)
+    if obj is None:
+        return None
+    return {
+        "type": "drop_zone",
+        "name": obj["name"],
+        "title": obj["title"],
+        "overview": {
+            "owner": obj.get("owner"),
+        },
+        "sections": sections_for_drop_zone(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
     if object_type == "component_interface":
@@ -4894,6 +5032,10 @@ def canonical_object(env, object_type, name):
         return related_content_object(env, name)
     if object_type == "search_definition":
         return search_definition_object(env, name)
+    if object_type == "search_category":
+        return search_category_object(env, name)
+    if object_type == "drop_zone":
+        return drop_zone_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

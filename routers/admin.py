@@ -25,6 +25,8 @@ _NAV = [
     ("efmapping",  "Event Mapping",   "/admin/efmapping"),
     ("relcontent", "Related Content", "/admin/relcontent"),
     ("srchdef",    "Search Defs",   "/admin/srchdef"),
+    ("srchcat",    "Search Cats",   "/admin/srchcat"),
+    ("dropzone",   "Drop Zones",    "/admin/dropzone"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3045,6 +3047,8 @@ const TYPE_CHIP_CFG = {
     event_mapping:          {label:'Event Map',     bg:'#1a1400',border:'#ddcc0044',color:'#ddcc00'},
     related_content:        {label:'Related Cont',  bg:'#0a001a',border:'#9944ff44',color:'#9944ff'},
     search_definition:      {label:'Search Def',    bg:'#001820',border:'#2299ee44',color:'#2299ee'},
+    search_category:        {label:'Search Cat',    bg:'#10001a',border:'#7744ee44',color:'#7744ee'},
+    drop_zone:               {label:'Drop Zone',     bg:'#1a1000',border:'#ee880044',color:'#ee8800'},
 };
 
 function typeChipHtml(type) {
@@ -12087,6 +12091,247 @@ async function selectDef(srcdefnid, idx) {
 
   if (!rows.length && !fieldsSec && !catsSec) {
     html += `<div class="muted">No detail available.</div>`;
+  }
+
+  detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")
+
+
+@router.get("/srchcat", response_class=HTMLResponse)
+def admin_srchcat():
+    return _shell("Search Category Explorer", "srchcat", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#7744ee;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #7744ee33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #7744ee22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #7744ee22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input{background:#0b1b24;color:#d7faff;border:1px solid #7744ee44;padding:5px 8px;font-size:12px}
+input:focus{outline:none;border-color:#7744ee}
+button{background:#7744ee;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#fff;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(119,68,238,.07);border-left-color:#7744ee55}
+.item.sel{background:rgba(119,68,238,.12);border-left-color:#7744ee}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;margin-right:3px}
+.chip-info{background:#10001a;border:1px solid #7744ee44;color:#7744ee}
+.kv-grid{display:grid;grid-template-columns:140px 1fr;gap:3px 12px;font-size:12px;margin-bottom:10px}
+.kv-key{color:#556;text-align:right}
+.kv-val{color:#d7faff;font-family:monospace}
+.field-row{padding:5px 10px;border-bottom:1px solid #10001a;font-size:11px}
+a{color:#7744ee;text-decoration:none} a:hover{text-decoration:underline}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="scSearch" type="text" placeholder="Search category ID or description..." style="width:280px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Search Categories</h2>
+    <div id="list" class="muted">Search to load search categories.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Category</h2>
+    <div id="detail" class="muted">Select a category from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function doSearch() {
+  const q = document.getElementById('scSearch').value.trim();
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 200});
+  if (q) params.set('q', q);
+  const d = await api(`/api/peoplesoft/search-categories?${params}`);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  const items = d.items || [];
+  document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
+  if (!items.length) { list.innerHTML = '<div class="muted">No search categories found.</div>'; return; }
+  list.innerHTML = items.map((r, i) =>
+    `<div class="item" id="item-${i}" onclick="selectCat('${esc(r.srccatid)}', ${i})">
+       <div class="item-name">${esc(r.srccatid)}</div>
+       <div class="item-meta">${esc((r.descr||'').slice(0,60))}</div>
+     </div>`
+  ).join('');
+}
+
+async function selectCat(srccatid, idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/search_category/${encodeURIComponent(srccatid)}?env=${ENV}`);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const adminUrl = `/admin/object/search_category/${esc(srccatid)}`;
+  const sections = d.sections || [];
+  const overviewSec = sections.find(s => s.id === 'overview') || {};
+  const rows = overviewSec.rows || [];
+  const defnSec = sections.find(s => s.id === 'definitions');
+
+  let html = `
+    <div style="margin-bottom:12px">
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#7744ee">${esc(srccatid)}</span>
+      &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
+    </div>`;
+
+  if (rows.length) {
+    html += `<div class="kv-grid">`;
+    for (const row of rows) {
+      html += `<div class="kv-key">${esc(row.label)}</div><div class="kv-val">${esc(String(row.value||''))}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (defnSec && (defnSec.items||[]).length) {
+    html += `<h2>${esc(defnSec.title)}</h2>`;
+    html += defnSec.items.map(it =>
+      `<div class="field-row"><span style="font-family:monospace;color:#d7faff">${esc(it.name)}</span></div>`
+    ).join('');
+  }
+
+  if (!rows.length && !defnSec) {
+    html += `<div class="muted">No detail available.</div>`;
+  }
+
+  detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")
+
+
+@router.get("/dropzone", response_class=HTMLResponse)
+def admin_dropzone():
+    return _shell("Drop Zone Explorer", "dropzone", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#ee8800;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #ee880033;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #ee880022;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #ee880022;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input{background:#0b1b24;color:#d7faff;border:1px solid #ee880044;padding:5px 8px;font-size:12px}
+input:focus{outline:none;border-color:#ee8800}
+button{background:#ee8800;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(238,136,0,.07);border-left-color:#ee880055}
+.item.sel{background:rgba(238,136,0,.12);border-left-color:#ee8800}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #ee880033;background:#1a1000;font-size:11px;margin:2px}
+.stat b{color:#ee8800;font-size:16px;display:block}
+.kv-grid{display:grid;grid-template-columns:140px 1fr;gap:3px 12px;font-size:12px;margin-bottom:10px}
+.kv-key{color:#556;text-align:right}
+.kv-val{color:#d7faff;font-family:monospace}
+.field-row{padding:5px 10px;border-bottom:1px solid #1a1000;font-size:11px}
+a{color:#ee8800;text-decoration:none} a:hover{text-decoration:underline}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="dzSearch" type="text" placeholder="Search drop zone name or description..." style="width:280px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Drop Zones</h2>
+    <div id="list" class="muted">Search to load drop zones.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Drop Zone</h2>
+    <div id="detail" class="muted">Select a drop zone from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function doSearch() {
+  const q = document.getElementById('dzSearch').value.trim();
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 200});
+  if (q) params.set('q', q);
+  const d = await api(`/api/peoplesoft/drop-zones?${params}`);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  const items = d.items || [];
+  document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
+  if (!items.length) { list.innerHTML = '<div class="muted">No drop zones found.</div>'; return; }
+  list.innerHTML = items.map((r, i) =>
+    `<div class="item" id="item-${i}" onclick="selectDz('${esc(r.dzname)}', ${i})">
+       <div class="item-name">${esc(r.dzname)}</div>
+       <div class="item-meta">${esc((r.descr||'').slice(0,60))}</div>
+     </div>`
+  ).join('');
+}
+
+async function selectDz(dzname, idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/drop_zone/${encodeURIComponent(dzname)}?env=${ENV}`);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const adminUrl = `/admin/object/drop_zone/${esc(dzname)}`;
+  const sections = d.sections || [];
+  const overviewSec = sections.find(s => s.id === 'overview') || {};
+  const rows = overviewSec.rows || [];
+  const compSec = sections.find(s => s.id === 'components');
+  const pageSec = sections.find(s => s.id === 'pages');
+  const itemSec = sections.find(s => s.id === 'items');
+
+  let html = `
+    <div style="margin-bottom:12px">
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#ee8800">${esc(dzname)}</span>
+      &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
+    </div>`;
+
+  if (rows.length) {
+    html += `<div class="kv-grid">`;
+    for (const row of rows) {
+      html += `<div class="kv-key">${esc(row.label)}</div><div class="kv-val">${esc(String(row.value||''))}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  html += `<div style="margin:10px 0">`
+    + `<span class="stat"><b>${(compSec?.items||[]).length}</b>Components</span>`
+    + `<span class="stat"><b>${(pageSec?.items||[]).length}</b>Pages</span>`
+    + `<span class="stat"><b>${(itemSec?.items||[]).length}</b>Items</span>`
+    + `</div>`;
+
+  for (const sec of [compSec, pageSec, itemSec]) {
+    if (sec && (sec.items||[]).length) {
+      html += `<h2>${esc(sec.title)}</h2>`;
+      html += sec.items.map(it =>
+        `<div class="field-row">
+           <span style="font-family:monospace;color:#d7faff">${esc(it.name)}</span>
+           ${it.meta ? `<span style="color:#556;font-size:10px;margin-left:8px">${esc(it.meta)}</span>` : ''}
+         </div>`
+      ).join('');
+    }
   }
 
   detail.innerHTML = html;

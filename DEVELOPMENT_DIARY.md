@@ -2297,3 +2297,27 @@ Implemented the Search Definitions vertical slice — the PeopleSoft Search Fram
 **`scripts/smoke_admin_shell.py`**: Added `/admin/srchdef` → `#sdSearch`. Harness now 20 pages.
 
 **`ROADMAP.md`**: Search Definitions promoted to Completed Providers; platform status updated to 20 smoke test pages; "Next Slice" section added at bottom.
+
+---
+
+## Search Categories (PTSF_SRCAT) and Drop Zones (PSPTDZDEFN)
+
+Implemented two more Phase 5 providers in the same session cycle: Search Categories (sibling of Search Definitions in the Search Framework) and Drop Zones (promoted from the planned stub loop — `page_drop_zones()`/`component_drop_zones()` relationship helpers already existed and pointed at the real backing tables `PSPTDZDEFN`/`PSPTDZITEM`/`PSPTDZCOMP`/`PSPTDZPNL`, which made this a natural promotion rather than a fresh discovery).
+
+**`connectors/psdb.py`**: `search_search_categories()` / `get_search_category()` over `PTSF_SRCAT`; `search_drop_zones()` / `get_drop_zone()` over `PSPTDZDEFN` with has_table()-guarded sub-table reads from `PSPTDZCOMP` (components), `PSPTDZPNL` (pages), and `PSPTDZITEM` (items).
+
+**`connectors/ptmetadata.py`**: `search_category` and `drop_zone` promoted to full `OBJECT_REGISTRY` entries; `drop_zone` removed from the planned stub loop (now only `content_reference`, `section`, `step`, `sql`, `message`, `process_scheduler`, `runtime_instance` remain planned).
+
+**`connectors/uom.py`**: `search_category_object()`/`sections_for_search_category()`/`search_category_payload()`; `drop_zone_object()`/`sections_for_drop_zone()`/`drop_zone_payload()`; both dispatched in `canonical_object()`.
+
+**`connectors/graphdb.py`**: `search_categories()` and `drop_zones()` providers added to the build loop.
+
+**`routers/peoplesoft.py`**: `GET /api/peoplesoft/search-categories`, `GET /api/peoplesoft/drop-zones`; both dispatched in `object_payload()`. Verified no collision with the existing component/page-scoped `.../drop-zones` relationship endpoints.
+
+**`routers/admin.py`**: `("srchcat", "Search Cats", "/admin/srchcat")` and `("dropzone", "Drop Zones", "/admin/dropzone")` in `_NAV`; `search_category` (violet) and `drop_zone` (amber) chips; two new two-panel explorer pages.
+
+**`scripts/smoke_admin_shell.py`**: Added `/admin/srchcat` → `#scSearch` and `/admin/dropzone` → `#dzSearch`. Harness now 22 pages.
+
+**`ROADMAP.md`**: Search Categories and Drop Zones promoted to Completed Providers; platform status updated to 22 smoke test pages; "Next Slice" section rewritten for WorkCenters, Dashboards, Homepage Tiles, BI Publisher.
+
+**Verification:** `python -m py_compile` on all seven touched files → ALL OK (pre-existing `\-` SyntaxWarning in the unrelated pcsearch tokenizer regex, not introduced here). `python3 -c "import main"` → OK.

@@ -53,9 +53,11 @@ The following major subsystems are production-ready:
 - Event Mapping Explorer
 - Related Content Explorer
 - Search Definition Explorer
+- Search Category Explorer
+- Drop Zone Explorer
 - Version-aware metadata adapters
 - Shared frontend shell with global navigation and environment selector
-- Admin shell smoke test harness (20 pages)
+- Admin shell smoke test harness (22 pages)
 - Scheduled graph snapshots with retention pruning
 
 Development focus now shifts from feature parity toward platform intelligence.
@@ -158,15 +160,15 @@ Continue expanding object coverage.
 - Event Mappings
 - Related Content
 - Search Definitions
+- Search Categories
+- Drop Zones
 
 ### Remaining Providers
 
 - BI Publisher report definitions
 - WorkCenters
 - Dashboards
-- Search Categories
 - Homepage Tiles
-- Drop Zones
 - Branding
 - Page Composer
 
@@ -383,9 +385,9 @@ The following providers are ready to implement in the next session cycle.
 
 ## Phase 5 — Immediate Next Providers
 
-- **Search Categories** (`PTSF_SRCAT`) — categories grouping search definitions; two-panel explorer with association to parent definition
-- **Drop Zones** (`PTDROPZONE`) — upgrade from planned stub to full provider with registry entry, UOM, REST endpoint, and explorer page
 - **WorkCenters** — PeopleSoft WorkCenter definitions; search and detail view
 - **Dashboards** — dashboard definition discovery and explorer
+- **Homepage Tiles** — tile registry discovery and explorer
+- **BI Publisher report definitions** — distinct from XML Publisher; report bursting and scheduling metadata
 
-After those four, the remaining Phase 5 providers are: Homepage Tiles, BI Publisher, Branding, Page Composer.
+After those four, the remaining Phase 5 providers are: Branding, Page Composer.

@@ -668,13 +668,38 @@ OBJECT_REGISTRY.setdefault("search_definition", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("search_category", {
+    "display_title": "Search Category",
+    "icon": "search",
+    "graph_node_type": "search_category",
+    "object_page": "/admin/object/search_category/{name}",
+    "discovery": {"table": "PTSF_SRCAT", "name_column": "SRCCATID"},
+    "search": {"table": "PTSF_SRCAT", "name_column": "SRCCATID",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["SRCDEFNID"]},
+    "supported_versions": ["8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("drop_zone", {
+    "display_title": "Drop Zone",
+    "icon": "layout",
+    "graph_node_type": "drop_zone",
+    "object_page": "/admin/object/drop_zone/{name}",
+    "discovery": {"table": "PSPTDZDEFN", "name_column": "DZNAME"},
+    "search": {"table": "PSPTDZDEFN", "name_column": "DZNAME",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["OBJECTOWNERID"]},
+    "supported_versions": ["8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",
     "step",
     "sql",
     "message",
-    "drop_zone",
     "process_scheduler",
     "runtime_instance",
 ]:
