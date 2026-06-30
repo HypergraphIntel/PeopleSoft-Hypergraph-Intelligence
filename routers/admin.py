@@ -5435,7 +5435,7 @@ async function loadServices() {
   const items = d.items || [];
   renderList('svcList', items, item => {
     const b = bStatus(item.status_label);
-    return `<div class="list-item" data-name="${esc(item.ptibapplname)}" onclick="showService(${JSON.stringify(item.ptibapplname)})">
+    return `<div class="list-item" data-name="${esc(item.ptibapplname)}" onclick="showService('${item.ptibapplname}')">
       <span class="badge ${b.cls}">${b.text}</span>
       <span class="item-name">${esc(item.ptibapplname)}</span>
       <div class="item-meta">${esc(item.descr || '')}</div>
@@ -5456,7 +5456,7 @@ async function loadOperations() {
   const d = await api(`/api/ib/operations?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
   renderList('opList', d.items || [], item => {
     const routeBits = item.routing_count != null ? `${item.routing_count}r` : '';
-    return `<div class="list-item" data-name="${esc(item.ib_operationname)}" onclick="showOperation(${JSON.stringify(item.ib_operationname)})">
+    return `<div class="list-item" data-name="${esc(item.ib_operationname)}" onclick="showOperation('${item.ib_operationname}')">
       <span class="badge bd-info">${esc(item.service_kind || 'Op')}</span>
       <span class="item-name">${esc(item.ib_operationname)}</span>
       <div class="item-meta">${esc(item.ib_servicename || item.ptibapplname || '')}${routeBits ? ' · ' + routeBits : ''}</div>
@@ -5470,7 +5470,7 @@ async function loadRoutings() {
   $('rtngList').innerHTML = '<span class="empty" style="padding:8px;">Loading…</span>';
   const d = await api(`/api/ib/routings?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
   renderList('rtngList', d.items || [], item => {
-    return `<div class="list-item" data-name="${esc(item.routingdefnname)}" onclick="showRouting(${JSON.stringify(item.routingdefnname)})">
+    return `<div class="list-item" data-name="${esc(item.routingdefnname)}" onclick="showRouting('${item.routingdefnname}')">
       <span class="item-name">${esc(item.routingdefnname)}</span>
       <div class="item-meta">${esc(item.sendernodename||'*')} → ${esc(item.receivernodename||'*')}${item.eff_status_label?' · '+esc(item.eff_status_label):''}</div>
     </div>`;
@@ -5485,7 +5485,7 @@ async function loadNodes() {
   renderList('nodeList', d.items || [], item => {
     const b = bStatus(item.active_label);
     const localTag = item.is_local ? ' <span style="font-size:9px;color:#00e5ff;">[LOCAL]</span>' : '';
-    return `<div class="list-item" data-name="${esc(item.msgnodename)}" onclick="showNode(${JSON.stringify(item.msgnodename)})">
+    return `<div class="list-item" data-name="${esc(item.msgnodename)}" onclick="showNode('${item.msgnodename}')">
       <span class="badge ${b.cls}">${b.text}</span>
       <span class="item-name">${esc(item.msgnodename)}</span>${localTag}
       <div class="item-meta">${esc(item.node_type_label||'')}${item.toolsrel?' · '+esc(item.toolsrel):''}</div>
@@ -5500,7 +5500,7 @@ async function loadQueues() {
   const d = await api(`/api/ib/queues?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
   renderList('queueList', d.items || [], item => {
     const b = bQueue(item.queuestatus_label);
-    return `<div class="list-item" data-name="${esc(item.queuename)}" onclick="showQueue(${JSON.stringify(item.queuename)})">
+    return `<div class="list-item" data-name="${esc(item.queuename)}" onclick="showQueue('${item.queuename}')">
       <span class="badge ${b.cls}">${b.text}</span>
       <span class="item-name">${esc(item.queuename)}</span>
       <div class="item-meta">${esc(item.descr||'')}</div>
@@ -5518,7 +5518,7 @@ async function loadTxns() {
   const d = await api(url);
   renderList('txList', d.items || [], item => {
     const b = bTx(item.pubstatus_label);
-    return `<div class="list-item" data-name="${esc(item.ibtransactionid)}" onclick="showTxn(${JSON.stringify(item.ibtransactionid)})">
+    return `<div class="list-item" data-name="${esc(item.ibtransactionid)}" onclick="showTxn('${item.ibtransactionid}')">
       <span class="badge ${b.cls}">${b.text}</span>
       <span class="item-name mono" style="font-size:10px;">${esc((item.ibtransactionid||'').substring(0,26))}</span>
       <div class="item-meta">${esc(item.ib_operationname||'')}${item.queuename?' · '+esc(item.queuename):''}</div>
@@ -5564,7 +5564,7 @@ async function showService(name, push=true) {
   if (!it) { setDetail(`<div class="err-msg">Not found: ${esc(name)}</div>`); return; }
 
   const ops = it.service_operations || [];
-  const opTags = ops.slice(0,8).map(op => ({label:op.ib_operationname, action:`showOperation(${JSON.stringify(op.ib_operationname)})`}));
+  const opTags = ops.slice(0,8).map(op => ({label:op.ib_operationname, action:`showOperation('${op.ib_operationname}')`}));
   if (ops.length > 8) opTags.push({label:`+${ops.length-8} more`, action:`switchTab('operations')`});
 
   let h = relStrip('Operations', opTags);
@@ -5586,7 +5586,7 @@ async function showService(name, push=true) {
     </tr></thead><tbody>`;
     ops.forEach(op => {
       h += `<tr>
-        <td class="mono"><a class="obj-link" onclick="showOperation(${JSON.stringify(op.ib_operationname)})">${esc(op.ib_operationname || '')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showOperation('${op.ib_operationname}')">${esc(op.ib_operationname || '')}</a></td>
         <td>${esc(op.service_kind || '')}</td>
         <td>${esc(op.ib_restmethod || '')}</td><td>${esc(op.descr || '')}</td></tr>`;
     });
@@ -5610,9 +5610,9 @@ async function showService(name, push=true) {
     </tr></thead><tbody>`;
     it.routings.forEach(r => {
       h += `<tr>
-        <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(r.routingdefnname)})">${esc(r.routingdefnname)}</a></td>
-        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(r.sendernodename)})">${esc(r.sendernodename||'')}</a></td>
-        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(r.receivernodename)})">${esc(r.receivernodename||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showRouting('${r.routingdefnname}')">${esc(r.routingdefnname)}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showNode('${r.sendernodename}')">${esc(r.sendernodename||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showNode('${r.receivernodename}')">${esc(r.receivernodename||'')}</a></td>
         <td>${chipStatus(r.eff_status_label)}</td></tr>`;
     });
     h += '</tbody></table></div>';
@@ -5634,21 +5634,21 @@ async function showOperation(name, push=true) {
   // Build relationship strip
   const relTags = [];
   const svcName = it.ib_servicename || it.ptibapplname;
-  if (svcName) relTags.push({label:`&#127760; ${svcName}`, action:`showService(${JSON.stringify(svcName)})`});
+  if (svcName) relTags.push({label:`&#127760; ${svcName}`, action:`showService('${svcName}')`});
   (it.routings||[]).slice(0,3).forEach(r => {
-    relTags.push({label:`&#8652; ${r.routingdefnname}`, action:`showRouting(${JSON.stringify(r.routingdefnname)})`});
+    relTags.push({label:`&#8652; ${r.routingdefnname}`, action:`showRouting('${r.routingdefnname}')`});
   });
   (it.runtime_queues||[]).slice(0,2).forEach(q => {
-    relTags.push({label:`&#11036; ${q.queuename}`, action:`showQueue(${JSON.stringify(q.queuename)})`});
+    relTags.push({label:`&#11036; ${q.queuename}`, action:`showQueue('${q.queuename}')`});
   });
-  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor(${JSON.stringify(name)})`});
+  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`});
 
   let h = relStrip('Related', relTags);
   h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">&#9881; ${esc(it.ib_operationname)}</div>`;
   if (it.descr) h += `<div style="color:#9ab;margin-bottom:8px;font-size:11px;">${esc(it.descr)}</div>`;
   h += `<div class="card"><div class="kv-grid">
       ${kv('Type', esc(it.service_kind))}
-      ${svcName ? kv('Service', `<a class="obj-link" onclick="showService(${JSON.stringify(svcName)})">${esc(svcName)}</a>`) : ''}
+      ${svcName ? kv('Service', `<a class="obj-link" onclick="showService('${svcName}')">${esc(svcName)}</a>`) : ''}
       ${kv('Alias', esc(it.ib_aliasname))}
       ${kv('Default Version', esc(it.defaultver || it.versionname))}
       ${kv('REST Method', esc(it.ib_restmethod))}
@@ -5667,7 +5667,7 @@ async function showOperation(name, push=true) {
       h += `<tr><td class="mono">${esc(m.versionname || '')}</td>
         <td class="mono">${esc(m.ib_reqmsgname || m.msgname || '')}${m.inmsgversion ? ' v'+esc(m.inmsgversion) : ''}</td>
         <td class="mono">${esc(m.ib_respmsgname || '')}${m.outmsgversion ? ' v'+esc(m.outmsgversion) : ''}</td>
-        <td class="mono">${qname ? `<a class="obj-link" onclick="showQueue(${JSON.stringify(qname)})">${esc(qname)}</a>` : ''}</td></tr>`;
+        <td class="mono">${qname ? `<a class="obj-link" onclick="showQueue('${qname}')">${esc(qname)}</a>` : ''}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }
@@ -5678,9 +5678,9 @@ async function showOperation(name, push=true) {
     </tr></thead><tbody>`;
     it.routings.forEach(r => {
       h += `<tr>
-        <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(r.routingdefnname)})">${esc(r.routingdefnname)}</a></td>
-        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(r.sendernodename)})">${esc(r.sendernodename || '')}</a></td>
-        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(r.receivernodename)})">${esc(r.receivernodename || '')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showRouting('${r.routingdefnname}')">${esc(r.routingdefnname)}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showNode('${r.sendernodename}')">${esc(r.sendernodename || '')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showNode('${r.receivernodename}')">${esc(r.receivernodename || '')}</a></td>
         <td>${chipStatus(r.eff_status_label)}</td></tr>`;
     });
     h += '</tbody></table></div>';
@@ -5703,7 +5703,7 @@ async function showOperation(name, push=true) {
       <th>Queue</th><th>Status</th><th>Count</th><th>Last Created</th>
     </tr></thead><tbody>`;
     it.runtime_queues.forEach(q => {
-      h += `<tr><td class="mono"><a class="obj-link" onclick="showQueue(${JSON.stringify(q.queuename)})">${esc(q.queuename || '')}</a></td>
+      h += `<tr><td class="mono"><a class="obj-link" onclick="showQueue('${q.queuename}')">${esc(q.queuename || '')}</a></td>
         <td>${chipTx(q.pubstatus_label)}</td><td>${esc(q.cnt)}</td><td class="ts">${esc(q.last_created || '')}</td></tr>`;
     });
     h += '</tbody></table></div>';
@@ -5747,10 +5747,10 @@ async function showRouting(name, push=true) {
   if (!it) { setDetail(`<div class="err-msg">Not found: ${esc(name)}</div>`); return; }
 
   const relTags = [];
-  if (it.ib_operationname) relTags.push({label:`&#9881; ${it.ib_operationname}`, action:`showOperation(${JSON.stringify(it.ib_operationname)})`});
-  if (it.sendernodename) relTags.push({label:`&#8594; ${it.sendernodename}`, action:`showNode(${JSON.stringify(it.sendernodename)})`});
-  if (it.receivernodename) relTags.push({label:`&#8592; ${it.receivernodename}`, action:`showNode(${JSON.stringify(it.receivernodename)})`});
-  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor(${JSON.stringify(name)})`});
+  if (it.ib_operationname) relTags.push({label:`&#9881; ${it.ib_operationname}`, action:`showOperation('${it.ib_operationname}')`});
+  if (it.sendernodename) relTags.push({label:`&#8594; ${it.sendernodename}`, action:`showNode('${it.sendernodename}')`});
+  if (it.receivernodename) relTags.push({label:`&#8592; ${it.receivernodename}`, action:`showNode('${it.receivernodename}')`});
+  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`});
 
   let h = relStrip('Related', relTags);
   h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">&#8652; ${esc(it.routingdefnname)}</div>`;
@@ -5758,9 +5758,9 @@ async function showRouting(name, push=true) {
   h += `<div class="card"><div class="kv-grid">
       ${kv('Status', chipStatus(it.eff_status_label))}
       ${kv('Type', esc(it.rtngtype_label))}
-      ${kv('Service Operation', `<a class="obj-link" onclick="showOperation(${JSON.stringify(it.ib_operationname)})">${esc(it.ib_operationname)}</a>`)}
-      ${kv('Sender Node', `<a class="obj-link" onclick="showNode(${JSON.stringify(it.sendernodename)})">${esc(it.sendernodename)}</a>`)}
-      ${kv('Receiver Node', `<a class="obj-link" onclick="showNode(${JSON.stringify(it.receivernodename)})">${esc(it.receivernodename)}</a>`)}
+      ${kv('Service Operation', `<a class="obj-link" onclick="showOperation('${it.ib_operationname}')">${esc(it.ib_operationname)}</a>`)}
+      ${kv('Sender Node', `<a class="obj-link" onclick="showNode('${it.sendernodename}')">${esc(it.sendernodename)}</a>`)}
+      ${kv('Receiver Node', `<a class="obj-link" onclick="showNode('${it.receivernodename}')">${esc(it.receivernodename)}</a>`)}
       ${kv('REST Method', esc(it.ib_restmethod))}
       ${kv('Delivery Mode', esc(it.ib_deliverymode))}
       ${kv('Effective Date', esc(it.effdt))}
@@ -5774,8 +5774,8 @@ async function showRouting(name, push=true) {
     </tr></thead><tbody>`;
     it.sub_definitions.forEach(s => {
       h += `<tr><td>${esc(s.seqnum)}</td><td>${esc(s.ib_direction)}</td>
-        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(s.sendernodename)})">${esc(s.sendernodename||'')}</a></td>
-        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(s.receivernodename)})">${esc(s.receivernodename||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showNode('${s.sendernodename}')">${esc(s.sendernodename||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showNode('${s.receivernodename}')">${esc(s.receivernodename||'')}</a></td>
         <td>${esc(s.rtngtype)}</td></tr>`;
     });
     h += '</tbody></table></div>';
@@ -5797,8 +5797,8 @@ async function showNode(name, push=true) {
 
   const allRoutings = [...(it.routings_as_sender||[]), ...(it.routings_as_receiver||[])];
   const uniqueOps = [...new Set(allRoutings.map(r=>r.ib_operationname).filter(Boolean))];
-  const relTags = uniqueOps.slice(0,5).map(op => ({label:`&#9881; ${op}`, action:`showOperation(${JSON.stringify(op)})`}));
-  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor(${JSON.stringify(name)})`});
+  const relTags = uniqueOps.slice(0,5).map(op => ({label:`&#9881; ${op}`, action:`showOperation('${op}')`}));
+  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`});
 
   let h = relStrip('Related Ops', relTags);
   h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">
@@ -5832,8 +5832,8 @@ function rtngTable(title, rows) {
   </tr></thead><tbody>`;
   rows.forEach(r => {
     h += `<tr>
-      <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(r.routingdefnname)})">${esc(r.routingdefnname)}</a></td>
-      <td class="mono"><a class="obj-link" onclick="showOperation(${JSON.stringify(r.ib_operationname)})">${esc(r.ib_operationname||'')}</a></td>
+      <td class="mono"><a class="obj-link" onclick="showRouting('${r.routingdefnname}')">${esc(r.routingdefnname)}</a></td>
+      <td class="mono"><a class="obj-link" onclick="showOperation('${r.ib_operationname}')">${esc(r.ib_operationname||'')}</a></td>
       <td class="mono">${esc(r.sendernodename||'')}</td><td class="mono">${esc(r.receivernodename||'')}</td>
       <td>${chipStatus(r.eff_status_label)}</td></tr>`;
   });
@@ -5849,7 +5849,7 @@ async function showQueue(name, push=true) {
   const it = d.item;
   if (!it) { setDetail(`<div class="err-msg">Not found: ${esc(name)}</div>`); return; }
 
-  const relTags = [{label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor(${JSON.stringify(name)})`}];
+  const relTags = [{label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`}];
 
   let h = relStrip('Related', relTags);
   h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">&#11036; ${esc(it.queuename)}</div>`;
@@ -5893,17 +5893,17 @@ async function showTxn(txid, push=true) {
   if (!it) { setDetail(`<div class="err-msg">Not found.</div>`); return; }
 
   const relTags = [];
-  if (it.ib_operationname) relTags.push({label:`&#9881; ${it.ib_operationname}`, action:`showOperation(${JSON.stringify(it.ib_operationname)})`});
-  if (it.queuename) relTags.push({label:`&#11036; ${it.queuename}`, action:`showQueue(${JSON.stringify(it.queuename)})`});
-  if (it.pubnode) relTags.push({label:`&#128279; ${it.pubnode}`, action:`showNode(${JSON.stringify(it.pubnode)})`});
+  if (it.ib_operationname) relTags.push({label:`&#9881; ${it.ib_operationname}`, action:`showOperation('${it.ib_operationname}')`});
+  if (it.queuename) relTags.push({label:`&#11036; ${it.queuename}`, action:`showQueue('${it.queuename}')`});
+  if (it.pubnode) relTags.push({label:`&#128279; ${it.pubnode}`, action:`showNode('${it.pubnode}')`});
 
   let h = relStrip('Path', relTags);
   h += `<div style="font-family:monospace;color:#00e5ff;font-size:11px;margin-bottom:4px;">&#8644; ${esc((txid||'').substring(0,36))}</div>`;
   h += `<div class="card"><div class="kv-grid">
       ${kv('Status', chipTx(it.pubstatus_label))}
-      ${kv('Operation', `<a class="obj-link" onclick="showOperation(${JSON.stringify(it.ib_operationname)})">${esc(it.ib_operationname)}</a>`)}
-      ${kv('Queue', it.queuename ? `<a class="obj-link" onclick="showQueue(${JSON.stringify(it.queuename)})">${esc(it.queuename)}</a>` : '')}
-      ${kv('Pub Node', it.pubnode ? `<a class="obj-link" onclick="showNode(${JSON.stringify(it.pubnode)})">${esc(it.pubnode)}</a>` : '')}
+      ${kv('Operation', `<a class="obj-link" onclick="showOperation('${it.ib_operationname}')">${esc(it.ib_operationname)}</a>`)}
+      ${kv('Queue', it.queuename ? `<a class="obj-link" onclick="showQueue('${it.queuename}')">${esc(it.queuename)}</a>` : '')}
+      ${kv('Pub Node', it.pubnode ? `<a class="obj-link" onclick="showNode('${it.pubnode}')">${esc(it.pubnode)}</a>` : '')}
       ${it.destpubnode ? kv('Dest Node', esc(it.destpubnode)) : ''}
       ${kv('Publisher', esc(it.publisher))}
       ${kv('Created', esc(it.createdttm))}
@@ -5919,8 +5919,8 @@ async function showTxn(txid, push=true) {
     </tr></thead><tbody>`;
     it.pub_contracts.forEach(c => {
       h += `<tr>
-        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(c.subnode)})">${esc(c.subnode||'')}</a></td>
-        <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(c.routingdefnname)})">${esc(c.routingdefnname||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showNode('${c.subnode}')">${esc(c.subnode||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showRouting('${c.routingdefnname}')">${esc(c.routingdefnname||'')}</a></td>
         <td>${chipTx(c.pubconstatus_label)}</td><td>${esc(c.retrycount)}</td>
         <td class="ts">${esc(c.lastupddttm||'')}</td></tr>`;
     });
@@ -5933,8 +5933,8 @@ async function showTxn(txid, push=true) {
     </tr></thead><tbody>`;
     it.sub_contracts.forEach(c => {
       h += `<tr><td class="mono">${esc(c.actionname||'')}</td>
-        <td class="mono"><a class="obj-link" onclick="showOperation(${JSON.stringify(c.ib_operationname)})">${esc(c.ib_operationname||'')}</a></td>
-        <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(c.routingdefnname)})">${esc(c.routingdefnname||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showOperation('${c.ib_operationname}')">${esc(c.ib_operationname||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showRouting('${c.routingdefnname}')">${esc(c.routingdefnname||'')}</a></td>
         <td>${chipTx(c.subconstatus_label)}</td>
         <td>${esc(c.process_instance||'')}</td></tr>`;
     });
