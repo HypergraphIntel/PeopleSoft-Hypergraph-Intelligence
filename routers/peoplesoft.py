@@ -347,6 +347,15 @@ def object_payload(env, object_type, object_name):
     if object_type == "xml_publisher_report":
         return uom.xpub_report_payload(env, object_name)
 
+    if object_type == "nav_collection":
+        return uom.nav_collection_payload(env, object_name)
+
+    if object_type == "event_mapping":
+        return uom.event_mapping_payload(env, object_name)
+
+    if object_type == "related_content":
+        return uom.related_content_payload(env, object_name)
+
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
 
@@ -1056,6 +1065,21 @@ def peoplesoft_xpub_reports(env: str = "HCM", q: str = "", limit: int = 100):
 @router.get("/api/peoplesoft/xpub/datasources")
 def peoplesoft_xpub_datasources(env: str = "HCM", q: str = "", limit: int = 100):
     return psdb.search_xpub_datasources(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/nav-collections")
+def peoplesoft_nav_collections(env: str = "HCM", q: str = "", portal: str = "EMPLOYEE", limit: int = 100):
+    return psdb.search_nav_collections(env, q=q, portal=portal or "EMPLOYEE", limit=limit)
+
+
+@router.get("/api/peoplesoft/event-mappings")
+def peoplesoft_event_mappings(env: str = "HCM", q: str = "", status: str = "", limit: int = 100):
+    return psdb.search_event_mappings(env, q=q, status=status or None, limit=limit)
+
+
+@router.get("/api/peoplesoft/related-content")
+def peoplesoft_related_content(env: str = "HCM", q: str = "", limit: int = 100):
+    return psdb.search_related_content(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")

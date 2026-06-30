@@ -782,6 +782,54 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "message_catalog", name, text[:80], r)
         return len(rows)
 
+    def event_mappings():
+        if not ptmetadata.has_table(env, "PSEFMAPPINGDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT EFMAPPINGID, DESCR, STATUS, OBJECTOWNERID
+              FROM SYSADM.PSEFMAPPINGDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY EFMAPPINGID
+        """) or []
+        for r in rows:
+            eid = r.get("efmappingid")
+            if not eid:
+                continue
+            add_node(graph, "event_mapping", eid, r.get("descr") or eid, r)
+        return len(rows)
+
+    def related_content_defs():
+        if not ptmetadata.has_table(env, "PSRELCONDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT RELCONID, DESCR, STATUS, SERVICETYPE, OBJECTOWNERID
+              FROM SYSADM.PSRELCONDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY RELCONID
+        """) or []
+        for r in rows:
+            rid = r.get("relconid")
+            if not rid:
+                continue
+            add_node(graph, "related_content", rid, r.get("descr") or rid, r)
+        return len(rows)
+
+    def nav_collections():
+        if not ptmetadata.has_table(env, "PTNC_COLLECTION"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT PORTAL_NAME, COLL_ID, COLL_TITLE, EFF_STATUS
+              FROM SYSADM.PTNC_COLLECTION
+             WHERE ROWNUM <= {limit}
+             ORDER BY PORTAL_NAME, COLL_ID
+        """) or []
+        for r in rows:
+            cid = r.get("coll_id")
+            if not cid:
+                continue
+            add_node(graph, "nav_collection", cid, r.get("coll_title") or cid, r)
+        return len(rows)
+
     def xpub_reports():
         if not ptmetadata.has_table(env, "PSXPREPORTDEFN"):
             return 0
@@ -816,6 +864,9 @@ def build(env="HCM", limit=50, persist=True):
         ("approvals", approvals),
         ("messages", messages),
         ("xpub_reports", xpub_reports),
+        ("nav_collections", nav_collections),
+        ("event_mappings", event_mappings),
+        ("related_content", related_content_defs),
     ):
         provider(graph, name, loader)
 

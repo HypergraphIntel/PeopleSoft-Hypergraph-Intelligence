@@ -2178,3 +2178,100 @@ Sub-tables PSXPDATASRC and PSXPTEMPLDEFN individually guarded with `has_table()`
 **Verification:**
 - `python -m py_compile` all modified files → ALL OK.
 - `python3 -c "import main"` → OK.
+
+---
+
+## 2026-06-30 — Navigation Collections Vertical Slice
+
+**Goal:** Full end-to-end explorer for PeopleSoft Fluid Navigation Collections.
+
+**Data model:**
+- `PTNC_COLLECTION` — collection header (PORTAL_NAME + COLL_ID PK, COLL_TITLE, EFF_STATUS A/I, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID)
+- `PTNC_COLL_LINE` — collection lines (PORTAL_NAME + COLL_ID + LINE_NBR PK, LINE_TYPE: C=Content Ref/F=Folder/T=Tile/S=Static Link, LABEL, PORTAL_URLTEXT)
+
+`PTNC_COLL_LINE` individually guarded with `has_table()`.
+
+**`connectors/psdb.py`**:
+- `_NC_LINE_TYPE`, `_NC_EFF_STATUS` dicts.
+- `search_nav_collections(env, q, portal, limit)` — searches PTNC_COLLECTION by COLL_ID/COLL_TITLE with optional PORTAL_NAME filter (defaults to 'EMPLOYEE'); adds `eff_status_label`; returns `{items, warnings}`.
+- `get_nav_collection(env, coll_id, portal)` — fetches PTNC_COLLECTION row + PTNC_COLL_LINE rows with `line_type_label`; returns `{definition, lines, counts, warnings}`.
+
+**`connectors/ptmetadata.py`**:
+- `nav_collection` entry: `discovery.table=PTNC_COLLECTION`, supported_versions starts at 8.55 (Fluid).
+
+**`connectors/uom.py`**:
+- `_NC_LINE_TYPE_CHIP`, `_NC_STATUS_CHIP` label dicts.
+- `nav_collection_object(env, coll_id)` — wraps `get_nav_collection()` into canonical object dict.
+- `sections_for_nav_collection(obj)` — "Definition" kv section (title, status, portal, owner, last updated, line count) + "Lines" section (one item per line: relationship=type label, title=LABEL, url=PORTAL_URLTEXT, line_nbr).
+- `nav_collection_payload(env, coll_id)` — full UOM payload with `overview` (title, portal, eff_status, owner, line_count).
+- Wired into `canonical_object()`.
+
+**`connectors/graphdb.py`**:
+- `nav_collections()` provider added to `build()`: queries PTNC_COLLECTION with ROWNUM limit, creates `nav_collection` nodes. `has_table("PTNC_COLLECTION")` guard.
+
+**`routers/peoplesoft.py`**:
+- `GET /api/peoplesoft/nav-collections?env=&q=&portal=&limit=` — search endpoint.
+- `nav_collection` wired into `object_payload()` dispatcher.
+
+**`routers/admin.py`**:
+- Added `("navcoll", "Nav Collections", "/admin/navcoll")` to `_NAV`.
+- Added `nav_collection` to `TYPE_CHIP_CFG` (green palette, distinct from tree green).
+- `/admin/navcoll` page: two-panel layout; top bar has text search (`#ncSearch`) + Portal dropdown (EMPLOYEE/All); sidebar shows collections with status chip, COLL_ID, title; detail panel shows stat boxes (line count, portal, owner), Lines section with line number, type chip (Tile=teal/Content Ref=green/Folder|Static=muted), label, URL; "Object Explorer ↗" link.
+
+**`scripts/smoke_admin_shell.py`**:
+- Added `/admin/navcoll` → marker `#ncSearch`, env=True, nav=True. Harness now covers 17 pages.
+
+**Verification:**
+- `python -m py_compile` all modified files → ALL OK.
+- `python3 -c "import main"` → OK.
+
+---
+
+## 2026-06-30 — Event Mapping & Related Content Vertical Slices
+
+### Event Mapping (PT 8.55+)
+
+**Tables:** `PSEFMAPPINGDEFN` (header), `PSEFMAPPINGCTXT` (contexts, optional).
+
+**`connectors/psdb.py`**:
+- `search_event_mappings(env, q, status, limit)` — searches PSEFMAPPINGDEFN by EFMAPPINGID/DESCR with optional STATUS filter.
+- `get_event_mapping(env, efmappingid)` — fetches definition + PSEFMAPPINGCTXT rows (SEQNO, EFCONTEXTTYPE, EFCONTEXTVALUE, APPEVENTNAME, APPEVENTHANDLER); `has_table()` guard on context table.
+
+**`connectors/ptmetadata.py`**: `event_mapping` promoted from planned stub to full registry entry (table=PSEFMAPPINGDEFN, supported from PT 8.55).
+
+**`connectors/uom.py`**: `event_mapping_object()`, `sections_for_event_mapping()` (Definition kv + optional Contexts section), `event_mapping_payload()`. Wired into `canonical_object()`.
+
+**`connectors/graphdb.py`**: `event_mappings()` provider.
+
+**`routers/peoplesoft.py`**: `GET /api/peoplesoft/event-mappings`, wired into `object_payload()`.
+
+**`routers/admin.py`**: `("efmapping", "Event Mapping", "/admin/efmapping")` in `_NAV`; `event_mapping` chip (yellow palette); `/admin/efmapping` two-panel page with status filter, context section showing type/value/event/handler.
+
+**`scripts/smoke_admin_shell.py`**: Added `/admin/efmapping` → `#efSearch`. Harness now 18 pages.
+
+---
+
+### Related Content (Service Framework)
+
+**Table:** `PSRELCONDEFN` (header only; service attachments are out of scope for this slice).
+
+Service type codes: U=URL, C=Component, S=Script, A=App Class, P=PS Page, I=iScript, R=Related Action.
+
+**`connectors/psdb.py`**:
+- `_RC_SERVICE_TYPE` dict.
+- `search_related_content(env, q, limit)` — searches PSRELCONDEFN by RELCONID/DESCR; adds `servicetype_label`.
+- `get_related_content(env, relconid)` — fetches PSRELCONDEFN definition row with type label.
+
+**`connectors/ptmetadata.py`**: `related_content` promoted from planned stub to full registry entry (table=PSRELCONDEFN).
+
+**`connectors/uom.py`**: `related_content_object()`, `sections_for_related_content()` (Definition kv), `related_content_payload()`. Wired into `canonical_object()`.
+
+**`connectors/graphdb.py`**: `related_content_defs()` provider.
+
+**`routers/peoplesoft.py`**: `GET /api/peoplesoft/related-content`, wired into `object_payload()`.
+
+**`routers/admin.py`**: `("relcontent", "Related Content", "/admin/relcontent")` in `_NAV`; `related_content` chip (purple palette); `/admin/relcontent` two-panel page with service type chip in sidebar, kv detail panel.
+
+**`scripts/smoke_admin_shell.py`**: Added `/admin/relcontent` → `#rcSearch`. Harness now 19 pages.
+
+**Verification:** `python -m py_compile` → ALL OK. `python3 -c "import main"` → OK.

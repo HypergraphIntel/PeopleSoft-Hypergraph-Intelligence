@@ -150,8 +150,11 @@ DEFAULT_PAGES = [
     ("/admin/reports",  "#catalog",    True, True,  []),
     ("/admin/pcsearch",  "#pcq",        True, True,  []),
     ("/admin/msgcat",    "#mcSearch",   True, True,  []),
-    ("/admin/approval",  "#awSearch",   True, True,  []),
-    ("/admin/xpub",      "#xpubSearch", True, True,  []),
+    ("/admin/approval",   "#awSearch",   True, True,  []),
+    ("/admin/xpub",       "#xpubSearch", True, True,  []),
+    ("/admin/navcoll",    "#ncSearch",   True, True,  []),
+    ("/admin/efmapping",  "#efSearch",   True, True,  []),
+    ("/admin/relcontent", "#rcSearch",   True, True,  []),
 ]
 
 

@@ -4480,6 +4480,268 @@ def xpub_report_payload(env, reportid):
     }
 
 
+_NC_LINE_TYPE_CHIP = {
+    "C": ("chip-info",  "Content Ref"),
+    "F": ("chip-muted", "Folder"),
+    "T": ("chip-ok",    "Tile"),
+    "S": ("chip-muted", "Static Link"),
+}
+
+_NC_STATUS_CHIP = {
+    "A": ("chip-ok",    "Active"),
+    "I": ("chip-muted", "Inactive"),
+}
+
+
+def nav_collection_object(env, coll_id):
+    data = psdb.get_nav_collection(env, coll_id.upper())
+    defn = data.get("definition")
+    return {
+        "environment": env.upper(),
+        "type": "nav_collection",
+        "name": coll_id.upper(),
+        "display_name": coll_id.upper(),
+        "description": str(defn.get("coll_title") or "").strip() if defn else "",
+        "status": "resolved" if defn else "not_found",
+        "data": data,
+        "warnings": [{"code": w, "message": w} for w in data.get("warnings", [])],
+        "_links": {"admin": object_url("nav_collection", coll_id.upper())},
+    }
+
+
+def sections_for_nav_collection(obj):
+    data = obj.get("data") or {}
+    defn = data.get("definition") or {}
+    lines = data.get("lines") or []
+    sections = []
+
+    overview = {}
+    if defn.get("coll_title"):
+        overview["Title"] = str(defn["coll_title"]).strip()
+    eff_status = str(defn.get("eff_status") or "").strip()
+    if eff_status:
+        _, label = _NC_STATUS_CHIP.get(eff_status, ("chip-muted", eff_status))
+        overview["Status"] = label
+    if defn.get("portal_name"):
+        overview["Portal"] = str(defn["portal_name"]).strip()
+    if defn.get("objectownerid"):
+        overview["Owner"] = str(defn["objectownerid"]).strip()
+    if defn.get("lastupdoprid"):
+        overview["Last Updated By"] = str(defn["lastupdoprid"]).strip()
+    if defn.get("lastupddttm"):
+        overview["Last Updated"] = str(defn["lastupddttm"])
+    overview["Lines"] = str(len(lines))
+    sections.append({"name": "Definition", "items": [], "data": overview})
+
+    if lines:
+        line_items = []
+        for ln in lines:
+            lt = str(ln.get("line_type") or "")
+            lt_label = ln.get("line_type_label") or lt
+            url = str(ln.get("portal_urltext") or "").strip()
+            label = str(ln.get("label") or "").strip()
+            line_items.append({
+                "title": label or url or f"Line {ln.get('line_nbr', '')}",
+                "relationship": lt_label or None,
+                "url": url or None,
+                "line_nbr": ln.get("line_nbr"),
+            })
+        sections.append({"name": "Lines", "items": line_items, "count": len(line_items)})
+
+    return [s for s in sections if s.get("data") or s.get("items")]
+
+
+def nav_collection_payload(env, coll_id):
+    obj = nav_collection_object(env, coll_id)
+    data = obj.get("data") or {}
+    defn = data.get("definition") or {}
+    counts = data.get("counts") or {}
+    return {
+        "environment": env.upper(),
+        "type": "nav_collection",
+        "name": coll_id.upper(),
+        "display_name": coll_id.upper(),
+        "description": obj.get("description", ""),
+        "status": obj.get("status", "unknown"),
+        "overview": {
+            "title": str(defn.get("coll_title") or "").strip(),
+            "portal": str(defn.get("portal_name") or "").strip() or None,
+            "eff_status": str(defn.get("eff_status") or "").strip() or None,
+            "eff_status_label": defn.get("eff_status_label") or None,
+            "owner": str(defn.get("objectownerid") or "").strip() or None,
+            "line_count": counts.get("lines", 0),
+        },
+        "sections": sections_for_nav_collection(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
+_EF_STATUS_CHIP = {
+    "A": ("chip-ok",    "Active"),
+    "I": ("chip-muted", "Inactive"),
+}
+
+
+def event_mapping_object(env, efmappingid):
+    data = psdb.get_event_mapping(env, efmappingid.upper())
+    defn = data.get("definition")
+    return {
+        "environment": env.upper(),
+        "type": "event_mapping",
+        "name": efmappingid.upper(),
+        "display_name": efmappingid.upper(),
+        "description": str(defn.get("descr") or "").strip() if defn else "",
+        "status": "resolved" if defn else "not_found",
+        "data": data,
+        "warnings": [{"code": w, "message": w} for w in data.get("warnings", [])],
+        "_links": {"admin": object_url("event_mapping", efmappingid.upper())},
+    }
+
+
+def sections_for_event_mapping(obj):
+    data = obj.get("data") or {}
+    defn = data.get("definition") or {}
+    contexts = data.get("contexts") or []
+    sections = []
+
+    overview = {}
+    if defn.get("descr"):
+        overview["Description"] = str(defn["descr"]).strip()
+    st = str(defn.get("status") or "").strip()
+    if st:
+        _, label = _EF_STATUS_CHIP.get(st, ("chip-muted", st))
+        overview["Status"] = label
+    if defn.get("objectownerid"):
+        overview["Owner"] = str(defn["objectownerid"]).strip()
+    if defn.get("lastupdoprid"):
+        overview["Last Updated By"] = str(defn["lastupdoprid"]).strip()
+    if defn.get("lastupddttm"):
+        overview["Last Updated"] = str(defn["lastupddttm"])
+    sections.append({"name": "Definition", "items": [], "data": overview})
+
+    if contexts:
+        ctx_items = []
+        for c in contexts:
+            ctx_type = str(c.get("efcontexttype") or "").strip()
+            ctx_val = str(c.get("efcontextvalue") or "").strip()
+            event = str(c.get("appeventname") or "").strip()
+            handler = str(c.get("appeventhandler") or "").strip()
+            ctx_items.append({
+                "title": ctx_val or f"Context {c.get('seqno', '')}",
+                "relationship": ctx_type or None,
+                "event": event or None,
+                "handler": handler or None,
+            })
+        sections.append({"name": "Contexts", "items": ctx_items, "count": len(ctx_items)})
+
+    return [s for s in sections if s.get("data") or s.get("items")]
+
+
+def event_mapping_payload(env, efmappingid):
+    obj = event_mapping_object(env, efmappingid)
+    data = obj.get("data") or {}
+    defn = data.get("definition") or {}
+    counts = data.get("counts") or {}
+    return {
+        "environment": env.upper(),
+        "type": "event_mapping",
+        "name": efmappingid.upper(),
+        "display_name": efmappingid.upper(),
+        "description": obj.get("description", ""),
+        "status": obj.get("status", "unknown"),
+        "overview": {
+            "description": str(defn.get("descr") or "").strip(),
+            "status": str(defn.get("status") or "").strip() or None,
+            "owner": str(defn.get("objectownerid") or "").strip() or None,
+            "context_count": counts.get("contexts", 0),
+        },
+        "sections": sections_for_event_mapping(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
+_RC_TYPE_CHIP = {
+    "U": ("chip-info",  "URL"),
+    "C": ("chip-info",  "Component"),
+    "S": ("chip-info",  "Script"),
+    "A": ("chip-info",  "App Class"),
+    "P": ("chip-info",  "PS Page"),
+    "I": ("chip-info",  "iScript"),
+    "R": ("chip-info",  "Related Action"),
+}
+
+
+def related_content_object(env, relconid):
+    data = psdb.get_related_content(env, relconid.upper())
+    defn = data.get("definition")
+    return {
+        "environment": env.upper(),
+        "type": "related_content",
+        "name": relconid.upper(),
+        "display_name": relconid.upper(),
+        "description": str(defn.get("descr") or "").strip() if defn else "",
+        "status": "resolved" if defn else "not_found",
+        "data": data,
+        "warnings": [{"code": w, "message": w} for w in data.get("warnings", [])],
+        "_links": {"admin": object_url("related_content", relconid.upper())},
+    }
+
+
+def sections_for_related_content(obj):
+    data = obj.get("data") or {}
+    defn = data.get("definition") or {}
+    sections = []
+
+    overview = {}
+    if defn.get("descr"):
+        overview["Description"] = str(defn["descr"]).strip()
+    st = str(defn.get("status") or "").strip()
+    if st:
+        _, label = _EF_STATUS_CHIP.get(st, ("chip-muted", st))
+        overview["Status"] = label
+    svc_type = str(defn.get("servicetype") or "").strip()
+    if svc_type:
+        overview["Service Type"] = defn.get("servicetype_label") or svc_type
+    if defn.get("objectownerid"):
+        overview["Owner"] = str(defn["objectownerid"]).strip()
+    if defn.get("lastupdoprid"):
+        overview["Last Updated By"] = str(defn["lastupdoprid"]).strip()
+    if defn.get("lastupddttm"):
+        overview["Last Updated"] = str(defn["lastupddttm"])
+    sections.append({"name": "Definition", "items": [], "data": overview})
+
+    return [s for s in sections if s.get("data") or s.get("items")]
+
+
+def related_content_payload(env, relconid):
+    obj = related_content_object(env, relconid)
+    data = obj.get("data") or {}
+    defn = data.get("definition") or {}
+    return {
+        "environment": env.upper(),
+        "type": "related_content",
+        "name": relconid.upper(),
+        "display_name": relconid.upper(),
+        "description": obj.get("description", ""),
+        "status": obj.get("status", "unknown"),
+        "overview": {
+            "description": str(defn.get("descr") or "").strip(),
+            "status": str(defn.get("status") or "").strip() or None,
+            "servicetype": str(defn.get("servicetype") or "").strip() or None,
+            "servicetype_label": defn.get("servicetype_label") or None,
+            "owner": str(defn.get("objectownerid") or "").strip() or None,
+        },
+        "sections": sections_for_related_content(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
     if object_type == "component_interface":
@@ -4535,6 +4797,12 @@ def canonical_object(env, object_type, name):
         return approval_object(env, name)
     if object_type == "xml_publisher_report":
         return xpub_report_object(env, name)
+    if object_type == "nav_collection":
+        return nav_collection_object(env, name)
+    if object_type == "event_mapping":
+        return event_mapping_object(env, name)
+    if object_type == "related_content":
+        return related_content_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

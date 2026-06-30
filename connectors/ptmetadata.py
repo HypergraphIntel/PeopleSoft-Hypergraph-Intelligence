@@ -616,14 +616,51 @@ OBJECT_REGISTRY.setdefault("xml_publisher_datasource", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("nav_collection", {
+    "display_title": "Navigation Collection",
+    "icon": "navigation",
+    "graph_node_type": "nav_collection",
+    "object_page": "/admin/object/nav_collection/{name}",
+    "discovery": {"table": "PTNC_COLLECTION", "name_column": "COLL_ID"},
+    "search": {"table": "PTNC_COLLECTION", "name_column": "COLL_ID",
+               "description_columns": ["COLL_TITLE"],
+               "extra_search_columns": ["PORTAL_NAME"]},
+    "supported_versions": ["8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("event_mapping", {
+    "display_title": "Event Mapping",
+    "icon": "zap",
+    "graph_node_type": "event_mapping",
+    "object_page": "/admin/object/event_mapping/{name}",
+    "discovery": {"table": "PSEFMAPPINGDEFN", "name_column": "EFMAPPINGID"},
+    "search": {"table": "PSEFMAPPINGDEFN", "name_column": "EFMAPPINGID",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["OBJECTOWNERID"]},
+    "supported_versions": ["8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("related_content", {
+    "display_title": "Related Content",
+    "icon": "link",
+    "graph_node_type": "related_content",
+    "object_page": "/admin/object/related_content/{name}",
+    "discovery": {"table": "PSRELCONDEFN", "name_column": "RELCONID"},
+    "search": {"table": "PSRELCONDEFN", "name_column": "RELCONID",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["OBJECTOWNERID"]},
+    "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 for object_type in [
     "content_reference",
     "section",
     "step",
     "sql",
     "message",
-    "event_mapping",
-    "related_content",
     "drop_zone",
     "process_scheduler",
     "runtime_instance",

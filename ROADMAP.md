@@ -20,23 +20,42 @@ The long-term objective is to provide a unified interface for:
 
 ## Platform Status
 
-The following major subsystems are considered production-ready:
+### ✅ Completed
+
+The following major subsystems are production-ready:
 
 - Unified Object Model (UOM)
 - Object Explorer
-- Graph Explorer
-- Knowledge Graph
-- Environment Compare
-- Runtime Monitor
-- SQL Workspace
-- Integration Broker Explorer
-- Identity Management
+- Graph Explorer (List / Visual / Impact / Drift tabs)
+- Knowledge Graph with graph snapshot and drift detection
+- Environment Compare (Records, Fields, PeopleCode, SQL Definitions, PS Queries, Portals, Graph)
+- Runtime Monitor with Oracle ASH integration and runtime alerts
+- Runtime Graph visualization
+- SQL Workspace with autocomplete, typed bind parameters, timeout, and cancellation
+- Integration Broker Explorer with master-detail relationship navigation
+- Identity Management and Security Explorer
 - Oracle ASH Integration
 - Runtime Alerts
+- App Server Domain Monitoring
 - Application Package Explorer
 - Component Interface Explorer
-- Portal Explorer
+- Portal Explorer with security explanation
+- SQL Definition Explorer
+- PS Query Explorer
+- Tree Explorer
+- Menu Explorer
+- PeopleCode Source Search
+- Reporting Center
+- Message Catalog Explorer
+- Approval Framework Explorer
+- XML Publisher Explorer
+- Navigation Collections Explorer
+- Event Mapping Explorer
+- Related Content Explorer
 - Version-aware metadata adapters
+- Shared frontend shell with global navigation and environment selector
+- Admin shell smoke test harness (19 pages)
+- Scheduled graph snapshots with retention pruning
 
 Development focus now shifts from feature parity toward platform intelligence.
 
@@ -48,17 +67,22 @@ Development focus now shifts from feature parity toward platform intelligence.
 
 Provide complete end-to-end session visibility.
 
-Features:
+### ✅ Completed
+
+- Oracle session tracking (V$SESSION, V$SQL)
+- SQL execution visibility and top-SQL analysis
+- Wait events and Oracle ASH integration
+- Lock analysis and blocking chains
+- Process Scheduler linkage and instance deep-linking
+- Integration Broker activity and queue depth
+- Runtime graph API connecting sessions, processes, operators, AEs, Oracle SQL, and IB services
+- Runtime alerts for process errors, long processes, queue depth, blocking sessions, high wait, and domain health
+
+### Remaining
 
 - Browser session tracking
 - WebLogic session tracking
-- App Server tracking
-- Oracle session tracking
-- SQL execution
-- Wait events
-- Lock analysis
-- Integration Broker activity
-- Process Scheduler linkage
+- App Server process tracking beyond domain enumeration
 
 ---
 
@@ -66,14 +90,16 @@ Features:
 
 Persist runtime snapshots.
 
-Support:
+### ✅ Completed
 
-- Runtime history
-- Process history
-- Queue depth history
-- Alert history
-- Oracle ASH history
-- Trend graphs
+- Knowledge Graph snapshots (creation, listing, loading, deletion, scheduled daily builds, retention pruning)
+- Graph-based drift detection comparing live graph to most-recent snapshot
+
+### Remaining
+
+- Runtime history persistence (process history, queue depth history, alert history, Oracle ASH history)
+- Trend graphs over time
+- Runtime snapshot creation (separate from graph snapshots)
 
 ---
 
@@ -81,18 +107,15 @@ Support:
 
 Interactive infrastructure topology.
 
-Visualize:
+### ✅ Completed
 
-- Browser
-- nginx
-- WebLogic
-- App Server
-- Process Scheduler
-- Oracle
-- Integration Broker
-- OpenSearch
+- App Server domain enumeration with type classification (App Server, Process Scheduler, Web/PIA, Integration Broker)
+- Runtime graph visualization with force-directed layout connecting all runtime object types
 
-with live status indicators.
+### Remaining
+
+- Interactive topology diagram showing Browser → nginx → WebLogic → App Server → Process Scheduler → Oracle → Integration Broker → OpenSearch
+- Live status indicators per infrastructure component
 
 ---
 
@@ -100,7 +123,10 @@ with live status indicators.
 
 Capture complete runtime incidents.
 
-Support replay for troubleshooting.
+### Remaining
+
+- Incident recording with full runtime state capture
+- Replay support for troubleshooting
 
 ---
 
@@ -108,21 +134,38 @@ Support replay for troubleshooting.
 
 Continue expanding object coverage.
 
-Remaining providers include:
+## Knowledge Graph Providers
 
+### ✅ Completed Providers
+
+- Operators, Roles, Permission Lists
+- Components, Pages, Records, Fields
+- PeopleCode programs
+- Application Engines
+- Integration Broker (Services, Nodes, Queues, Routings)
+- Menus
+- Trees
+- SQL Definitions (standalone)
+- PS Queries (public)
+- Component Interfaces
+- Portal Registry
+- Application Packages
 - Message Catalog
 - Approval Framework
-- XML Publisher
-- BI Publisher
+- XML Publisher Reports
+- Navigation Collections
+- Event Mappings
+- Related Content
+
+### Remaining Providers
+
+- BI Publisher report definitions
 - WorkCenters
 - Dashboards
 - Search Definitions
 - Search Categories
 - Homepage Tiles
-- Navigation Collections
-- Event Mapping
 - Drop Zones
-- Related Content
 - Branding
 - Page Composer
 
@@ -132,37 +175,43 @@ Remaining providers include:
 
 Continue enriching graph relationships.
 
-Current work:
+### ✅ Completed
 
-- Shared UOM relationship graph helper introduced for Tree, Component Interface, and Page providers.
-- Page graph API route now delegates to the UOM Page graph so Object Explorer and Graph Explorer use the same relationship model.
-- Continue migrating mature UOM providers from ad hoc graph loops to declarative relationship specs where behavior can be preserved.
-- Align UOM `_relationships`, UOM `_graph`, and Knowledge Graph ingestion around one relationship vocabulary.
+- Shared UOM relationship graph helper introduced; Tree, Component Interface, and Page providers use it
+- Page graph API unified with UOM Page provider so Object Explorer and Graph Explorer share the same relationship model
+- CALLS, REFERENCES, USES, CONTAINS, WRAPS, SECURES edge types in active use
+- Component security graph edges through Permission Lists → Roles → Operators
+- Menu → Component CONTAINS edges
+- CI → Component WRAPS edges
+- Tree → Record USES edges
+- Impact analysis (forward and reverse dependency traversal with depth control)
 
-Examples:
+### Remaining
 
-- CALLS
-- REFERENCES
-- USES
-- WRITES
-- READS
-- CONTAINS
-- WRAPS
-- SECURES
-- GENERATES
-- DEPLOYS
+- Continue migrating mature UOM providers from ad hoc graph loops to declarative relationship specs
+- Align UOM `_relationships`, UOM `_graph`, and Knowledge Graph ingestion around one relationship vocabulary
+- GENERATES and DEPLOYS edge types
+- Full relationship coverage examples: WRITES, READS
 
 ---
 
-## Complete Cross References
+## Cross References
 
 Every object should answer:
 
-- What references me?
-- What do I reference?
-- Who executes me?
-- Who secures me?
-- What breaks if I change?
+### ✅ Completed
+
+- What references me? (implemented for AE SQL steps via `%SQL()`, PeopleCode source references, SQL cross-references)
+- What do I reference? (implemented for Components, Pages, Records, AE programs, Portal Registry)
+- Who secures me? (implemented for Components, Pages, Permission Lists, Portal Registry with access-path visualization)
+- What breaks if I change? (impact analysis via Knowledge Graph traversal)
+- Child records, subrecord derivations, and AE state records for Record objects
+
+### Remaining
+
+- Universal "what references me / what do I reference" coverage across all object types
+- "Who executes me?" for runtime-linked objects (AEs, Service Operations)
+- Consistent cross-reference sections in every UOM provider
 
 ---
 
@@ -170,16 +219,20 @@ Every object should answer:
 
 ## Continuous Drift Detection
 
-Automatically detect:
+### ✅ Completed
 
-- New objects
-- Deleted objects
-- Changed PeopleCode
-- Changed SQL
-- Changed Security
-- Changed Menus
-- Changed Trees
-- Changed Integration Broker metadata
+- Knowledge Graph drift: compares current live graph against most-recent snapshot; surfaces new, removed, and changed nodes by type in the Graph Explorer DRIFT tab
+
+### Remaining
+
+Automatically detect changes in:
+
+- PeopleCode (changed programs between environments)
+- SQL definitions
+- Security (changed permission lists, roles)
+- Menus
+- Trees
+- Integration Broker metadata
 
 ---
 
@@ -187,23 +240,17 @@ Automatically detect:
 
 Maintain historical snapshots.
 
-Support:
+### ✅ Completed
 
-DEV
+- Environment comparison across HCM and FSCM for Records, Fields, PeopleCode, SQL Definitions, PS Queries, Portals, and Knowledge Graph
+- Portal object deep comparison (definition diff, children diff, permissions diff)
+- Operator comparison (roles, permission lists, component access diff between two OPRIDs)
 
-↓
+### Remaining
 
-TEST
-
-↓
-
-UAT
-
-↓
-
-PROD
-
-Track promotion history and differences.
+- Promotion history tracking across environments (DEV → TEST → UAT → PROD)
+- Point-in-time runtime snapshots
+- Temporal history of security and metadata changes
 
 ---
 
@@ -211,13 +258,15 @@ Track promotion history and differences.
 
 Predict downstream impact before migration.
 
-Examples:
+### ✅ Completed
 
-- affected components
-- affected security
-- affected runtime
-- affected integrations
-- dependency risk
+- Knowledge Graph impact analysis (forward and reverse dependency traversal, upstream/downstream node enumeration by type)
+- AE restart eligibility analysis
+
+### Remaining
+
+- Pre-migration impact reports summarizing affected components, security, runtime behavior, and integrations
+- Deployment risk scoring
 
 ---
 
@@ -226,6 +275,8 @@ Examples:
 Leverage the knowledge graph for engineering assistance.
 
 ## Natural Language Search
+
+### Remaining
 
 Examples:
 
@@ -239,6 +290,8 @@ Examples:
 # Phase 8 — Platform Extensibility
 
 ## Plugin SDK
+
+### Remaining
 
 Support:
 
@@ -256,15 +309,21 @@ Support:
 
 Persist everything.
 
+### ✅ Completed
+
+- Knowledge Graph snapshots (creation, listing, comparison, scheduled daily builds)
+- Graph drift detection against snapshot baseline
+
+### Remaining
+
 Support:
 
-- historical runtime
-- graph snapshots
-- deployment history
-- configuration history
-- security history
-- runtime replay
-- change history
+- Historical runtime persistence
+- Deployment history
+- Configuration history
+- Security change history
+- Runtime replay
+- Full change history across all object types
 
 The platform evolves from a live explorer into a persistent Digital Twin of the PeopleSoft enterprise.
 

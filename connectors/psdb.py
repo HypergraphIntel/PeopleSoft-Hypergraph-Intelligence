@@ -4690,3 +4690,227 @@ def get_xpub_report(env_name, reportid):
         "counts": {"templates": len(templates)},
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# Navigation Collections (Fluid)
+# ---------------------------------------------------------------------------
+
+_NC_LINE_TYPE = {
+    "C": "Content Ref",
+    "F": "Folder",
+    "T": "Tile",
+    "S": "Static Link",
+}
+
+_NC_EFF_STATUS = {
+    "A": "Active",
+    "I": "Inactive",
+}
+
+
+def search_nav_collections(env_name, q="", portal="EMPLOYEE", limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PTNC_COLLECTION"):
+        return {"items": [], "warnings": ["PTNC_COLLECTION not accessible"]}
+    clauses = []
+    params = {"lim": limit}
+    if portal:
+        clauses.append("PORTAL_NAME = :portal")
+        params["portal"] = portal.upper()
+    if q:
+        clauses.append("(UPPER(COLL_ID) LIKE UPPER(:q) OR UPPER(COLL_TITLE) LIKE UPPER(:q2))")
+        params["q"] = f"%{q}%"
+        params["q2"] = f"%{q}%"
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    try:
+        rows = query(env_name, f"""
+            SELECT PORTAL_NAME, COLL_ID, COLL_TITLE, EFF_STATUS, OBJECTOWNERID, LASTUPDDTTM
+              FROM SYSADM.PTNC_COLLECTION
+             {where}
+             ORDER BY PORTAL_NAME, COLL_ID
+             FETCH FIRST :lim ROWS ONLY
+        """, params)
+        results = []
+        for r in (rows or []):
+            row = dict(r)
+            row["eff_status_label"] = _NC_EFF_STATUS.get(str(row.get("eff_status") or ""), row.get("eff_status") or "")
+            results.append(row)
+        return {"items": results, "warnings": []}
+    except Exception as exc:
+        return {"items": [], "warnings": [str(exc)]}
+
+
+def get_nav_collection(env_name, coll_id, portal="EMPLOYEE"):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PTNC_COLLECTION"):
+        return {"error": "not_accessible", "warnings": ["PTNC_COLLECTION not accessible"]}
+    warnings = []
+    params = {"id": coll_id.upper()}
+    if portal:
+        params["portal"] = portal.upper()
+        portal_clause = "AND PORTAL_NAME = :portal"
+    else:
+        portal_clause = ""
+    rows = query(env_name, f"""
+        SELECT PORTAL_NAME, COLL_ID, COLL_TITLE, EFF_STATUS, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PTNC_COLLECTION
+         WHERE COLL_ID = :id {portal_clause}
+         ORDER BY PORTAL_NAME
+         FETCH FIRST 1 ROWS ONLY
+    """, params)
+    if not rows:
+        return {"error": "not_found", "warnings": [f"Navigation Collection {coll_id!r} not found"]}
+    defn = dict(rows[0])
+    defn["eff_status_label"] = _NC_EFF_STATUS.get(str(defn.get("eff_status") or ""), defn.get("eff_status") or "")
+
+    lines = []
+    if ptmetadata.has_table(env_name, "PTNC_COLL_LINE"):
+        try:
+            line_params = {"id": coll_id.upper()}
+            if portal:
+                line_params["portal"] = portal.upper()
+                line_portal_clause = "AND PORTAL_NAME = :portal"
+            else:
+                line_portal_clause = ""
+            line_rows = query(env_name, f"""
+                SELECT LINE_NBR, LINE_TYPE, LABEL, PORTAL_URLTEXT
+                  FROM SYSADM.PTNC_COLL_LINE
+                 WHERE COLL_ID = :id {line_portal_clause}
+                 ORDER BY LINE_NBR
+            """, line_params)
+            for lr in (line_rows or []):
+                line = dict(lr)
+                line["line_type_label"] = _NC_LINE_TYPE.get(str(line.get("line_type") or ""), line.get("line_type") or "")
+                lines.append(line)
+        except Exception as exc:
+            warnings.append(f"PTNC_COLL_LINE: {exc}")
+
+    return {
+        "definition": defn,
+        "lines": lines,
+        "counts": {"lines": len(lines)},
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Event Mapping (Fluid, PT 8.55+)
+# ---------------------------------------------------------------------------
+
+def search_event_mappings(env_name, q="", status=None, limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSEFMAPPINGDEFN"):
+        return {"items": [], "warnings": ["PSEFMAPPINGDEFN not accessible"]}
+    clauses = []
+    params = {"lim": limit}
+    if q:
+        clauses.append("(UPPER(EFMAPPINGID) LIKE UPPER(:q) OR UPPER(DESCR) LIKE UPPER(:q2))")
+        params["q"] = f"%{q}%"
+        params["q2"] = f"%{q}%"
+    if status:
+        clauses.append("STATUS = :status")
+        params["status"] = status.upper()
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    try:
+        rows = query(env_name, f"""
+            SELECT EFMAPPINGID, DESCR, STATUS, OBJECTOWNERID, LASTUPDDTTM
+              FROM SYSADM.PSEFMAPPINGDEFN
+             {where}
+             ORDER BY EFMAPPINGID
+             FETCH FIRST :lim ROWS ONLY
+        """, params)
+        return {"items": [dict(r) for r in (rows or [])], "warnings": []}
+    except Exception as exc:
+        return {"items": [], "warnings": [str(exc)]}
+
+
+def get_event_mapping(env_name, efmappingid):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSEFMAPPINGDEFN"):
+        return {"error": "not_accessible", "warnings": ["PSEFMAPPINGDEFN not accessible"]}
+    warnings = []
+    efmappingid = efmappingid.upper()
+    rows = query(env_name, """
+        SELECT EFMAPPINGID, DESCR, STATUS, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSEFMAPPINGDEFN
+         WHERE EFMAPPINGID = :id
+    """, {"id": efmappingid})
+    if not rows:
+        return {"error": "not_found", "warnings": [f"Event Mapping {efmappingid!r} not found"]}
+    defn = dict(rows[0])
+
+    contexts = []
+    if ptmetadata.has_table(env_name, "PSEFMAPPINGCTXT"):
+        try:
+            ctx_rows = query(env_name, """
+                SELECT SEQNO, EFCONTEXTTYPE, EFCONTEXTVALUE, APPEVENTNAME, APPEVENTHANDLER
+                  FROM SYSADM.PSEFMAPPINGCTXT
+                 WHERE EFMAPPINGID = :id
+                 ORDER BY SEQNO
+            """, {"id": efmappingid})
+            contexts = [dict(r) for r in (ctx_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSEFMAPPINGCTXT: {exc}")
+
+    return {
+        "definition": defn,
+        "contexts": contexts,
+        "counts": {"contexts": len(contexts)},
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Related Content (Service Framework)
+# ---------------------------------------------------------------------------
+
+_RC_SERVICE_TYPE = {
+    "U": "URL",
+    "C": "Component",
+    "S": "Script",
+    "A": "Application Class",
+    "P": "PeopleSoft Page",
+    "I": "iScript",
+    "R": "Related Action",
+}
+
+
+def search_related_content(env_name, q="", limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSRELCONDEFN"):
+        return {"items": [], "warnings": ["PSRELCONDEFN not accessible"]}
+    pat = f"%{q.upper()}%" if q else "%"
+    try:
+        rows = query(env_name, """
+            SELECT RELCONID, DESCR, STATUS, SERVICETYPE, OBJECTOWNERID
+              FROM SYSADM.PSRELCONDEFN
+             WHERE UPPER(RELCONID) LIKE :pat OR UPPER(DESCR) LIKE :pat
+             ORDER BY RELCONID
+             FETCH FIRST :lim ROWS ONLY
+        """, {"pat": pat, "lim": limit})
+        results = []
+        for r in (rows or []):
+            row = dict(r)
+            row["servicetype_label"] = _RC_SERVICE_TYPE.get(str(row.get("servicetype") or ""), row.get("servicetype") or "")
+            results.append(row)
+        return {"items": results, "warnings": []}
+    except Exception as exc:
+        return {"items": [], "warnings": [str(exc)]}
+
+
+def get_related_content(env_name, relconid):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSRELCONDEFN"):
+        return {"error": "not_accessible", "warnings": ["PSRELCONDEFN not accessible"]}
+    relconid = relconid.upper()
+    rows = query(env_name, """
+        SELECT RELCONID, DESCR, STATUS, SERVICETYPE, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
+          FROM SYSADM.PSRELCONDEFN
+         WHERE RELCONID = :id
+    """, {"id": relconid})
+    if not rows:
+        return {"error": "not_found", "warnings": [f"Related Content {relconid!r} not found"]}
+    defn = dict(rows[0])
+    defn["servicetype_label"] = _RC_SERVICE_TYPE.get(str(defn.get("servicetype") or ""), defn.get("servicetype") or "")
+    return {"definition": defn, "warnings": []}

@@ -21,6 +21,9 @@ _NAV = [
     ("msgcat",     "Messages",      "/admin/msgcat"),
     ("approval",   "Approvals",     "/admin/approval"),
     ("xpub",       "XML Publisher", "/admin/xpub"),
+    ("navcoll",    "Nav Collections", "/admin/navcoll"),
+    ("efmapping",  "Event Mapping",   "/admin/efmapping"),
+    ("relcontent", "Related Content", "/admin/relcontent"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3037,6 +3040,9 @@ const TYPE_CHIP_CFG = {
     approval:               {label:'Approval',      bg:'#001814',border:'#00cc8844',color:'#00cc88'},
     xml_publisher_report:   {label:'XPub Report',   bg:'#1a0a18',border:'#cc44aa44',color:'#cc44aa'},
     xml_publisher_datasource:{label:'XPub DataSrc', bg:'#180814',border:'#aa336644',color:'#aa3366'},
+    nav_collection:         {label:'Nav Coll',      bg:'#001a10',border:'#00bb6644',color:'#00bb66'},
+    event_mapping:          {label:'Event Map',     bg:'#1a1400',border:'#ddcc0044',color:'#ddcc00'},
+    related_content:        {label:'Related Cont',  bg:'#0a001a',border:'#9944ff44',color:'#9944ff'},
 };
 
 function typeChipHtml(type) {
@@ -10994,6 +11000,394 @@ async function selectApproval(awdefnid, idx) {
         <span style="font-family:monospace;font-size:11px">${esc(st.title||'')}</span>
         ${st.userlist ? `<span style="font-size:10px;color:#556;margin-left:8px">List: ${esc(st.userlist)}</span>` : ''}
       </div>`).join('');
+    html += '</div>';
+  }
+
+  detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")
+
+
+@router.get("/efmapping", response_class=HTMLResponse)
+def admin_efmapping():
+    return _shell("Event Mapping Explorer", "efmapping", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#ddcc00;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #ddcc0033;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #ddcc0022;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #ddcc0022;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input,select{background:#0b1b24;color:#d7faff;border:1px solid #ddcc0044;padding:5px 8px;font-size:12px}
+input:focus,select:focus{outline:none;border-color:#ddcc00}
+button{background:#ddcc00;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(221,204,0,.07);border-left-color:#ddcc0055}
+.item.sel{background:rgba(221,204,0,.12);border-left-color:#ddcc00}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;margin-right:3px}
+.chip-ok{background:#002800;border:1px solid #00cc66;color:#00cc66}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.chip-info{background:#1a1800;border:1px solid #ddcc0044;color:#ddcc00}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #ddcc0033;background:#1a1800;font-size:11px;margin:2px}
+.stat b{color:#ddcc00;font-size:16px;display:block}
+.ctx-row{padding:6px 10px;border-bottom:1px solid #1a1800;font-size:11px}
+.ctx-row:hover{background:#120e00}
+.kv-grid{display:grid;grid-template-columns:140px 1fr;gap:3px 12px;font-size:12px;margin-bottom:10px}
+.kv-key{color:#556;text-align:right}
+.kv-val{color:#d7faff;font-family:monospace}
+a{color:#ddcc00;text-decoration:none} a:hover{text-decoration:underline}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="efSearch" type="text" placeholder="Search mapping ID or description..." style="width:270px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <select id="efStatus" onchange="doSearch()" style="width:110px">
+    <option value="">All Status</option>
+    <option value="A">Active</option>
+    <option value="I">Inactive</option>
+  </select>
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Event Mappings</h2>
+    <div id="list" class="muted">Search to load event mappings.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Mapping</h2>
+    <div id="detail" class="muted">Select an event mapping from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function statusChip(s) {
+  if (s==='A') return '<span class="chip chip-ok">Active</span>';
+  if (s==='I') return '<span class="chip chip-muted">Inactive</span>';
+  return '';
+}
+
+async function doSearch() {
+  const q = document.getElementById('efSearch').value.trim();
+  const status = document.getElementById('efStatus').value;
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 200});
+  if (q) params.set('q', q);
+  if (status) params.set('status', status);
+  const d = await api(`/api/peoplesoft/event-mappings?${params}`);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  const items = d.items || [];
+  document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
+  if (!items.length) { list.innerHTML = '<div class="muted">No event mappings found.</div>'; return; }
+  list.innerHTML = items.map((m, i) =>
+    `<div class="item" id="item-${i}" onclick="selectMapping('${esc(m.efmappingid)}', ${i})">
+       <div class="item-name">${statusChip(m.status)}${esc(m.efmappingid)}</div>
+       <div class="item-meta">${esc((m.descr||'').slice(0,60))}</div>
+     </div>`
+  ).join('');
+}
+
+async function selectMapping(efmappingid, idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/event_mapping/${encodeURIComponent(efmappingid)}?env=${ENV}`);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const ov = d.overview || {};
+  const adminUrl = `/admin/object/event_mapping/${esc(efmappingid)}`;
+  let html = `
+    <div style="margin-bottom:12px">
+      ${statusChip(ov.status)}
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#ddcc00">${esc(efmappingid)}</span>
+      &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
+    </div>
+    ${ov.description ? `<div style="color:#aac;font-size:12px;margin-bottom:10px">${esc(ov.description)}</div>` : ''}
+    <div style="margin-bottom:12px">
+      <div class="stat"><b>${ov.context_count||0}</b>Contexts</div>
+      ${ov.owner ? `<div class="stat"><b>${esc(ov.owner)}</b>Owner</div>` : ''}
+    </div>`;
+
+  const ctxSection = (d.sections||[]).find(s => s.name === 'Contexts');
+  if (ctxSection && ctxSection.items && ctxSection.items.length) {
+    html += '<h2>Contexts</h2><div style="border:1px solid #1a1800">';
+    html += ctxSection.items.map(c => `
+      <div class="ctx-row">
+        ${c.relationship ? `<span class="chip chip-info">${esc(c.relationship)}</span>` : ''}
+        <span style="font-family:monospace">${esc(c.title||'')}</span>
+        ${c.event ? `<span style="color:#556;font-size:10px;margin-left:8px">Event: ${esc(c.event)}</span>` : ''}
+        ${c.handler ? `<span style="color:#334;font-size:10px;margin-left:6px">→ ${esc(c.handler)}</span>` : ''}
+      </div>`).join('');
+    html += '</div>';
+  }
+
+  detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")
+
+
+@router.get("/relcontent", response_class=HTMLResponse)
+def admin_relcontent():
+    return _shell("Related Content Explorer", "relcontent", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#9944ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #9944ff33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #9944ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #9944ff22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input,select{background:#0b1b24;color:#d7faff;border:1px solid #9944ff44;padding:5px 8px;font-size:12px}
+input:focus,select:focus{outline:none;border-color:#9944ff}
+button{background:#9944ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#fff;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(153,68,255,.07);border-left-color:#9944ff55}
+.item.sel{background:rgba(153,68,255,.12);border-left-color:#9944ff}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;margin-right:3px}
+.chip-ok{background:#002800;border:1px solid #00cc66;color:#00cc66}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.chip-info{background:#0a0018;border:1px solid #9944ff44;color:#9944ff}
+.kv-grid{display:grid;grid-template-columns:140px 1fr;gap:3px 12px;font-size:12px;margin-bottom:10px}
+.kv-key{color:#556;text-align:right}
+.kv-val{color:#d7faff;font-family:monospace}
+a{color:#9944ff;text-decoration:none} a:hover{text-decoration:underline}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="rcSearch" type="text" placeholder="Search related content ID or description..." style="width:280px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Related Content Services</h2>
+    <div id="list" class="muted">Search to load related content services.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Service</h2>
+    <div id="detail" class="muted">Select a service from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const SVC_LABELS = {U:'URL',C:'Component',S:'Script',A:'App Class',P:'PS Page',I:'iScript',R:'Related Action'};
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function statusChip(s) {
+  if (s==='A') return '<span class="chip chip-ok">Active</span>';
+  if (s==='I') return '<span class="chip chip-muted">Inactive</span>';
+  return '';
+}
+function svcChip(t) {
+  const label = SVC_LABELS[String(t||'')] || String(t||'');
+  return label ? `<span class="chip chip-info">${esc(label)}</span>` : '';
+}
+
+async function doSearch() {
+  const q = document.getElementById('rcSearch').value.trim();
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 200});
+  if (q) params.set('q', q);
+  const d = await api(`/api/peoplesoft/related-content?${params}`);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  const items = d.items || [];
+  document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
+  if (!items.length) { list.innerHTML = '<div class="muted">No related content services found.</div>'; return; }
+  list.innerHTML = items.map((r, i) =>
+    `<div class="item" id="item-${i}" onclick="selectService('${esc(r.relconid)}', ${i})">
+       <div class="item-name">${statusChip(r.status)}${svcChip(r.servicetype)}${esc(r.relconid)}</div>
+       <div class="item-meta">${esc((r.descr||'').slice(0,60))}</div>
+     </div>`
+  ).join('');
+}
+
+async function selectService(relconid, idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/related_content/${encodeURIComponent(relconid)}?env=${ENV}`);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const ov = d.overview || {};
+  const adminUrl = `/admin/object/related_content/${esc(relconid)}`;
+  const defnSection = (d.sections||[]).find(s => s.name === 'Definition');
+  const kv = defnSection?.data || {};
+  let html = `
+    <div style="margin-bottom:12px">
+      ${statusChip(ov.status)}
+      ${svcChip(ov.servicetype)}
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#9944ff">${esc(relconid)}</span>
+      &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
+    </div>
+    ${ov.description ? `<div style="color:#aac;font-size:12px;margin-bottom:10px">${esc(ov.description)}</div>` : ''}
+    <div class="kv-grid">`;
+  for (const [k, v] of Object.entries(kv)) {
+    if (k !== 'Description' && k !== 'Status') {
+      html += `<div class="kv-key">${esc(k)}</div><div class="kv-val">${esc(String(v||''))}</div>`;
+    }
+  }
+  html += `</div>`;
+  detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")
+
+
+@router.get("/navcoll", response_class=HTMLResponse)
+def admin_navcoll():
+    return _shell("Navigation Collections", "navcoll", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#00bb66;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #00bb6633;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #00bb6622;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #00bb6622;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input,select{background:#0b1b24;color:#d7faff;border:1px solid #00bb6644;padding:5px 8px;font-size:12px}
+input:focus,select:focus{outline:none;border-color:#00bb66}
+button{background:#00bb66;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(0,187,102,.07);border-left-color:#00bb6655}
+.item.sel{background:rgba(0,187,102,.12);border-left-color:#00bb66}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.chip{display:inline-block;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;margin-right:3px}
+.chip-ok{background:#002800;border:1px solid #00cc66;color:#00cc66}
+.chip-muted{background:#141a20;border:1px solid #334;color:#778}
+.chip-info{background:#001a14;border:1px solid #00bb6644;color:#00bb66}
+.chip-tile{background:#001a14;border:1px solid #00ddaa44;color:#00ddaa}
+.stat{display:inline-block;padding:4px 12px;border:1px solid #00bb6633;background:#001a14;font-size:11px;margin:2px}
+.stat b{color:#00bb66;font-size:16px;display:block}
+.line-row{padding:6px 10px;border-bottom:1px solid #001a14;font-size:11px;display:flex;gap:8px;align-items:baseline}
+.line-row:hover{background:#041208}
+.kv-grid{display:grid;grid-template-columns:140px 1fr;gap:3px 12px;font-size:12px;margin-bottom:10px}
+.kv-key{color:#556;text-align:right;padding-top:2px}
+.kv-val{color:#d7faff;font-family:monospace}
+a{color:#00bb66;text-decoration:none} a:hover{text-decoration:underline}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="ncSearch" type="text" placeholder="Search collection ID or title..." style="width:270px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <select id="ncPortal" style="width:120px" onchange="doSearch()">
+    <option value="EMPLOYEE">EMPLOYEE</option>
+    <option value="">All Portals</option>
+  </select>
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Collections</h2>
+    <div id="list" class="muted">Search to load navigation collections.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Collection</h2>
+    <div id="detail" class="muted">Select a collection from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = localStorage.getItem('dsEnv') || 'HCM';
+const LINE_TYPE_CHIP = {
+  C: ['chip-info',  'Content Ref'],
+  F: ['chip-muted', 'Folder'],
+  T: ['chip-tile',  'Tile'],
+  S: ['chip-muted', 'Static'],
+};
+
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function statusChip(s) {
+  if (s === 'A' || s === 'Active') return '<span class="chip chip-ok">Active</span>';
+  if (s === 'I' || s === 'Inactive') return '<span class="chip chip-muted">Inactive</span>';
+  return '';
+}
+function lineTypeChip(lt) {
+  const [cls, label] = LINE_TYPE_CHIP[String(lt||'')] || ['chip-muted', lt||'?'];
+  return `<span class="chip ${cls}">${esc(label)}</span>`;
+}
+
+async function doSearch() {
+  const q = document.getElementById('ncSearch').value.trim();
+  const portal = document.getElementById('ncPortal').value;
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 200});
+  if (q) params.set('q', q);
+  if (portal) params.set('portal', portal);
+  const d = await api(`/api/peoplesoft/nav-collections?${params}`);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading collections.</div>'; return; }
+  const items = d.items || [];
+  document.getElementById('stats').textContent = `${items.length} result${items.length !== 1 ? 's' : ''}`;
+  if (!items.length) { list.innerHTML = '<div class="muted">No navigation collections found.</div>'; return; }
+  list.innerHTML = items.map((c, i) =>
+    `<div class="item" id="item-${i}" onclick="selectCollection('${esc(c.coll_id)}', ${i})">
+       <div class="item-name">${statusChip(c.eff_status)}${esc(c.coll_id)}</div>
+       <div class="item-meta">${esc((c.coll_title||'').slice(0,60))}${c.portal_name ? ` · ${esc(c.portal_name)}` : ''}</div>
+     </div>`
+  ).join('');
+  window._ncItems = items;
+}
+
+async function selectCollection(collId, idx) {
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${idx}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const portal = document.getElementById('ncPortal').value || 'EMPLOYEE';
+  const d = await api(`/api/peoplesoft/object/nav_collection/${encodeURIComponent(collId)}?env=${ENV}`);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading collection.</div>'; return; }
+
+  const ov = d.overview || {};
+  const adminUrl = `/admin/object/nav_collection/${esc(collId)}`;
+  let html = `
+    <div style="margin-bottom:12px">
+      ${statusChip(ov.eff_status)}
+      <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#00bb66">${esc(collId)}</span>
+      &nbsp;<a href="${adminUrl}" target="_blank" style="font-size:11px">Object Explorer ↗</a>
+    </div>
+    ${ov.title ? `<div style="color:#aac;font-size:13px;margin-bottom:10px">${esc(ov.title)}</div>` : ''}
+    <div style="margin-bottom:12px">
+      <div class="stat"><b>${ov.line_count||0}</b>Lines</div>
+      ${ov.portal ? `<div class="stat"><b>${esc(ov.portal)}</b>Portal</div>` : ''}
+      ${ov.owner ? `<div class="stat"><b>${esc(ov.owner)}</b>Owner</div>` : ''}
+    </div>`;
+
+  const linesSection = (d.sections||[]).find(s => s.name === 'Lines');
+  if (linesSection && linesSection.items && linesSection.items.length) {
+    html += '<h2>Lines</h2><div style="border:1px solid #001a14">';
+    html += linesSection.items.map(ln => {
+      const nbr = ln.line_nbr !== undefined ? `<span style="color:#334;font-size:10px;min-width:28px;text-align:right">${ln.line_nbr}.</span>` : '';
+      const rel = String(ln.relationship || '');
+      const chipCls = rel === 'Tile' ? 'chip-tile' : rel === 'Content Ref' ? 'chip-info' : 'chip-muted';
+      const relChip = rel ? `<span class="chip ${chipCls}">${esc(rel)}</span>` : '';
+      const urlPart = ln.url ? `<span style="font-size:10px;color:#334;margin-left:6px;font-family:monospace">${esc(ln.url.slice(0,60))}</span>` : '';
+      return `<div class="line-row">${nbr}${relChip}${esc(ln.title||'')}${urlPart}</div>`;
+    }).join('');
     html += '</div>';
   }
 
