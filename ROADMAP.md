@@ -28,6 +28,7 @@
 -   Single shared shell brand link with logo/text treatment
 -   Shared environment selector persistence with legacy `#envSel` synchronization
     and `deathstar:envchange` event emission for migrated admin pages
+-   Headless browser smoke harness for core admin shell pages
 
 ### Remaining
 

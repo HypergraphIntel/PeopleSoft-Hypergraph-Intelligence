@@ -8,6 +8,53 @@ matters, and how it was verified.
 
 ## 2026-06-30
 
+### Admin Shell Browser Smoke Harness
+
+Date/time: 2026-06-30 01:08:27 CDT
+
+- Added a lightweight headless Chrome smoke harness for core admin shell pages
+  so rendered JavaScript and shared-shell regressions are caught outside of
+  `py_compile`.
+- Covered `/admin/`, Runtime, SQL Workspace, Integration Broker, Environment
+  Compare, Graph Explorer, and Object Explorer with page markers, shell brand
+  checks, environment selector checks, active nav checks where applicable, and
+  browser runtime/log error detection.
+- Fixed the shared shell favicon SVG path to use the existing cyan icon asset.
+
+Files modified:
+
+- `scripts/smoke_admin_shell.py`
+- `routers/admin.py`
+- `ARCHITECTURE.md`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+
+- Kept the harness dependency-free by driving Chrome through the DevTools
+  protocol with Python standard library modules.
+- Made page expectations explicit so pages without top-level nav items, such as
+  Graph and Object Explorer, are still validated without false active-link
+  failures.
+
+Bugs fixed:
+
+- Removed a stale `/static/images/empire_logo_sith.svg` favicon reference that
+  produced a browser 404 in the shared shell.
+
+Technical debt:
+
+- Reduced the browser-rendered JavaScript coverage gap that allowed recent UI
+  initialization regressions to reach manual testing.
+- Remaining debt: the harness is local tooling and is not yet wired into CI or
+  a deploy-time smoke step.
+
+Next recommended work:
+
+- Add the admin shell smoke harness to CI or the service deployment checklist.
+- Expand the harness with one interaction smoke per high-risk page as pages are
+  migrated into the shared frontend shell.
+
 ### Frontend Shell Stabilization
 
 Date/time: 2026-06-30 00:54:51 CDT

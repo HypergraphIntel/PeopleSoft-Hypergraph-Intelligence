@@ -152,7 +152,7 @@ enable later ones — build vertically, not horizontally.
 | 8 | **Object Explorer Page** | via `connectors/uom.py` → `canonical_object()` | Object page at `/admin/object/<type>/<name>` rendered by the UOM renderer |
 | 9 | **Admin Page** | `routers/admin.py` | Module-level UI at `/admin/<module>` |
 | 10 | **Frontend Shell** | `static/` + `main.py` | Shared sticky banner/navigation, root redirect, common CSS/JS assets |
-| 11 | **Validation** | compile check + smoke test | `python -c "import main"` passes; key HTTP routes return 200 |
+| 11 | **Validation** | compile check + smoke test | `python -c "import main"` passes; key HTTP routes return 200; admin shell pages pass `scripts/smoke_admin_shell.py` |
 | 12 | **ROADMAP update** | `ROADMAP.md` | Status, completed items, limitations documented |
 
 Providers 7 and 8 are optional when the domain has no runtime state or no object-level

@@ -40,7 +40,7 @@ def _shell(title: str, active: str, content: str, env: bool = True, noscroll: bo
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DeathStar — {title}</title>
-<link rel="icon" type="image/svg+xml" href="/static/images/empire_logo_sith.svg">
+<link rel="icon" type="image/svg+xml" href="/static/images/empire_logo_sith_cyan.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/images/favicon-32.png">
 <link rel="apple-touch-icon" href="/static/images/apple-touch-icon.png">
 <link rel="stylesheet" href="/static/app.css">
@@ -48,7 +48,7 @@ def _shell(title: str, active: str, content: str, env: bool = True, noscroll: bo
 </head>
 <body>
 <nav class="ds-nav">
-    <a class="ds-brand" href="/admin">
+    <a class="ds-brand" href="/admin/">
         <img
             src="/static/images/empire_logo_sith_cyan.svg"
             class="ds-brand-logo"
