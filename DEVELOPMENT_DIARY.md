@@ -8,6 +8,59 @@ matters, and how it was verified.
 
 ## 2026-06-30
 
+### Component Interface UOM and Object Explorer Support
+
+Date/time: 2026-06-30 01:37:21 CDT
+
+- Added first-class read-only Component Interface object support to the
+  Universal Object Model.
+- Registered CI metadata in the PeopleTools metadata registry so global search
+  can find `PSBCDEFN` rows by CI name, display name, description, component,
+  search/add record, or owner.
+- Added CI object payloads with definition metadata, component/menu links,
+  search/add records, key items, collections, properties, methods, exposed
+  fields, sampled item catalog rows, warnings, and graph preview sections.
+- Wired CI into `/api/peoplesoft/object/ci/{name}`,
+  `/api/peoplesoft/graph/ci/{name}`, Object Explorer selectors, and Graph
+  Explorer selectors.
+
+Files modified:
+
+- `connectors/ptmetadata.py`
+- `connectors/uom.py`
+- `routers/peoplesoft.py`
+- `routers/admin.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+
+- Used `ci` as the canonical object type and accepted `component_interface` as
+  an alias for API/object URLs.
+- Kept `PSBCITEM` rows capped at 500 for browser safety while preserving
+  `PSBCDEFN.ITEMCOUNT` and section counts in the payload.
+- Linked graph relationships to the wrapped component, declared menu,
+  search/add records, unique exposed records, and unique exposed fields rather
+  than modeling every property as a separate graph node.
+
+Bugs fixed:
+
+- None in production behavior; this closes the final planned object-type gap
+  in the Object Explorer/UOM roadmap.
+
+Technical debt:
+
+- Removed CI from the planned-only metadata placeholder list.
+- Remaining UOM debt is now about shared relationship provider registration,
+  not missing first-class object types.
+
+Next recommended work:
+
+- Improve Object Explorer visual hierarchy now that the remaining planned
+  object types are represented.
+- Start extracting shared relationship provider registration so object-specific
+  graph and UOM relationship logic can be reused more consistently.
+
 ### Tree UOM and Object Explorer Support
 
 Date/time: 2026-06-30 01:26:26 CDT

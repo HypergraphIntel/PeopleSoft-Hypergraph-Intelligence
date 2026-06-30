@@ -1365,6 +1365,7 @@ def admin_graph():
                 <option value="sql_definition">SQL Definition</option>
                 <option value="query">PS Query</option>
                 <option value="tree">Tree</option>
+                <option value="ci">Component Interface</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="loadGraph()">Explore</button>
@@ -1808,6 +1809,7 @@ def object_explorer_page(object_type="", object_name=""):
                 <option value="sql_definition">SQL Definition</option>
                 <option value="query">PS Query</option>
                 <option value="tree">Tree</option>
+                <option value="ci">Component Interface</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="openTypedObject()">Open</button>
@@ -1922,6 +1924,7 @@ function inferObject(row) {
     if (row.queuename) return objectUrl('queue', row.queuename);
     if (row.portal_objname) return objectUrl('portal_registry', row.portal_objname);
     if (row.tree_name) return objectUrl('tree', row.tree_name);
+    if (row.bcname) return objectUrl('ci', row.bcname);
     return null;
 }
 
@@ -1931,13 +1934,15 @@ function labelFor(row) {
         row.reference || row.ae_step || row.ae_section || row.ae_applid ||
         row.routingdefnname || row.msgnodename || row.queuename || row.ptibapplname ||
         row.ib_operationname || row.ae_step || row.tree_name || row.tree_node || row.tree_branch || row.range_from ||
+        row.bcname || row.bcitemname ||
         row.objectvalue1 || '(item)';
 }
 
 const _DETAIL_SKIP = new Set([
     '_links','name','reference','oprid','roleuser','rolename','classid','pnlgrpname','pnlname',
     'recname','fieldname','portal_objname','menuname','routingdefnname','msgnodename','queuename','ptibapplname',
-    'ib_operationname','ae_step','ae_section','ae_applid','tree_name','tree_node','tree_branch','range_from','objectvalue1',
+    'ib_operationname','ae_step','ae_section','ae_applid','tree_name','tree_node','tree_branch','range_from',
+    'bcname','bcitemname','objectvalue1',
     'has_peoplecode','encoded_reference','source','progseq','objectid1',
 ]);
 
@@ -2154,6 +2159,7 @@ function buildBreadcrumbs(type, name) {
         application_engine: ['AE Programs', '/admin/ae'],
         sql_definition:     ['SQL Definitions', null],
         tree:               ['Trees', null],
+        ci:                 ['Component Interfaces', null],
         peoplecode:         ['PeopleCode', null],
         operator:           ['Security', '/admin/security'],
         role:               ['Security', '/admin/security'],

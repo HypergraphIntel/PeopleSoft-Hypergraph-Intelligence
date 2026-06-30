@@ -234,6 +234,8 @@ def normalize_object_type(object_type: str) -> str:
         "sql_definition": "sql_definition",
         "service_operation": "service_operation",
         "tree": "tree",
+        "component_interface": "ci",
+        "ci": "ci",
     }
     return aliases.get(object_type, object_type)
 
@@ -323,6 +325,12 @@ def object_payload(env, object_type, object_name):
         if tree_obj.get("status") == "not_found":
             raise HTTPException(status_code=404, detail="Tree not found")
         return attach_graph_context(uom.tree_payload(tree_obj), env)
+
+    if object_type == "ci":
+        ci_obj = uom.ci_object(env, object_name)
+        if ci_obj.get("status") == "not_found":
+            raise HTTPException(status_code=404, detail="Component Interface not found")
+        return attach_graph_context(uom.ci_payload(ci_obj), env)
 
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
@@ -1207,6 +1215,14 @@ def peoplesoft_graph(object_type: str, object_name: str, env: str = "HCM"):
             "root": f"tree:{object_name.upper()}",
             "nodes": tree_graph.get("nodes", []),
             "edges": tree_graph.get("edges", []),
+        }
+
+    if object_type in {"ci", "component_interface"}:
+        ci_graph = uom.ci_object(env, object_name).get("_graph", {})
+        return {
+            "root": f"ci:{object_name.upper()}",
+            "nodes": ci_graph.get("nodes", []),
+            "edges": ci_graph.get("edges", []),
         }
 
     nodes = {}

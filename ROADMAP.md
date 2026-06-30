@@ -53,6 +53,8 @@
     Integration Broker objects
 -   Canonical Tree object pages backed by PSTREEDEFN/PSTREENODE/PSTREELEAF
     metadata, with graph links to tree structure records and fields
+-   Canonical Component Interface object pages backed by PSBCDEFN/PSBCITEM,
+    with graph links to wrapped components, menus, records, and exposed fields
 -   Breadcrumbs in Object Explorer (type-aware trail with field record parent support)
 -   Recently Viewed: relative timestamps, descriptions, per-item remove button
 
@@ -60,7 +62,6 @@
 
 ### Remaining
 
--   Remaining object types (CI)
 -   Improved visual hierarchy
 
 ------------------------------------------------------------------------
@@ -110,10 +111,10 @@
 
 -   Query objects: `query_object()` / `sections_for_query()` / `query_payload()` — fetches PSQRYDEFN + PSQRYRECORD + PSQRYFIELD + PSQRYBIND for public queries (OPRID=\' \'); shows records with join types/aliases, output columns with headings/aggregates, and prompt parameters with field types
 -   Tree objects: `tree_object()` / `sections_for_tree()` / `tree_payload()` — fetches effective-dated PSTREEDEFN metadata with structure records/fields, levels, branches, node/leaf samples, variants, and graph preview
+-   Component Interface objects: `ci_object()` / `sections_for_ci()` / `ci_payload()` — fetches PSBCDEFN + PSBCITEM metadata with definition, component/menu links, search/add records, keys, collections, properties, fields, item samples, and graph preview
 
 ### Remaining
 
--   CI models
 -   Shared relationship provider registration
 
 ------------------------------------------------------------------------

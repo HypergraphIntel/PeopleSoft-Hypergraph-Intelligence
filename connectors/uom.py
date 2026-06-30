@@ -3169,8 +3169,301 @@ def tree_payload(tree):
     }
 
 
+def _ci_type_label(value):
+    labels = {
+        1: "Get Key",
+        2: "Create Key",
+        3: "Collection",
+        4: "Property",
+        5: "Find Key",
+        6: "Method",
+    }
+    try:
+        return labels.get(int(value), str(value))
+    except Exception:
+        return str(value or "")
+
+
+def _ci_access_label(value):
+    labels = {
+        1: "Read/Write",
+        2: "Read Only",
+    }
+    try:
+        return labels.get(int(value), str(value))
+    except Exception:
+        return str(value or "")
+
+
+def _ci_item_links(row, env):
+    linked = dict(row)
+    recname = str(linked.get("recname") or "").strip()
+    fieldname = str(linked.get("fieldname") or "").strip()
+    linked["bctype_label"] = _ci_type_label(linked.get("bctype"))
+    linked["bcaccess_label"] = _ci_access_label(linked.get("bcaccess"))
+    if recname and fieldname:
+        linked.setdefault("_links", {})["admin"] = object_url("field", f"{recname}.{fieldname}")
+    elif recname:
+        linked.setdefault("_links", {})["admin"] = object_url("record", recname)
+    return linked
+
+
+def _dedupe_rows(rows, key_fields):
+    seen = set()
+    out = []
+    for row in rows:
+        key = tuple(str(row.get(k) or "").strip().upper() for k in key_fields)
+        if not any(key) or key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+def ci_graph(env, ci_name, relationships=None):
+    relationships = relationships or ci_object(env, ci_name)["_relationships"]
+    name = ci_name.upper()
+    nodes = {}
+    edges = []
+
+    add_node(nodes, graph_node("ci", name))
+
+    for row in relationships.get("components", []):
+        component = row.get("pnlgrpname")
+        if component:
+            add_node(nodes, graph_node("component", component, row))
+            edges.append(graph_edge("ci", name, "component", component, "wraps_component"))
+
+    for row in relationships.get("menus", []):
+        menu = row.get("menuname")
+        if menu:
+            add_node(nodes, graph_node("menu", menu, row))
+            edges.append(graph_edge("ci", name, "menu", menu, "declared_on_menu"))
+
+    for row in relationships.get("records", []):
+        recname = row.get("recname")
+        if recname:
+            add_node(nodes, graph_node("record", recname, row))
+            edges.append(graph_edge("ci", name, "record", recname, row.get("relationship") or "uses_record"))
+
+    for row in relationships.get("fields", []):
+        field_ref = row.get("name")
+        recname = row.get("recname")
+        if field_ref:
+            add_node(nodes, graph_node("field", field_ref, row))
+            edges.append(graph_edge("ci", name, "field", field_ref, row.get("relationship") or "exposes_field"))
+        if recname and field_ref:
+            add_node(nodes, graph_node("record", recname, row))
+            edges.append(graph_edge("record", recname, "field", field_ref, "contains_field"))
+
+    return {"nodes": list(nodes.values()), "edges": edges}
+
+
+def ci_object(env, ci_name):
+    warnings = []
+    name = ci_name.upper()
+
+    if not ptmetadata.has_table(env, "PSBCDEFN"):
+        return canonical_base(
+            env, "ci", name,
+            display_name=name,
+            status="partial",
+            warnings=[ptmetadata.warning("psbcdefn_unavailable", "SYSADM.PSBCDEFN is not accessible.")],
+        )
+
+    try:
+        rows = psdb.query(env, """
+            select bcname, bcdisplayname, bcpgname, market, menuname,
+                   searchrecname, addsrchrecname, itemcount, descr, version,
+                   bcstdmethods, lastupddttm, lastupdoprid, objectownerid, descrlong
+              from sysadm.psbcdefn
+             where bcname = upper(:name)
+             fetch first 1 rows only
+        """, {"name": name})
+    except Exception as exc:
+        return canonical_base(
+            env, "ci", name,
+            display_name=name,
+            status="partial",
+            warnings=[ptmetadata.warning("ci_query_failed", str(exc))],
+        )
+
+    if not rows:
+        return canonical_base(
+            env, "ci", name,
+            display_name=name,
+            status="not_found",
+            warnings=[ptmetadata.warning("not_found", f"Component Interface {name} not found")],
+        )
+
+    raw = rows[0]
+    items = []
+    if ptmetadata.has_table(env, "PSBCITEM"):
+        try:
+            items = psdb.query(env, """
+                select bcname, bctype, bcitemparent, bcitemname, sequence_nbr_6,
+                       bcaccess, bcscroll, bcscrollnum, bcscrollname,
+                       recname, fieldname, subrecname, commentshort
+                  from sysadm.psbcitem
+                 where bcname = upper(:name)
+                 order by sequence_nbr_6, bcitemname
+                 fetch first 500 rows only
+            """, {"name": name})
+        except Exception as exc:
+            warnings.append(ptmetadata.warning("relationship_unavailable", f"CI items unavailable: {exc}"))
+    else:
+        warnings.append(ptmetadata.warning("metadata_unavailable", "SYSADM.PSBCITEM is not accessible."))
+
+    linked_items = [_ci_item_links(row, env) for row in items]
+    collections = [row for row in linked_items if row.get("bctype") == 3]
+    properties = [row for row in linked_items if row.get("bctype") == 4]
+    keys = [row for row in linked_items if row.get("bctype") in (1, 2, 5)]
+    methods = [row for row in linked_items if row.get("bctype") == 6]
+
+    record_rows = []
+    for key, rel in (("searchrecname", "search_record"), ("addsrchrecname", "add_search_record")):
+        recname = str(raw.get(key) or "").strip()
+        if recname:
+            record_rows.append({"relationship": rel, "recname": recname, "_links": {"admin": object_url("record", recname)}})
+    for row in linked_items:
+        recname = str(row.get("recname") or "").strip()
+        if recname:
+            record_rows.append({"relationship": row.get("bctype_label") or "item_record", "recname": recname,
+                                "_links": {"admin": object_url("record", recname)}})
+    records = _dedupe_rows(record_rows, ["recname"])
+
+    field_rows = []
+    for row in linked_items:
+        recname = str(row.get("recname") or "").strip()
+        fieldname = str(row.get("fieldname") or "").strip()
+        if recname and fieldname:
+            field_ref = f"{recname}.{fieldname}"
+            field_rows.append({
+                "relationship": row.get("bctype_label") or "item_field",
+                "recname": recname,
+                "fieldname": fieldname,
+                "name": field_ref,
+                "bcitemname": row.get("bcitemname"),
+                "_links": {"admin": object_url("field", field_ref)},
+            })
+    fields = _dedupe_rows(field_rows, ["name"])
+
+    components = []
+    component = str(raw.get("bcpgname") or "").strip()
+    if component:
+        components.append({"pnlgrpname": component, "relationship": "component", "_links": {"admin": object_url("component", component)}})
+
+    menus = []
+    menu = str(raw.get("menuname") or "").strip()
+    if menu:
+        menus.append({"menuname": menu, "relationship": "menu", "_links": {"admin": object_url("menu", menu)}})
+
+    relationships = {
+        "components": components,
+        "menus": menus,
+        "records": records,
+        "fields": fields,
+        "items": linked_items,
+        "collections": collections,
+        "properties": properties,
+        "keys": keys,
+        "methods": methods,
+    }
+    graph = ci_graph(env, name, relationships)
+
+    return canonical_base(
+        env, "ci", name,
+        display_name=raw.get("bcdisplayname") or name,
+        description=raw.get("descrlong") or raw.get("descr") or "",
+        owner=raw.get("objectownerid") or "",
+        version=str(raw.get("version") or ""),
+        status="available",
+        warnings=warnings,
+        _links={
+            "self": api_url("ci", name),
+            "admin": object_url("ci", name),
+            "graph": graph_url("ci", name),
+        },
+        _relationships=relationships,
+        _graph=graph,
+        _metadata={
+            "environment": env.upper(),
+            "registry": ptmetadata.OBJECT_REGISTRY.get("ci", {}),
+            "raw": raw,
+            "sample_limits": {"items": 500},
+        },
+    )
+
+
+def sections_for_ci(ci):
+    rels = ci.get("_relationships", {})
+    raw = ci.get("_metadata", {}).get("raw", {})
+    graph_nodes = ci.get("_graph", {}).get("nodes", [])
+    graph_edges = ci.get("_graph", {}).get("edges", [])
+    return [
+        {"name": "Definition", "items": [], "data": {
+            "bcname": ci["name"],
+            "display_name": ci.get("display_name") or "",
+            "description": ci.get("description") or "",
+            "component": raw.get("bcpgname") or "",
+            "menu": raw.get("menuname") or "",
+            "market": raw.get("market") or "",
+            "search_record": raw.get("searchrecname") or "",
+            "add_search_record": raw.get("addsrchrecname") or "",
+            "item_count": raw.get("itemcount"),
+            "version": raw.get("version") or "",
+            "standard_methods": raw.get("bcstdmethods") or "",
+            "owner": raw.get("objectownerid") or "",
+            "lastupddttm": raw.get("lastupddttm") or "",
+            "lastupdoprid": raw.get("lastupdoprid") or "",
+        }},
+        {"name": "Component and Menu", "items": rels.get("components", []) + rels.get("menus", []),
+         "data": {"component_count": len(rels.get("components", [])), "menu_count": len(rels.get("menus", []))}},
+        {"name": "Search/Add Records", "items": rels.get("records", [])[:20],
+         "data": {"record_count": len(rels.get("records", [])),
+                  "note": "Includes search/add records and unique records exposed by CI items"}},
+        {"name": "Keys", "items": rels.get("keys", []), "data": {"count": len(rels.get("keys", []))}},
+        {"name": "Collections", "items": rels.get("collections", []), "data": {"count": len(rels.get("collections", []))}},
+        {"name": "Properties", "items": rels.get("properties", []), "data": {
+            "count": len(rels.get("properties", [])),
+            "note": "Item sample capped at 500 rows",
+        }},
+        {"name": "Methods", "items": rels.get("methods", []), "data": {"count": len(rels.get("methods", []))}},
+        {"name": "Fields", "items": rels.get("fields", [])[:200], "data": {
+            "count": len(rels.get("fields", [])),
+            "note": "Unique exposed record fields; display capped at 200 rows",
+        }},
+        {"name": "All Items", "items": rels.get("items", []), "data": {
+            "count": len(rels.get("items", [])),
+            "defined_count": raw.get("itemcount"),
+            "note": "Sample capped at 500 rows",
+        }},
+        {"name": "Graph Preview", "items": graph_nodes, "data": {
+            "node_count": len(graph_nodes),
+            "edge_count": len(graph_edges),
+        }},
+        {"name": "Warnings", "items": ci.get("warnings", []), "data": {"count": len(ci.get("warnings", []))}},
+    ]
+
+
+def ci_payload(ci):
+    raw = ci.get("_metadata", {}).get("raw", {})
+    return {
+        "type": ci["type"], "name": ci["name"], "title": ci["display_name"],
+        "overview": {
+            "id": ci["id"], "display_name": ci["display_name"],
+            "description": ci.get("description") or "",
+            "status": ci["status"], **raw,
+        },
+        "sections": sections_for_ci(ci),
+        "_links": ci["_links"], "_uom": ci,
+    }
+
+
 def canonical_object(env, object_type, name):
     object_type = object_type.lower()
+    if object_type == "component_interface":
+        object_type = "ci"
     if object_type == "permission_list":
         object_type = "permissionlist"
     if object_type in {"portal", "content_reference"}:
@@ -3210,6 +3503,8 @@ def canonical_object(env, object_type, name):
         return query_object(env, name)
     if object_type == "tree":
         return tree_object(env, name)
+    if object_type == "ci":
+        return ci_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

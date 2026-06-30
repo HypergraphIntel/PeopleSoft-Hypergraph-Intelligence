@@ -486,6 +486,18 @@ OBJECT_REGISTRY.setdefault("tree", {
     "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
 })
 
+OBJECT_REGISTRY.setdefault("ci", {
+    "display_title": "Component Interface",
+    "icon": "plug",
+    "graph_node_type": "ci",
+    "object_page": "/admin/object/ci/{name}",
+    "discovery": {"table": "PSBCDEFN", "name_column": "BCNAME"},
+    "search": {"table": "PSBCDEFN", "name_column": "BCNAME",
+               "description_columns": ["DESCR", "BCDISPLAYNAME"],
+               "extra_search_columns": ["BCPGNAME", "SEARCHRECNAME", "ADDSRCHRECNAME", "OBJECTOWNERID"]},
+    "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+})
+
 for object_type in [
     "menu",
     "content_reference",
@@ -493,7 +505,6 @@ for object_type in [
     "step",
     "sql",
     "message",
-    "ci",
     "approval",
     "event_mapping",
     "related_content",
