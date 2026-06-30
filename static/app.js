@@ -12,6 +12,14 @@
         try { localStorage.setItem(LS_KEY, val); } catch (_) {}
     }
 
+    function emitEnvChange(val) {
+        try {
+            window.dispatchEvent(new CustomEvent('deathstar:envchange', {
+                detail: { env: val }
+            }));
+        } catch (_) {}
+    }
+
     /* Sync per-page legacy #envSel (if present) to the chosen value and
        fire its change event so the page JS reacts. */
     function syncPageEnvSel(val) {
@@ -64,12 +72,16 @@
                         syncPageEnvSel(v);
                         /* call page hook if defined */
                         if (typeof window.onEnvChange === 'function') window.onEnvChange(v);
+                        emitEnvChange(v);
                     });
                 });
 
                 /* After populating, seed legacy #envSel */
                 const chosen = selects[0] && selects[0].value;
-                if (chosen) syncPageEnvSel(chosen);
+                if (chosen) {
+                    syncPageEnvSel(chosen);
+                    emitEnvChange(chosen);
+                }
             })
             .catch(() => {
                 /* config fetch failed — restore saved value if options exist */
@@ -78,7 +90,10 @@
                         sel.value = saved;
                     }
                 });
-                if (saved) syncPageEnvSel(saved);
+                if (saved) {
+                    syncPageEnvSel(saved);
+                    emitEnvChange(saved);
+                }
             });
     }
 

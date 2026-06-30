@@ -20,7 +20,7 @@ _NAV = [
 
 def _shell(title: str, active: str, content: str, env: bool = True, noscroll: bool = False) -> str:
     """Render a complete HTML page with the standard two-level shell."""
-    nav_links = '<a class="ds-brand" href="/admin/">PeopleSoft Explorer</a>'
+    nav_links = ""
     for key, label, href in _NAV:
         cls = "ds-nav-link ds-active" if key == active else "ds-nav-link"
         nav_links += f'<a class="{cls}" href="{href}">{label}</a>'
@@ -53,12 +53,7 @@ def _shell(title: str, active: str, content: str, env: bool = True, noscroll: bo
             src="/static/images/empire_logo_sith_cyan.svg"
             class="ds-brand-logo"
             alt="PeopleSoft Explorer">
-      <!--
-        <div class="ds-brand-text">
-            <span class="ds-brand-title">PeopleSoft Explorer</span>
-            <span class="ds-brand-subtitle">Enterprise Administration Console</span>
-        </div>
-      -->
+        <span class="ds-brand-title">PeopleSoft Explorer</span>
     </a>
     {nav_links}
   </nav>

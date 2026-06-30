@@ -25,6 +25,9 @@
 -   Shared CSS in `/static/app.css`
 -   Shared frontend behavior in `/static/app.js`
 -   HTML shell injection for existing frontend pages
+-   Single shared shell brand link with logo/text treatment
+-   Shared environment selector persistence with legacy `#envSel` synchronization
+    and `deathstar:envchange` event emission for migrated admin pages
 
 ### Remaining
 

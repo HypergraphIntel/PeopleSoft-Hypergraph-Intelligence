@@ -6,6 +6,56 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30
+
+### Frontend Shell Stabilization
+
+Date/time: 2026-06-30 00:54:51 CDT
+
+- Implemented a small shared-shell cleanup as the next slice of the Frontend
+  Shell roadmap work.
+- Replaced the duplicate shell brand/nav construction with a single brand link
+  that contains the cyan logo and `PeopleSoft Explorer` title.
+- Added `deathstar:envchange` event emission in `/static/app.js` whenever the
+  shared environment selector initializes, changes, or falls back to a stored
+  environment.
+- Preserved backwards compatibility by keeping legacy page `#envSel`
+  synchronization and the existing `window.onEnvChange`, `window.dsGetEnv`,
+  `window.dsSetEnv`, and `window.dsGetStoredEnv` helpers.
+
+Files modified:
+
+- `routers/admin.py`
+- `static/app.js`
+- `static/app.css`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+
+- Kept the shell event additive rather than replacing existing hooks so
+  migrated pages and legacy pages can coexist during visual unification.
+- Kept page-specific environment selectors working while newer pages can
+  consume the shared `deathstar:envchange` event.
+
+Bugs fixed:
+
+- Removed duplicate brand anchors in the shared admin shell navigation.
+
+Technical debt:
+
+- Removed one shell markup inconsistency.
+- Remaining debt: several legacy admin pages still carry page-local
+  environment controls and page-local styling while the shared shell migration
+  continues.
+
+Next recommended work:
+
+- Continue the Frontend Shell roadmap item by migrating legacy admin pages to
+  the shared environment event and reducing page-local nav/header CSS.
+- Add a lightweight browser-smoke harness for shell pages so future UI
+  migrations catch JavaScript initialization regressions automatically.
+
 ## 2026-06-29
 
 ### Integration Broker Service Operations
