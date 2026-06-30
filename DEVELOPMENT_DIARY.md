@@ -1058,3 +1058,55 @@ Added server-side call timeout and client-side cancel support:
   "N services — all services (no status filter) · PSIBAPPLDEFN" so users can
   confirm the list is unfiltered (PSIBAPPLDEFN has no EFF_STATUS filter in the
   services query).
+
+------------------------------------------------------------------------
+
+### IB Relationship Explorer Redesign
+
+Rewrote `/admin/ib` from a table-centric tab browser into a relationship
+explorer with master-detail navigation.
+
+**Layout**:
+- `<div class="explorer">` replaces `.content` — flexbox row with a 290px
+  `.list-panel` on the left and a `.detail-panel` (flex:1) on the right.
+- All list tabs (`tab-services`, `tab-operations`, etc.) now live inside
+  `.list-panel` so the list stays visible when viewing a detail.
+- `.detail-panel` contains `#breadcrumb` bar + `#detailScroll > #detailContent`.
+
+**Navigation stack**:
+- `navStack[]` tracks the path taken: `[{type, name}, ...]`.
+- `pushNav(type, name, push)` adds to the stack and calls `renderBreadcrumb()`.
+- `renderBreadcrumb()` renders `IB › &#9881; SVC_OP › &#8652; ROUTING › ...`
+  with clickable segments that call `navTo(i)` to jump back.
+- `navTo(idx)` slices the stack to idx+1 and re-invokes the appropriate `showXxx()`.
+- `clearDetail()` resets stack, restores placeholder, and clears active states.
+
+**All `showXxx()` functions** now:
+- Accept optional `push=true` parameter (false when called from breadcrumb nav).
+- Call `switchTab()` to show the relevant list tab.
+- Call `markActive(listId, name)` to highlight the selected list item.
+- Call `setDetail(html)` instead of replacing `contentArea`.
+- Start with a `relStrip()` relationship bar showing clickable tags to related
+  objects (operation → service + routings + queues + Transactions;
+  routing → operation + sender + receiver + Transactions;
+  node → related operations + Transactions; queue → Transactions;
+  transaction → operation + queue + pubnode).
+
+**Relationship strip**:
+- `relStrip(label, tags)` renders a compact horizontal bar at the top of each
+  detail view with `rel-tag` buttons for each related object.
+- `rel-action` class for "View Transactions" tags (green tint).
+- `viewTxnsFor(q)` switches to the Txns tab and prefills the filter with the
+  given operation/node/queue name.
+
+**Compact overview**:
+- Replaced large `stat-box` elements with `cstat-row` 3-column compact grid
+  fitting in the 290px left panel.
+- Quick-action buttons are full-width stacked buttons in the left panel.
+
+**Additional click-through fixes**:
+- Routing sub-definitions: sender/receiver nodes now clickable.
+- Transaction pub/sub contracts: sub nodes and routings now clickable.
+- Messages table in operation detail: queue names now clickable.
+- Routing table in service detail: sender/receiver nodes now clickable.
+- `showNode()` guards against null/undefined names.

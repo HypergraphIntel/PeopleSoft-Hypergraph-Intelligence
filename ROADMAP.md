@@ -341,6 +341,10 @@
 -   Service operation drilldown for versions, handlers, security,
     messages, queues, and sender/receiver routing nodes
 
+### Completed
+
+-   Relationship Explorer redesign: master-detail layout (list panel left, detail panel right); breadcrumb nav stack (IB › Service › Operation › Routing › Node); clickable relationship strips at top of every detail view; "View Transactions" quick-filter action on operation, routing, queue, and node; sub-definition nodes clickable in routing detail; pub/sub contract nodes clickable in transaction detail; active-item highlighting in list when detail is open
+
 ### Current Limitations
 
 -   Runtime grants unavailable

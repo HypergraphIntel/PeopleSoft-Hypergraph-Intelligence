@@ -5133,22 +5133,43 @@ nav a{color:#00e5ff;text-decoration:none;font-size:12px;}
 nav a:hover{text-decoration:underline;}
 .topbar{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
 .main{display:flex;flex:1;overflow:hidden;flex-direction:column;min-height:0;}
-.content{flex:1;overflow:hidden;padding:14px;display:flex;flex-direction:column;min-height:0;}
+/* master-detail layout */
+.explorer{display:flex;flex:1;overflow:hidden;min-height:0;}
+.list-panel{width:290px;min-width:200px;border-right:1px solid #00e5ff22;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+.detail-panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+.detail-scroll{flex:1;overflow-y:auto;padding:14px;}
+/* breadcrumb */
+.breadcrumb{padding:5px 12px;border-bottom:1px solid #00e5ff11;font-size:11px;display:flex;align-items:center;flex-wrap:wrap;gap:3px;min-height:28px;background:#03080f;}
+.bc-link{color:#00e5ff88;cursor:pointer;font-size:10px;}
+.bc-link:hover{color:#00e5ff;text-decoration:underline;}
+.bc-sep{color:#223;font-size:10px;}
+.bc-cur{color:#d7faff;font-size:10px;}
+/* relationship strip */
+.rel-strip{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px;border:1px solid #00e5ff11;background:#030c14;margin-bottom:10px;align-items:center;font-size:10px;}
+.rel-strip-label{color:#334;text-transform:uppercase;letter-spacing:1px;margin-right:4px;}
+.rel-tag{background:#001828;border:1px solid #00e5ff33;color:#00e5ff;padding:2px 8px;cursor:pointer;border-radius:2px;font-size:10px;}
+.rel-tag:hover{background:#00e5ff22;}
+.rel-tag.rel-action{background:#001800;border-color:#00cc6633;color:#00cc66;}
+.rel-tag.rel-action:hover{background:#00cc6611;}
+/* compact stats for overview panel */
+.cstat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:8px 0;}
+.cstat{border:1px solid #00e5ff22;padding:5px 6px;text-align:center;background:rgba(0,20,30,.5);}
+.cstat-num{font-size:16px;color:#00e5ff;font-weight:bold;line-height:1.2;}
+.cstat-lbl{font-size:9px;color:#445;text-transform:uppercase;letter-spacing:0.5px;}
+/* lists */
 .list-area{overflow-y:auto;flex:1;min-height:0;}
-.tab-row{display:flex;flex-wrap:wrap;gap:0;border-bottom:1px solid #00e5ff22;overflow-x:hidden;}
+.tab-row{display:flex;gap:0;border-bottom:1px solid #00e5ff22;overflow-x:auto;flex-shrink:0;}
 select,input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
 select:focus,input:focus{outline:none;border-color:#00e5ff;}
 button{background:#00e5ff;border:none;padding:4px 10px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
 button:hover{background:#33eeff;}
 button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;}
 button.sec:hover{background:#00e5ff11;border-color:#00e5ff;}
-.tab-row{display:flex;gap:0;border-bottom:1px solid #00e5ff22;overflow-x:auto;}
-.tab{padding:8px 14px;cursor:pointer;font-size:11px;color:#556;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
+.tab{padding:7px 12px;cursor:pointer;font-size:10px;color:#556;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;letter-spacing:0.5px;}
 .tab.on{color:#00e5ff;border-bottom-color:#00e5ff;}
-.search-bar{padding:8px;border-bottom:1px solid #00e5ff11;display:flex;gap:4px;flex-wrap:wrap;}
-.search-bar input{flex:1;min-width:80px;}
-.list-area{overflow-y:auto;flex:1;}
-.list-item{padding:7px 10px;cursor:pointer;border-bottom:1px solid #0b1b24;font-size:11px;}
+.search-bar{padding:6px 8px;border-bottom:1px solid #00e5ff11;display:flex;gap:4px;}
+.search-bar input{flex:1;min-width:0;font-size:11px;}
+.list-item{padding:6px 10px;cursor:pointer;border-bottom:1px solid #0b1b24;font-size:11px;}
 .list-item:hover{background:#0b2030;}
 .list-item.active{background:#0b2030;border-left:2px solid #00e5ff;}
 .item-name{font-family:monospace;color:#d7faff;}
@@ -5173,10 +5194,10 @@ tr:hover td{background:rgba(0,229,255,.04);}
 .empty{color:#445;font-style:italic;font-size:12px;padding:10px 0;}
 .warn-msg{color:#ffaa00;font-size:11px;padding:3px 8px;background:#1a1000;border-left:2px solid #ffaa00;margin:2px 0;}
 .err-msg{color:#ff6666;font-size:11px;padding:3px 8px;background:#1a0000;border-left:2px solid #ff4444;margin:2px 0;}
-.kv-grid{display:grid;grid-template-columns:160px 1fr;gap:2px 12px;font-size:11px;margin:8px 0;}
+.kv-grid{display:grid;grid-template-columns:140px 1fr;gap:2px 12px;font-size:11px;margin:8px 0;}
 .kv-key{color:#667;text-transform:uppercase;font-size:10px;letter-spacing:1px;padding:3px 0;}
 .kv-val{padding:3px 0;font-family:monospace;}
-.card{border:1px solid #00e5ff22;padding:10px 14px;margin-bottom:12px;background:rgba(0,20,30,.6);}
+.card{border:1px solid #00e5ff22;padding:10px 14px;margin-bottom:10px;background:rgba(0,20,30,.6);}
 .stat-grid{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;}
 .stat-box{border:1px solid #00e5ff33;padding:10px 16px;min-width:100px;text-align:center;background:rgba(0,20,30,.5);}
 .stat-num{font-size:22px;color:#00e5ff;font-weight:bold;}
@@ -5185,6 +5206,8 @@ tr:hover td{background:rgba(0,229,255,.04);}
 .lbl{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:2px;}
 a.obj-link{color:#00e5ff;text-decoration:none;cursor:pointer;}
 a.obj-link:hover{text-decoration:underline;}
+.detail-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;height:60%;color:#223;font-size:13px;gap:8px;}
+.detail-placeholder svg{opacity:.15;}
 </style>
 </head>
 <body>
@@ -5205,7 +5228,7 @@ a.obj-link:hover{text-decoration:underline;}
 
 <div class="main">
 
-<div class="tab-row" style="width:100%;">
+<div class="tab-row">
   <div class="tab on" onclick="switchTab('overview')">Overview</div>
   <div class="tab" onclick="switchTab('services')">Services</div>
   <div class="tab" onclick="switchTab('operations')">Service Ops</div>
@@ -5215,87 +5238,107 @@ a.obj-link:hover{text-decoration:underline;}
   <div class="tab" onclick="switchTab('txns')">Txns</div>
 </div>
 
-<div class="content" id="contentArea">
-  <div id="tab-overview" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0;">
-    <div class="card">
-      <h2>Overview</h2>
-      <div class="stat-grid" style="margin-top:12px;">
-        <div class="stat-box"><div class="stat-num" id="ovSvc">--</div><div class="stat-lbl">Services</div></div>
-        <div class="stat-box"><div class="stat-num" id="ovOps">--</div><div class="stat-lbl">Service Ops</div></div>
-        <div class="stat-box"><div class="stat-num" id="ovRtng">--</div><div class="stat-lbl">Routings</div></div>
-        <div class="stat-box"><div class="stat-num" id="ovNode">--</div><div class="stat-lbl">Nodes</div></div>
-        <div class="stat-box"><div class="stat-num" id="ovQueue">--</div><div class="stat-lbl">Queues</div></div>
+<div class="explorer">
+
+  <!-- LEFT: list panel -->
+  <div class="list-panel">
+
+    <div id="tab-overview" style="display:flex;flex-direction:column;overflow-y:auto;padding:10px;">
+      <div class="cstat-row">
+        <div class="cstat"><div class="cstat-num" id="ovSvc">--</div><div class="cstat-lbl">Services</div></div>
+        <div class="cstat"><div class="cstat-num" id="ovOps">--</div><div class="cstat-lbl">Ops</div></div>
+        <div class="cstat"><div class="cstat-num" id="ovRtng">--</div><div class="cstat-lbl">Routings</div></div>
+        <div class="cstat"><div class="cstat-num" id="ovNode">--</div><div class="cstat-lbl">Nodes</div></div>
+        <div class="cstat"><div class="cstat-num" id="ovQueue">--</div><div class="cstat-lbl">Queues</div></div>
+        <div class="cstat" style="grid-column:span 1;cursor:pointer;border-color:#00cc6633;" onclick="switchTab('txns')"><div class="cstat-num" style="font-size:11px;color:#00cc66;">&#9654;</div><div class="cstat-lbl">Txns</div></div>
       </div>
-      <div style="font-size:11px;color:#667;line-height:1.5;margin-top:10px;">
-        Integration Broker data is loaded from the selected environment. Use the quick actions below to jump to the most-used IB sections.
+      <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px;">
+        <button style="width:100%;text-align:left;font-size:10px;" onclick="switchTab('services')">&#127760; Browse Services</button>
+        <button style="width:100%;text-align:left;font-size:10px;" onclick="switchTab('operations')">&#9881; Browse Service Ops</button>
+        <button class="sec" style="width:100%;text-align:left;font-size:10px;" onclick="switchTab('routings')">&#8652; Routings</button>
+        <button class="sec" style="width:100%;text-align:left;font-size:10px;" onclick="switchTab('nodes')">&#128279; Nodes</button>
+        <button class="sec" style="width:100%;text-align:left;font-size:10px;" onclick="switchTab('queues')">&#11036; Queues</button>
+        <button class="sec" style="width:100%;text-align:left;font-size:10px;" onclick="switchTab('txns')">&#8644; Transactions</button>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
-        <button onclick="switchTab('services')">Browse Services</button>
-        <button onclick="switchTab('operations')">Browse Service Ops</button>
-        <button onclick="switchTab('txns')">View Transactions</button>
+      <div id="dashboard" style="margin-top:10px;"></div>
+    </div>
+
+    <div id="tab-services" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="search-bar">
+        <input id="svcQ" type="text" placeholder="Search services…" onkeydown="if(event.key==='Enter')loadServices()">
+        <button onclick="loadServices()">Go</button>
+      </div>
+      <div class="list-area" id="svcList"><span class="empty" style="padding:8px;">Loading…</span></div>
+    </div>
+
+    <div id="tab-operations" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="search-bar">
+        <input id="opQ" type="text" placeholder="Search service ops…" onkeydown="if(event.key==='Enter')loadOperations()">
+        <button onclick="loadOperations()">Go</button>
+      </div>
+      <div class="list-area" id="opList"><span class="empty" style="padding:8px;">Type to search</span></div>
+    </div>
+
+    <div id="tab-routings" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="search-bar">
+        <input id="rtngQ" type="text" placeholder="Search routings…" onkeydown="if(event.key==='Enter')loadRoutings()">
+        <button onclick="loadRoutings()">Go</button>
+      </div>
+      <div class="list-area" id="rtngList"><span class="empty" style="padding:8px;">Type to search</span></div>
+    </div>
+
+    <div id="tab-nodes" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="search-bar">
+        <input id="nodeQ" type="text" placeholder="Search nodes…" onkeydown="if(event.key==='Enter')loadNodes()">
+        <button onclick="loadNodes()">Go</button>
+      </div>
+      <div class="list-area" id="nodeList"><span class="empty" style="padding:8px;">Loading…</span></div>
+    </div>
+
+    <div id="tab-queues" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="search-bar">
+        <input id="queueQ" type="text" placeholder="Search queues…" onkeydown="if(event.key==='Enter')loadQueues()">
+        <button onclick="loadQueues()">Go</button>
+      </div>
+      <div class="list-area" id="queueList"><span class="empty" style="padding:8px;">Loading…</span></div>
+    </div>
+
+    <div id="tab-txns" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="search-bar" style="flex-direction:column;gap:4px;">
+        <input id="txQ" type="text" placeholder="Operation / node / queue…" onkeydown="if(event.key==='Enter')loadTxns()">
+        <div style="display:flex;gap:4px;">
+          <select id="txStatus" style="flex:1;font-size:10px;">
+            <option value="">All Status</option>
+            <option value="1">New</option>
+            <option value="2">Started</option>
+            <option value="3">Done</option>
+            <option value="4">Cancelled</option>
+            <option value="5">Error</option>
+            <option value="6">Retry</option>
+            <option value="7">Timeout</option>
+          </select>
+          <button onclick="loadTxns()">Go</button>
+        </div>
+      </div>
+      <div class="list-area" id="txList"><span class="empty" style="padding:8px;">Loading…</span></div>
+    </div>
+
+  </div><!-- .list-panel -->
+
+  <!-- RIGHT: detail panel -->
+  <div class="detail-panel" id="detailPanel">
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <div class="detail-scroll" id="detailScroll">
+      <div id="detailContent">
+        <div class="detail-placeholder">
+          <svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="28" fill="none" stroke="#00e5ff" stroke-width="1.5"/><line x1="30" y1="10" x2="30" y2="50" stroke="#00e5ff" stroke-width="1"/><line x1="10" y1="30" x2="50" y2="30" stroke="#00e5ff" stroke-width="1"/></svg>
+          <div>Select an object from the list to explore its relationships</div>
+        </div>
       </div>
     </div>
-    <div id="dashboard" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0;"></div>
-  </div>
+  </div><!-- .detail-panel -->
 
-  <div id="tab-services" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
-    <div class="search-bar">
-      <input id="svcQ" type="text" placeholder="Search services…" onkeydown="if(event.key==='Enter')loadServices()">
-      <button onclick="loadServices()">Go</button>
-    </div>
-    <div class="list-area" id="svcList"><span class="empty" style="padding:8px;">Loading…</span></div>
-  </div>
-
-  <div id="tab-operations" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
-    <div class="search-bar">
-      <input id="opQ" type="text" placeholder="Search service ops…" onkeydown="if(event.key==='Enter')loadOperations()">
-      <button onclick="loadOperations()">Go</button>
-    </div>
-    <div class="list-area" id="opList"><span class="empty" style="padding:8px;">Type to search</span></div>
-  </div>
-
-  <div id="tab-routings" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
-    <div class="search-bar">
-      <input id="rtngQ" type="text" placeholder="Search routings…" onkeydown="if(event.key==='Enter')loadRoutings()">
-      <button onclick="loadRoutings()">Go</button>
-    </div>
-    <div class="list-area" id="rtngList"><span class="empty" style="padding:8px;">Type to search</span></div>
-  </div>
-
-  <div id="tab-nodes" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
-    <div class="search-bar">
-      <input id="nodeQ" type="text" placeholder="Search nodes…" onkeydown="if(event.key==='Enter')loadNodes()">
-      <button onclick="loadNodes()">Go</button>
-    </div>
-    <div class="list-area" id="nodeList"><span class="empty" style="padding:8px;">Loading…</span></div>
-  </div>
-
-  <div id="tab-queues" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
-    <div class="search-bar">
-      <input id="queueQ" type="text" placeholder="Search queues…" onkeydown="if(event.key==='Enter')loadQueues()">
-      <button onclick="loadQueues()">Go</button>
-    </div>
-    <div class="list-area" id="queueList"><span class="empty" style="padding:8px;">Loading…</span></div>
-  </div>
-
-  <div id="tab-txns" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
-    <div class="search-bar">
-      <input id="txQ" type="text" placeholder="Operation / node…" onkeydown="if(event.key==='Enter')loadTxns()" style="width:100%;">
-      <select id="txStatus">
-        <option value="">All Status</option>
-        <option value="1">New</option>
-        <option value="2">Started</option>
-        <option value="3">Done</option>
-        <option value="4">Cancelled</option>
-        <option value="5">Error</option>
-        <option value="6">Retry</option>
-        <option value="7">Timeout</option>
-      </select>
-      <button onclick="loadTxns()">Go</button>
-    </div>
-    <div class="list-area" id="txList"><span class="empty" style="padding:8px;">Loading…</span></div>
-  </div>
-</div>
+</div><!-- .explorer -->
 
 </div><!-- .main -->
 
@@ -5315,19 +5358,72 @@ async function api(path, opts) {
   return r.json().catch(() => ({}));
 }
 
+// ─── nav stack (breadcrumbs) ───────────────────────────────────────────────
+let navStack = [];
+const NAV_ICONS = {service:'&#127760;',operation:'&#9881;',routing:'&#8652;',node:'&#128279;',queue:'&#11036;',txn:'&#8644;'};
+
+function pushNav(type, name, push=true) {
+  if (!push) return;
+  // If clicking the same thing that's already at top of stack, skip
+  if (navStack.length && navStack[navStack.length-1].type===type && navStack[navStack.length-1].name===name) {
+    renderBreadcrumb(); return;
+  }
+  navStack.push({type, name});
+  renderBreadcrumb();
+}
+
+function renderBreadcrumb() {
+  const bc = $('breadcrumb');
+  if (!navStack.length) { bc.innerHTML = '<span class="bc-cur" style="color:#334;">Select an object</span>'; return; }
+  bc.innerHTML = '<span class="bc-link" onclick="navStack=[];clearDetail();">IB</span>'
+    + navStack.map((n, i) => {
+        const icon = NAV_ICONS[n.type] || '';
+        const label = `${icon} ${esc(n.name)}`;
+        return '<span class="bc-sep">›</span>'
+          + (i < navStack.length-1
+              ? `<span class="bc-link" onclick="navTo(${i})">${label}</span>`
+              : `<span class="bc-cur">${label}</span>`);
+      }).join('');
+}
+
+function navTo(idx) {
+  const n = navStack[idx];
+  navStack = navStack.slice(0, idx + 1);
+  const fn = {service:showService,operation:showOperation,routing:showRouting,node:showNode,queue:showQueue,txn:showTxn}[n.type];
+  if (fn) fn(n.name, false);
+}
+
+function clearDetail() {
+  navStack = [];
+  renderBreadcrumb();
+  $('detailContent').innerHTML = '<div class="detail-placeholder"><div>Select an object from the list</div></div>';
+  document.querySelectorAll('.list-item').forEach(el=>el.classList.remove('active'));
+}
+
+// Mark active item in list
+function markActive(listId, name) {
+  document.querySelectorAll(`#${listId} .list-item`).forEach(el => {
+    el.classList.toggle('active', el.dataset.name === name);
+  });
+}
+
 // ─── tabs ──────────────────────────────────────────────────────────────────
 const TABS = ['overview','services','operations','routings','nodes','queues','txns'];
 function switchTab(name) {
   currentTab = name;
   TABS.forEach(t => {
-    $(`tab-${t}`).style.display = t === name ? 'flex' : 'none';
+    const el = $(`tab-${t}`);
+    if (el) el.style.display = t === name ? 'flex' : 'none';
   });
   document.querySelectorAll('.tab').forEach((el, i) => {
     el.classList.toggle('on', TABS[i] === name);
   });
   if (name === 'overview') loadDashboard();
+  if (name === 'services' && !$('svcList').querySelector('.list-item')) loadServices();
   if (name === 'operations' && !$('opList').querySelector('.list-item')) loadOperations();
   if (name === 'routings' && !$('rtngList').querySelector('.list-item')) loadRoutings();
+  if (name === 'nodes' && !$('nodeList').querySelector('.list-item')) loadNodes();
+  if (name === 'queues' && !$('queueList').querySelector('.list-item')) loadQueues();
   if (name === 'txns') loadTxns();
 }
 
@@ -5339,7 +5435,7 @@ async function loadServices() {
   const items = d.items || [];
   renderList('svcList', items, item => {
     const b = bStatus(item.status_label);
-    return `<div class="list-item" onclick="showService(${JSON.stringify(item.ptibapplname)})">
+    return `<div class="list-item" data-name="${esc(item.ptibapplname)}" onclick="showService(${JSON.stringify(item.ptibapplname)})">
       <span class="badge ${b.cls}">${b.text}</span>
       <span class="item-name">${esc(item.ptibapplname)}</span>
       <div class="item-meta">${esc(item.descr || '')}</div>
@@ -5347,8 +5443,8 @@ async function loadServices() {
   });
   if (items.length) {
     const note = document.createElement('div');
-    note.style.cssText = 'font-size:11px;color:#667;padding:4px 8px;border-top:1px solid #1a2a1a;';
-    note.textContent = `${items.length} service${items.length===1?'':'s'}${q ? ' matching filter' : ' — all services (no status filter)'} · PSIBAPPLDEFN`;
+    note.style.cssText = 'font-size:10px;color:#334;padding:4px 8px;border-top:1px solid #0b1b24;';
+    note.textContent = `${items.length} service${items.length===1?'':'s'}${q ? ' matching' : ' total'} · PSIBAPPLDEFN`;
     $('svcList').appendChild(note);
   }
   warnBox(d.warnings);
@@ -5359,12 +5455,11 @@ async function loadOperations() {
   $('opList').innerHTML = '<span class="empty" style="padding:8px;">Loading…</span>';
   const d = await api(`/api/ib/operations?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
   renderList('opList', d.items || [], item => {
-    const routeBits = item.routing_count != null ? `${esc(item.routing_count)} route${Number(item.routing_count) === 1 ? '' : 's'}` : '';
-    const versionBits = item.version_count != null ? `${esc(item.version_count)} version${Number(item.version_count) === 1 ? '' : 's'}` : esc(item.versionname || '');
-    return `<div class="list-item" onclick="showOperation(${JSON.stringify(item.ib_operationname)})">
-      <span class="badge bd-info">${esc(item.service_kind || 'Operation')}</span>
+    const routeBits = item.routing_count != null ? `${item.routing_count}r` : '';
+    return `<div class="list-item" data-name="${esc(item.ib_operationname)}" onclick="showOperation(${JSON.stringify(item.ib_operationname)})">
+      <span class="badge bd-info">${esc(item.service_kind || 'Op')}</span>
       <span class="item-name">${esc(item.ib_operationname)}</span>
-      <div class="item-meta">${esc(item.ib_servicename || item.ptibapplname || item.ib_restmethod || '')}${routeBits ? ' · ' + routeBits : ''}${versionBits ? ' · ' + versionBits : ''}</div>
+      <div class="item-meta">${esc(item.ib_servicename || item.ptibapplname || '')}${routeBits ? ' · ' + routeBits : ''}</div>
     </div>`;
   });
   warnBox(d.warnings);
@@ -5375,9 +5470,9 @@ async function loadRoutings() {
   $('rtngList').innerHTML = '<span class="empty" style="padding:8px;">Loading…</span>';
   const d = await api(`/api/ib/routings?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
   renderList('rtngList', d.items || [], item => {
-    return `<div class="list-item" onclick="showRouting(${JSON.stringify(item.routingdefnname)})">
+    return `<div class="list-item" data-name="${esc(item.routingdefnname)}" onclick="showRouting(${JSON.stringify(item.routingdefnname)})">
       <span class="item-name">${esc(item.routingdefnname)}</span>
-      <div class="item-meta">${esc(item.sendernodename||'*')} → ${esc(item.receivernodename||'*')} &nbsp;·&nbsp; ${esc(item.eff_status_label||'')}</div>
+      <div class="item-meta">${esc(item.sendernodename||'*')} → ${esc(item.receivernodename||'*')}${item.eff_status_label?' · '+esc(item.eff_status_label):''}</div>
     </div>`;
   });
   warnBox(d.warnings);
@@ -5389,10 +5484,10 @@ async function loadNodes() {
   const d = await api(`/api/ib/nodes?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
   renderList('nodeList', d.items || [], item => {
     const b = bStatus(item.active_label);
-    const local = item.is_local ? '<span class="badge bd-info" style="float:none;margin-left:4px;">LOCAL</span>' : '';
-    return `<div class="list-item" onclick="showNode(${JSON.stringify(item.msgnodename)})">
+    const localTag = item.is_local ? ' <span style="font-size:9px;color:#00e5ff;">[LOCAL]</span>' : '';
+    return `<div class="list-item" data-name="${esc(item.msgnodename)}" onclick="showNode(${JSON.stringify(item.msgnodename)})">
       <span class="badge ${b.cls}">${b.text}</span>
-      <span class="item-name">${esc(item.msgnodename)}</span>${local}
+      <span class="item-name">${esc(item.msgnodename)}</span>${localTag}
       <div class="item-meta">${esc(item.node_type_label||'')}${item.toolsrel?' · '+esc(item.toolsrel):''}</div>
     </div>`;
   });
@@ -5405,7 +5500,7 @@ async function loadQueues() {
   const d = await api(`/api/ib/queues?env=${env()}&q=${encodeURIComponent(q)}&limit=200`);
   renderList('queueList', d.items || [], item => {
     const b = bQueue(item.queuestatus_label);
-    return `<div class="list-item" onclick="showQueue(${JSON.stringify(item.queuename)})">
+    return `<div class="list-item" data-name="${esc(item.queuename)}" onclick="showQueue(${JSON.stringify(item.queuename)})">
       <span class="badge ${b.cls}">${b.text}</span>
       <span class="item-name">${esc(item.queuename)}</span>
       <div class="item-meta">${esc(item.descr||'')}</div>
@@ -5423,10 +5518,10 @@ async function loadTxns() {
   const d = await api(url);
   renderList('txList', d.items || [], item => {
     const b = bTx(item.pubstatus_label);
-    return `<div class="list-item" onclick="showTxn(${JSON.stringify(item.ibtransactionid)})">
+    return `<div class="list-item" data-name="${esc(item.ibtransactionid)}" onclick="showTxn(${JSON.stringify(item.ibtransactionid)})">
       <span class="badge ${b.cls}">${b.text}</span>
-      <span class="item-name mono" style="font-size:10px;">${esc((item.ibtransactionid||'').substring(0,28))}</span>
-      <div class="item-meta">${esc(item.ib_operationname||'')} &nbsp;·&nbsp; ${esc(item.queuename||'')}</div>
+      <span class="item-name mono" style="font-size:10px;">${esc((item.ibtransactionid||'').substring(0,26))}</span>
+      <div class="item-meta">${esc(item.ib_operationname||'')}${item.queuename?' · '+esc(item.queuename):''}</div>
     </div>`;
   });
   warnBox(d.warnings);
@@ -5438,42 +5533,68 @@ function renderList(targetId, items, rowFn) {
   box.innerHTML = items.map(rowFn).join('');
 }
 
+// ─── view transactions for a related object ────────────────────────────────
+function viewTxnsFor(q) {
+  $('txQ').value = q;
+  $('txStatus').value = '';
+  switchTab('txns');
+  loadTxns();
+}
+
+// ─── relationship strip builder ────────────────────────────────────────────
+function relStrip(label, tags) {
+  if (!tags.length) return '';
+  const tagsHtml = tags.map(t => `<span class="rel-tag${t.cls?' '+t.cls:''}" onclick="${t.action}">${t.icon||''}${esc(t.label)}</span>`).join('');
+  return `<div class="rel-strip"><span class="rel-strip-label">${esc(label)}</span>${tagsHtml}</div>`;
+}
+
 // ─── detail views ──────────────────────────────────────────────────────────
-async function showService(name) {
-  $('contentArea').innerHTML = '<span class="empty">Loading…</span>';
+function setDetail(html) {
+  $('detailContent').innerHTML = html;
+  $('detailScroll').scrollTop = 0;
+}
+
+async function showService(name, push=true) {
+  pushNav('service', name, push);
+  switchTab('services');
+  markActive('svcList', name);
+  setDetail('<span class="empty">Loading…</span>');
   const d = await api(`/api/ib/services/${encodeURIComponent(name)}?env=${env()}`);
   const it = d.item;
-  if (!it) { $('contentArea').innerHTML = `<div class="err-msg">Not found: ${esc(name)}</div>`; return; }
+  if (!it) { setDetail(`<div class="err-msg">Not found: ${esc(name)}</div>`); return; }
 
-  let h = `<h2>&#127760; Application Service</h2>
-  <div class="card">
-    <div style="font-size:15px;font-family:monospace;color:#00e5ff;margin-bottom:6px;">${esc(it.ptibapplname)}</div>
-    ${it.descr ? `<div style="color:#9ab;margin-bottom:8px;font-size:12px;">${esc(it.descr)}</div>` : ''}
+  const ops = it.service_operations || [];
+  const opTags = ops.slice(0,8).map(op => ({label:op.ib_operationname, action:`showOperation(${JSON.stringify(op.ib_operationname)})`}));
+  if (ops.length > 8) opTags.push({label:`+${ops.length-8} more`, action:`switchTab('operations')`});
+
+  let h = relStrip('Operations', opTags);
+  h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">&#127760; ${esc(it.ptibapplname)}</div>`;
+  if (it.descr) h += `<div style="color:#9ab;margin-bottom:8px;font-size:11px;">${esc(it.descr)}</div>`;
+  h += `<div class="card">
     <div class="kv-grid">
       ${kv('Status', chipStatus(it.status_label))}
       ${kv('Type', esc(it.service_kind || it.appltype_label))}
       ${kv('Service Name', esc(it.ib_servicename))}
       ${kv('Owner', esc(it.objectownerid))}
-      ${kv('App Server Group', esc(it.ptib_appsrvgrp))}
-      ${kv('Last Updated', esc(it.lastupddttm))} ${kv('Updated By', esc(it.lastupdoprid))}
+      ${kv('Last Updated', esc(it.lastupddttm))}
     </div>
   </div>`;
 
-  if ((it.service_operations||[]).length) {
-    h += `<h2>Service Operations (${it.service_operations.length})</h2><div class="card"><table><thead><tr>
-      <th>Operation</th><th>Type</th><th>Version</th><th>Method</th><th>Description</th>
+  if (ops.length) {
+    h += `<h2>Service Operations (${ops.length})</h2><div class="card"><table><thead><tr>
+      <th>Operation</th><th>Type</th><th>Method</th><th>Description</th>
     </tr></thead><tbody>`;
-    it.service_operations.forEach(op => {
+    ops.forEach(op => {
       h += `<tr>
         <td class="mono"><a class="obj-link" onclick="showOperation(${JSON.stringify(op.ib_operationname)})">${esc(op.ib_operationname || '')}</a></td>
-        <td>${esc(op.service_kind || '')}</td><td class="mono">${esc(op.defaultver || '')}</td>
+        <td>${esc(op.service_kind || '')}</td>
         <td>${esc(op.ib_restmethod || '')}</td><td>${esc(op.descr || '')}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }
 
   if ((it.operations||[]).length) {
-    h += `<h2>Application Operation Rows (${it.operations.length})</h2><div class="card"><table><thead><tr>
+    h += `<h2>Application Operations (${it.operations.length})</h2><div class="card"><table><thead><tr>
       <th>Operation</th><th>Status</th><th>Action</th><th>URI Template</th>
     </tr></thead><tbody>`;
     it.operations.forEach(op => {
@@ -5485,106 +5606,94 @@ async function showService(name) {
 
   if ((it.routings||[]).length) {
     h += `<h2>Routings (${it.routings.length})</h2><div class="card"><table><thead><tr>
-      <th>Routing</th><th>From</th><th>To</th><th>Type</th><th>Status</th>
+      <th>Routing</th><th>From</th><th>To</th><th>Status</th>
     </tr></thead><tbody>`;
     it.routings.forEach(r => {
       h += `<tr>
         <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(r.routingdefnname)})">${esc(r.routingdefnname)}</a></td>
-        <td class="mono">${esc(r.sendernodename||'')}</td><td class="mono">${esc(r.receivernodename||'')}</td>
-        <td>${esc(r.rtngtype_label||'')}</td><td>${chipStatus(r.eff_status_label)}</td></tr>`;
+        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(r.sendernodename)})">${esc(r.sendernodename||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(r.receivernodename)})">${esc(r.receivernodename||'')}</a></td>
+        <td>${chipStatus(r.eff_status_label)}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }
 
   warnBox(d.warnings);
-  $('contentArea').innerHTML = h;
+  setDetail(h);
 }
 
-async function showOperation(name) {
-  $('contentArea').innerHTML = '<span class="empty">Loading…</span>';
+async function showOperation(name, push=true) {
+  pushNav('operation', name, push);
+  switchTab('operations');
+  markActive('opList', name);
+  setDetail('<span class="empty">Loading…</span>');
   const d = await api(`/api/ib/operations/${encodeURIComponent(name)}?env=${env()}`);
   const it = d.item;
-  if (!it) { $('contentArea').innerHTML = `<div class="err-msg">Not found: ${esc(name)}</div>`; return; }
+  if (!it) { setDetail(`<div class="err-msg">Not found: ${esc(name)}</div>`); return; }
 
-  let h = `<h2>&#9881; Service Operation</h2>
-  <div class="card">
-    <div style="font-size:15px;font-family:monospace;color:#00e5ff;margin-bottom:6px;">${esc(it.ib_operationname)}</div>
-    ${it.descr ? `<div style="color:#9ab;margin-bottom:8px;font-size:12px;">${esc(it.descr)}</div>` : ''}
-    <div class="kv-grid">
+  // Build relationship strip
+  const relTags = [];
+  const svcName = it.ib_servicename || it.ptibapplname;
+  if (svcName) relTags.push({label:`&#127760; ${svcName}`, action:`showService(${JSON.stringify(svcName)})`});
+  (it.routings||[]).slice(0,3).forEach(r => {
+    relTags.push({label:`&#8652; ${r.routingdefnname}`, action:`showRouting(${JSON.stringify(r.routingdefnname)})`});
+  });
+  (it.runtime_queues||[]).slice(0,2).forEach(q => {
+    relTags.push({label:`&#11036; ${q.queuename}`, action:`showQueue(${JSON.stringify(q.queuename)})`});
+  });
+  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor(${JSON.stringify(name)})`});
+
+  let h = relStrip('Related', relTags);
+  h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">&#9881; ${esc(it.ib_operationname)}</div>`;
+  if (it.descr) h += `<div style="color:#9ab;margin-bottom:8px;font-size:11px;">${esc(it.descr)}</div>`;
+  h += `<div class="card"><div class="kv-grid">
       ${kv('Type', esc(it.service_kind))}
-      ${kv('Service', esc(it.ib_servicename || it.ptibapplname))}
+      ${svcName ? kv('Service', `<a class="obj-link" onclick="showService(${JSON.stringify(svcName)})">${esc(svcName)}</a>`) : ''}
       ${kv('Alias', esc(it.ib_aliasname))}
       ${kv('Default Version', esc(it.defaultver || it.versionname))}
       ${kv('REST Method', esc(it.ib_restmethod))}
-      ${kv('REST Base URL', esc(it.ib_restbase_url))}
-      ${kv('Message', esc(it.msgname))}
-      ${kv('Routing Count', esc(it.routing_count))}
+      ${it.ib_restbase_url ? kv('REST Base URL', esc(it.ib_restbase_url)) : ''}
+      ${kv('Routings', esc(it.routing_count))}
       ${kv('Owner', esc(it.objectownerid))}
       ${kv('Last Updated', esc(it.lastupddttm))}
-    </div>
-  </div>`;
+    </div></div>`;
 
-  if ((it.services||[]).length) {
-    h += `<h2>Service Relationship (${it.services.length})</h2><div class="card"><table><thead><tr>
-      <th>Service</th><th>Application Service</th><th>Operation</th>
+  if ((it.messages||[]).length) {
+    h += `<h2>Messages (${it.messages.length})</h2><div class="card"><table><thead><tr>
+      <th>Version</th><th>Request Msg</th><th>Response Msg</th><th>Queue</th>
     </tr></thead><tbody>`;
-    it.services.forEach(s => {
-      const app = s.ptibapplname || '';
-      h += `<tr>
-        <td class="mono">${esc(s.ib_servicename || '')}</td>
-        <td class="mono">${app ? `<a class="obj-link" onclick="showService(${JSON.stringify(app)})">${esc(app)}</a>` : ''}</td>
-        <td class="mono">${esc(s.ib_operationname || '')}</td>
-      </tr>`;
+    it.messages.forEach(m => {
+      const qname = m.queuename || '';
+      h += `<tr><td class="mono">${esc(m.versionname || '')}</td>
+        <td class="mono">${esc(m.ib_reqmsgname || m.msgname || '')}${m.inmsgversion ? ' v'+esc(m.inmsgversion) : ''}</td>
+        <td class="mono">${esc(m.ib_respmsgname || '')}${m.outmsgversion ? ' v'+esc(m.outmsgversion) : ''}</td>
+        <td class="mono">${qname ? `<a class="obj-link" onclick="showQueue(${JSON.stringify(qname)})">${esc(qname)}</a>` : ''}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }
 
-  if ((it.versions||[]).length) {
-    h += `<h2>Versions (${it.versions.length})</h2><div class="card"><table><thead><tr>
-      <th>Version</th><th>Status</th><th>Multi Queue</th><th>Nonrepudiation</th><th>Description</th>
+  if ((it.routings||[]).length) {
+    h += `<h2>Routings (${it.routings.length})</h2><div class="card"><table><thead><tr>
+      <th>Routing</th><th>Sender Node</th><th>Receiver Node</th><th>Status</th>
     </tr></thead><tbody>`;
-    it.versions.forEach(v => {
-      h += `<tr><td class="mono">${esc(v.versionname || v.version || '')}</td>
-        <td>${chipStatus(v.active_label)}</td><td>${esc(v.ib_multiqueue || '')}</td>
-        <td>${esc(v.nr_flag || '')}</td><td>${esc(v.descr || '')}</td></tr>`;
+    it.routings.forEach(r => {
+      h += `<tr>
+        <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(r.routingdefnname)})">${esc(r.routingdefnname)}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(r.sendernodename)})">${esc(r.sendernodename || '')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(r.receivernodename)})">${esc(r.receivernodename || '')}</a></td>
+        <td>${chipStatus(r.eff_status_label)}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }
 
   if ((it.handlers||[]).length) {
     h += `<h2>Handlers (${it.handlers.length})</h2><div class="card"><table><thead><tr>
-      <th>Handler</th><th>Type</th><th>Version</th><th>Status</th><th>Owner</th><th>Source</th>
+      <th>Handler</th><th>Type</th><th>Version</th><th>Status</th><th>Owner</th>
     </tr></thead><tbody>`;
     it.handlers.forEach(x => {
       h += `<tr><td class="mono">${esc(x.handlername || '')}</td><td>${esc(x.handlertype || '')}</td>
         <td class="mono">${esc(x.version || '')}</td><td>${chipStatus(x.active_label)}</td>
-        <td>${esc(x.handlerowner || x.objectownerid || '')}</td><td>${esc(x.source || '')}</td></tr>`;
-    });
-    h += '</tbody></table></div>';
-  }
-
-  if ((it.security||[]).length) {
-    h += `<h2>Security (${it.security.length})</h2><div class="card"><table><thead><tr>
-      <th>Service</th><th>Group</th><th>Subgroup</th><th>Security</th><th>No Perms</th><th>Select</th>
-    </tr></thead><tbody>`;
-    it.security.forEach(s => {
-      h += `<tr><td class="mono">${esc(s.ib_servicename || '')}</td><td class="mono">${esc(s.ib_intgroupname || '')}</td>
-        <td class="mono">${esc(s.ib_intgroupsubname || '')}</td><td>${esc(s.ib_servicesecurity || '')}</td>
-        <td>${esc(s.ib_nopermissions || '')}</td><td>${esc(s.select_flag || '')}</td></tr>`;
-    });
-    h += '</tbody></table></div>';
-  }
-
-  if ((it.messages||[]).length) {
-    h += `<h2>Messages (${it.messages.length})</h2><div class="card"><table><thead><tr>
-      <th>Version</th><th>Request</th><th>Response</th><th>Fault</th><th>Queue / Txn</th>
-    </tr></thead><tbody>`;
-    it.messages.forEach(m => {
-      h += `<tr><td class="mono">${esc(m.versionname || '')}</td>
-        <td class="mono">${esc(m.ib_reqmsgname || m.msgname || '')}${m.inmsgversion ? ' v' + esc(m.inmsgversion) : ''}</td>
-        <td class="mono">${esc(m.ib_respmsgname || '')}${m.outmsgversion ? ' v' + esc(m.outmsgversion) : ''}</td>
-        <td class="mono">${esc(m.ib_fltmsgname || '')}${m.fltmsgversion ? ' v' + esc(m.fltmsgversion) : ''}</td>
-        <td class="mono">${esc(m.queuename || m.ibtransactionid || '')}</td></tr>`;
+        <td>${esc(x.handlerowner || x.objectownerid || '')}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }
@@ -5600,36 +5709,53 @@ async function showOperation(name) {
     h += '</tbody></table></div>';
   }
 
-  if ((it.routings||[]).length) {
-    h += `<h2>Routings (${it.routings.length})</h2><div class="card"><table><thead><tr>
-      <th>Routing</th><th>Version</th><th>Method</th><th>Sender Node</th><th>Receiver Node</th><th>Status</th>
+  if ((it.versions||[]).length) {
+    h += `<h2>Versions (${it.versions.length})</h2><div class="card"><table><thead><tr>
+      <th>Version</th><th>Status</th><th>Multi Queue</th><th>Description</th>
     </tr></thead><tbody>`;
-    it.routings.forEach(r => {
-      h += `<tr>
-        <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(r.routingdefnname)})">${esc(r.routingdefnname)}</a></td>
-        <td class="mono">${esc(r.versionname || '')}</td><td>${esc(r.ib_restmethod || '')}</td>
-        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(r.sendernodename)})">${esc(r.sendernodename || '')}</a></td>
-        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(r.receivernodename)})">${esc(r.receivernodename || '')}</a></td>
-        <td>${chipStatus(r.eff_status_label)}</td></tr>`;
+    it.versions.forEach(v => {
+      h += `<tr><td class="mono">${esc(v.versionname || v.version || '')}</td>
+        <td>${chipStatus(v.active_label)}</td><td>${esc(v.ib_multiqueue || '')}</td>
+        <td>${esc(v.descr || '')}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+  }
+
+  if ((it.security||[]).length) {
+    h += `<h2>Security (${it.security.length})</h2><div class="card"><table><thead><tr>
+      <th>Service</th><th>Group</th><th>Security</th>
+    </tr></thead><tbody>`;
+    it.security.forEach(s => {
+      h += `<tr><td class="mono">${esc(s.ib_servicename || '')}</td>
+        <td class="mono">${esc(s.ib_intgroupname || '')}</td>
+        <td>${esc(s.ib_servicesecurity || '')}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }
 
   warnBox(d.warnings);
-  $('contentArea').innerHTML = h;
+  setDetail(h);
 }
 
-async function showRouting(name) {
-  $('contentArea').innerHTML = '<span class="empty">Loading…</span>';
+async function showRouting(name, push=true) {
+  pushNav('routing', name, push);
+  switchTab('routings');
+  markActive('rtngList', name);
+  setDetail('<span class="empty">Loading…</span>');
   const d = await api(`/api/ib/routings/${encodeURIComponent(name)}?env=${env()}`);
   const it = d.item;
-  if (!it) { $('contentArea').innerHTML = `<div class="err-msg">Not found: ${esc(name)}</div>`; return; }
+  if (!it) { setDetail(`<div class="err-msg">Not found: ${esc(name)}</div>`); return; }
 
-  let h = `<h2>&#8652; Routing Definition</h2>
-  <div class="card">
-    <div style="font-size:15px;font-family:monospace;color:#00e5ff;margin-bottom:6px;">${esc(it.routingdefnname)}</div>
-    ${it.descr ? `<div style="color:#9ab;margin-bottom:8px;font-size:12px;">${esc(it.descr)}</div>` : ''}
-    <div class="kv-grid">
+  const relTags = [];
+  if (it.ib_operationname) relTags.push({label:`&#9881; ${it.ib_operationname}`, action:`showOperation(${JSON.stringify(it.ib_operationname)})`});
+  if (it.sendernodename) relTags.push({label:`&#8594; ${it.sendernodename}`, action:`showNode(${JSON.stringify(it.sendernodename)})`});
+  if (it.receivernodename) relTags.push({label:`&#8592; ${it.receivernodename}`, action:`showNode(${JSON.stringify(it.receivernodename)})`});
+  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor(${JSON.stringify(name)})`});
+
+  let h = relStrip('Related', relTags);
+  h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">&#8652; ${esc(it.routingdefnname)}</div>`;
+  if (it.descr) h += `<div style="color:#9ab;margin-bottom:8px;font-size:11px;">${esc(it.descr)}</div>`;
+  h += `<div class="card"><div class="kv-grid">
       ${kv('Status', chipStatus(it.eff_status_label))}
       ${kv('Type', esc(it.rtngtype_label))}
       ${kv('Service Operation', `<a class="obj-link" onclick="showOperation(${JSON.stringify(it.ib_operationname)})">${esc(it.ib_operationname)}</a>`)}
@@ -5638,58 +5764,66 @@ async function showRouting(name) {
       ${kv('REST Method', esc(it.ib_restmethod))}
       ${kv('Delivery Mode', esc(it.ib_deliverymode))}
       ${kv('Effective Date', esc(it.effdt))}
-      ${kv('Owner', esc(it.objectownerid))} ${kv('Last Updated', esc(it.lastupddttm))}
-    </div>
-  </div>`;
+      ${kv('Owner', esc(it.objectownerid))}
+      ${kv('Last Updated', esc(it.lastupddttm))}
+    </div></div>`;
 
   if ((it.sub_definitions||[]).length) {
     h += `<h2>Sub-Definitions (${it.sub_definitions.length})</h2><div class="card"><table><thead><tr>
-      <th>Seq</th><th>Direction</th><th>From</th><th>To</th><th>Type</th>
+      <th>Seq</th><th>Direction</th><th>From Node</th><th>To Node</th><th>Type</th>
     </tr></thead><tbody>`;
     it.sub_definitions.forEach(s => {
       h += `<tr><td>${esc(s.seqnum)}</td><td>${esc(s.ib_direction)}</td>
-        <td class="mono">${esc(s.sendernodename||'')}</td><td class="mono">${esc(s.receivernodename||'')}</td>
+        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(s.sendernodename)})">${esc(s.sendernodename||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(s.receivernodename)})">${esc(s.receivernodename||'')}</a></td>
         <td>${esc(s.rtngtype)}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }
 
   warnBox(d.warnings);
-  $('contentArea').innerHTML = h;
+  setDetail(h);
 }
 
-async function showNode(name) {
-  $('contentArea').innerHTML = '<span class="empty">Loading…</span>';
+async function showNode(name, push=true) {
+  if (!name || name === 'null' || name === 'undefined') return;
+  pushNav('node', name, push);
+  switchTab('nodes');
+  markActive('nodeList', name);
+  setDetail('<span class="empty">Loading…</span>');
   const d = await api(`/api/ib/nodes/${encodeURIComponent(name)}?env=${env()}`);
   const it = d.item;
-  if (!it) { $('contentArea').innerHTML = `<div class="err-msg">Not found: ${esc(name)}</div>`; return; }
+  if (!it) { setDetail(`<div class="err-msg">Not found: ${esc(name)}</div>`); return; }
 
-  let h = `<h2>&#128279; Node Definition</h2>
-  <div class="card">
-    <div style="font-size:15px;font-family:monospace;color:#00e5ff;margin-bottom:6px;">
-      ${esc(it.msgnodename)}
-      ${it.is_local ? '<span class="chip ch-info" style="font-size:10px;margin-left:8px;">LOCAL</span>' : ''}
-      ${it.is_default ? '<span class="chip ch-info" style="font-size:10px;margin-left:4px;">DEFAULT</span>' : ''}
-    </div>
-    ${it.descr ? `<div style="color:#9ab;margin-bottom:8px;font-size:12px;">${esc(it.descr)}</div>` : ''}
-    <div class="kv-grid">
+  const allRoutings = [...(it.routings_as_sender||[]), ...(it.routings_as_receiver||[])];
+  const uniqueOps = [...new Set(allRoutings.map(r=>r.ib_operationname).filter(Boolean))];
+  const relTags = uniqueOps.slice(0,5).map(op => ({label:`&#9881; ${op}`, action:`showOperation(${JSON.stringify(op)})`}));
+  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor(${JSON.stringify(name)})`});
+
+  let h = relStrip('Related Ops', relTags);
+  h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">
+    &#128279; ${esc(it.msgnodename)}
+    ${it.is_local ? '<span class="chip ch-info" style="font-size:9px;margin-left:6px;">LOCAL</span>' : ''}
+    ${it.is_default ? '<span class="chip ch-info" style="font-size:9px;margin-left:4px;">DEFAULT</span>' : ''}
+  </div>`;
+  if (it.descr) h += `<div style="color:#9ab;margin-bottom:8px;font-size:11px;">${esc(it.descr)}</div>`;
+  h += `<div class="card"><div class="kv-grid">
       ${kv('Status', chipActive(it.active_label))}
       ${kv('Node Type', esc(it.node_type_label))}
       ${kv('Tools Release', esc(it.toolsrel))}
       ${kv('App Release', esc(it.apmsgapprel))}
-      ${kv('Target Location', esc(it.ib_tgtlocation))}
-      ${kv('Gateway ID', esc(it.conngatewayid))}
-      ${kv('Network Node', esc(it.networknodename))}
-      ${kv('Hub Node', esc(it.hubnodename))}
+      ${it.ib_tgtlocation ? kv('Target Location', esc(it.ib_tgtlocation)) : ''}
+      ${it.conngatewayid ? kv('Gateway ID', esc(it.conngatewayid)) : ''}
+      ${it.networknodename ? kv('Network Node', esc(it.networknodename)) : ''}
+      ${it.hubnodename ? kv('Hub Node', esc(it.hubnodename)) : ''}
       ${kv('Last Updated', esc(it.lastupddttm))}
-    </div>
-  </div>`;
+    </div></div>`;
 
   if ((it.routings_as_sender||[]).length) h += rtngTable('Sends Via Routings', it.routings_as_sender);
   if ((it.routings_as_receiver||[]).length) h += rtngTable('Receives Via Routings', it.routings_as_receiver);
 
   warnBox(d.warnings);
-  $('contentArea').innerHTML = h;
+  setDetail(h);
 }
 
 function rtngTable(title, rows) {
@@ -5706,66 +5840,77 @@ function rtngTable(title, rows) {
   return h + '</tbody></table></div>';
 }
 
-async function showQueue(name) {
-  $('contentArea').innerHTML = '<span class="empty">Loading…</span>';
+async function showQueue(name, push=true) {
+  pushNav('queue', name, push);
+  switchTab('queues');
+  markActive('queueList', name);
+  setDetail('<span class="empty">Loading…</span>');
   const d = await api(`/api/ib/queues/${encodeURIComponent(name)}?env=${env()}`);
   const it = d.item;
-  if (!it) { $('contentArea').innerHTML = `<div class="err-msg">Not found: ${esc(name)}</div>`; return; }
+  if (!it) { setDetail(`<div class="err-msg">Not found: ${esc(name)}</div>`); return; }
 
-  let h = `<h2>&#11036; Queue Definition</h2>
-  <div class="card">
-    <div style="font-size:15px;font-family:monospace;color:#00e5ff;margin-bottom:6px;">${esc(it.queuename)}</div>
-    ${it.descr ? `<div style="color:#9ab;margin-bottom:8px;font-size:12px;">${esc(it.descr)}</div>` : ''}
-    <div class="kv-grid">
+  const relTags = [{label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor(${JSON.stringify(name)})`}];
+
+  let h = relStrip('Related', relTags);
+  h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">&#11036; ${esc(it.queuename)}</div>`;
+  if (it.descr) h += `<div style="color:#9ab;margin-bottom:8px;font-size:11px;">${esc(it.descr)}</div>`;
+  h += `<div class="card"><div class="kv-grid">
       ${kv('Status', chipQueue(it.queuestatus_label))}
       ${kv('Throughput', esc(it.thruput_label))}
       ${kv('Priority', esc(it.ptib_queue_pri))}
       ${kv('Archive', esc(it.archive))}
-      ${kv('Owner', esc(it.objectownerid))} ${kv('Last Updated', esc(it.lastupddttm))}
-    </div>
-  </div>`;
+      ${kv('Owner', esc(it.objectownerid))}
+      ${kv('Last Updated', esc(it.lastupddttm))}
+    </div></div>`;
 
   const rt = it.runtime || {};
   if ((rt.pub_by_status||[]).length || (rt.sub_by_status||[]).length) {
-    h += `<h2>Runtime Message Counts (24h)</h2><div class="card">`;
+    h += `<h2>Runtime Activity (24h)</h2><div class="card">`;
     if (rt.pub_by_status && rt.pub_by_status.length) {
-      h += `<div style="margin-bottom:8px;"><span style="font-size:10px;color:#667;text-transform:uppercase;">Publications: </span>`;
-      rt.pub_by_status.forEach(s => { h += `${chipTx(s.status_label)}&nbsp;<span class="mono">${s.cnt}</span>&ensp;`; });
+      h += `<div style="margin-bottom:6px;"><span style="font-size:10px;color:#667;text-transform:uppercase;margin-right:6px;">Pub:</span>`;
+      rt.pub_by_status.forEach(s => { h += `${chipTx(s.status_label)}&nbsp;<span class="mono" style="margin-right:8px;">${s.cnt}</span>`; });
       h += '</div>';
     }
     if (rt.sub_by_status && rt.sub_by_status.length) {
-      h += `<div><span style="font-size:10px;color:#667;text-transform:uppercase;">Subscriptions: </span>`;
-      rt.sub_by_status.forEach(s => { h += `${chipTx(s.status_label)}&nbsp;<span class="mono">${s.cnt}</span>&ensp;`; });
+      h += `<div><span style="font-size:10px;color:#667;text-transform:uppercase;margin-right:6px;">Sub:</span>`;
+      rt.sub_by_status.forEach(s => { h += `${chipTx(s.status_label)}&nbsp;<span class="mono" style="margin-right:8px;">${s.cnt}</span>`; });
       h += '</div>';
     }
     h += '</div>';
   }
 
   warnBox(d.warnings);
-  $('contentArea').innerHTML = h;
+  setDetail(h);
 }
 
-async function showTxn(txid) {
-  $('contentArea').innerHTML = '<span class="empty">Loading…</span>';
+async function showTxn(txid, push=true) {
+  pushNav('txn', txid, push);
+  switchTab('txns');
+  markActive('txList', txid);
+  setDetail('<span class="empty">Loading…</span>');
   const d = await api(`/api/ib/transactions/${encodeURIComponent(txid)}?env=${env()}`);
   const it = d.item;
-  if (!it) { $('contentArea').innerHTML = `<div class="err-msg">Not found.</div>`; return; }
+  if (!it) { setDetail(`<div class="err-msg">Not found.</div>`); return; }
 
-  let h = `<h2>&#8644; IB Transaction</h2>
-  <div class="card">
-    <div style="font-size:11px;font-family:monospace;color:#00e5ff;margin-bottom:6px;">${esc(it.ibtransactionid)}</div>
-    <div class="kv-grid">
+  const relTags = [];
+  if (it.ib_operationname) relTags.push({label:`&#9881; ${it.ib_operationname}`, action:`showOperation(${JSON.stringify(it.ib_operationname)})`});
+  if (it.queuename) relTags.push({label:`&#11036; ${it.queuename}`, action:`showQueue(${JSON.stringify(it.queuename)})`});
+  if (it.pubnode) relTags.push({label:`&#128279; ${it.pubnode}`, action:`showNode(${JSON.stringify(it.pubnode)})`});
+
+  let h = relStrip('Path', relTags);
+  h += `<div style="font-family:monospace;color:#00e5ff;font-size:11px;margin-bottom:4px;">&#8644; ${esc((txid||'').substring(0,36))}</div>`;
+  h += `<div class="card"><div class="kv-grid">
       ${kv('Status', chipTx(it.pubstatus_label))}
       ${kv('Operation', `<a class="obj-link" onclick="showOperation(${JSON.stringify(it.ib_operationname)})">${esc(it.ib_operationname)}</a>`)}
-      ${kv('Queue', `<a class="obj-link" onclick="showQueue(${JSON.stringify(it.queuename)})">${esc(it.queuename)}</a>`)}
-      ${kv('Pub Node', `<a class="obj-link" onclick="showNode(${JSON.stringify(it.pubnode)})">${esc(it.pubnode)}</a>`)}
-      ${kv('Dest Node', esc(it.destpubnode))}
+      ${kv('Queue', it.queuename ? `<a class="obj-link" onclick="showQueue(${JSON.stringify(it.queuename)})">${esc(it.queuename)}</a>` : '')}
+      ${kv('Pub Node', it.pubnode ? `<a class="obj-link" onclick="showNode(${JSON.stringify(it.pubnode)})">${esc(it.pubnode)}</a>` : '')}
+      ${it.destpubnode ? kv('Dest Node', esc(it.destpubnode)) : ''}
       ${kv('Publisher', esc(it.publisher))}
       ${kv('Created', esc(it.createdttm))}
       ${kv('Retry Count', esc(it.retrycount))}
       ${kv('Machine', esc(it.machinename))}
     </div>
-    ${it.statusstring ? `<div class="warn-msg">${esc(it.statusstring)}</div>` : ''}
+    ${it.statusstring ? `<div class="warn-msg" style="margin-top:6px;">${esc(it.statusstring)}</div>` : ''}
   </div>`;
 
   if ((it.pub_contracts||[]).length) {
@@ -5773,7 +5918,9 @@ async function showTxn(txid) {
       <th>Sub Node</th><th>Routing</th><th>Status</th><th>Retries</th><th>Updated</th>
     </tr></thead><tbody>`;
     it.pub_contracts.forEach(c => {
-      h += `<tr><td class="mono">${esc(c.subnode||'')}</td><td class="mono">${esc(c.routingdefnname||'')}</td>
+      h += `<tr>
+        <td class="mono"><a class="obj-link" onclick="showNode(${JSON.stringify(c.subnode)})">${esc(c.subnode||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(c.routingdefnname)})">${esc(c.routingdefnname||'')}</a></td>
         <td>${chipTx(c.pubconstatus_label)}</td><td>${esc(c.retrycount)}</td>
         <td class="ts">${esc(c.lastupddttm||'')}</td></tr>`;
     });
@@ -5785,15 +5932,17 @@ async function showTxn(txid) {
       <th>Action</th><th>Operation</th><th>Routing</th><th>Status</th><th>Proc Inst</th>
     </tr></thead><tbody>`;
     it.sub_contracts.forEach(c => {
-      h += `<tr><td class="mono">${esc(c.actionname||'')}</td><td class="mono"><a class="obj-link" onclick="showOperation(${JSON.stringify(c.ib_operationname)})">${esc(c.ib_operationname||'')}</a></td>
-        <td class="mono">${esc(c.routingdefnname||'')}</td><td>${chipTx(c.subconstatus_label)}</td>
+      h += `<tr><td class="mono">${esc(c.actionname||'')}</td>
+        <td class="mono"><a class="obj-link" onclick="showOperation(${JSON.stringify(c.ib_operationname)})">${esc(c.ib_operationname||'')}</a></td>
+        <td class="mono"><a class="obj-link" onclick="showRouting(${JSON.stringify(c.routingdefnname)})">${esc(c.routingdefnname||'')}</a></td>
+        <td>${chipTx(c.subconstatus_label)}</td>
         <td>${esc(c.process_instance||'')}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }
 
   warnBox(d.warnings);
-  $('contentArea').innerHTML = h;
+  setDetail(h);
 }
 
 // ─── dashboard ────────────────────────────────────────────────────────────
@@ -5866,10 +6015,10 @@ function chipQueue(l)  { const c=l==='Running'?'ch-ok':l==='Halted'?'ch-err':'ch
 function chipTx(l)     { const c=(l==='Error'||l==='Timeout')?'ch-err':l==='Done'?'ch-ok':l==='Started'?'ch-warn':'ch-mute'; return `<span class="chip ${c}">${esc(l||'')}</span>`; }
 function warnBox(ws) {
   if (!ws||!ws.length) return;
-  const box = document.querySelector('#contentArea .warn-container') || (() => {
+  const box = document.querySelector('#detailContent .warn-container') || (() => {
     const el = document.createElement('div');
     el.className = 'warn-container';
-    $('contentArea').appendChild(el);
+    $('detailContent').appendChild(el);
     return el;
   })();
   box.innerHTML = ws.map(w => `<div class="warn-msg">${esc(w.message||w)}</div>`).join('');
@@ -5878,7 +6027,8 @@ function warnBox(ws) {
 // ─── init ─────────────────────────────────────────────────────────────────
 function reload() {
   const dashboard = $('dashboard');
-  if (dashboard) dashboard.innerHTML = '<span class="empty">Reloading…</span>';
+  if (dashboard) dashboard.innerHTML = '';
+  clearDetail();
   loadDashboard();
   loadServices();
   loadOperations();
@@ -5887,6 +6037,8 @@ function reload() {
 }
 
 (async () => {
+  renderBreadcrumb();
+
   // Reuse sqlws config for env list.
   try {
     const cfg = await (await fetch('/api/sqlws/config')).json();
@@ -5896,11 +6048,7 @@ function reload() {
   } catch(e) {
     $('envSel').innerHTML = '<option>HCM</option><option>FSCM</option>';
   }
-  loadDashboard();
-  loadServices();
-  loadOperations();
-  loadNodes();
-  loadQueues();
+  await Promise.all([loadDashboard(), loadServices(), loadNodes(), loadQueues()]);
 
   // Deep-link: /admin/ib?tab=services&show=MY_SERVICE  (from Object Explorer global search)
   const params = new URLSearchParams(location.search);
@@ -5909,14 +6057,13 @@ function reload() {
   if (deepTab && deepShow) {
     switchTab(deepTab);
     const tabShowMap = {
-      services: showService, operations: showOperation, routings: showRouting, nodes: showNode, queues: showQueue, txns: showTxn,
+      services: showService, operations: showOperation, routings: showRouting,
+      nodes: showNode, queues: showQueue, txns: showTxn,
     };
     const fn = tabShowMap[deepTab];
-    if (fn) {
-      // Wait for the list to populate first, then show the detail
-      await Promise.all([loadServices(), loadOperations(), loadNodes(), loadQueues()]);
-      fn(deepShow);
-    }
+    if (fn) fn(deepShow);
+  } else {
+    switchTab('overview');
   }
 })();
 </script>
