@@ -31,6 +31,8 @@ from routers import record
 from routers import field
 from routers import role
 from routers import operator
+from routers import logs as logs_api
+from routers.admin import logs as admin_logs
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -118,3 +120,5 @@ app.include_router(record.router)
 app.include_router(field.router)
 app.include_router(role.router)
 app.include_router(operator.router)
+app.include_router(logs_api.router)
+app.include_router(admin_logs.router)

@@ -122,3 +122,5 @@
 {"timestamp": "2026-07-01T05:18:45.208925+00:00", "action": "schema_columns", "env": "HCM", "owner": "SYSADM", "object_name": "PS_JOB"}
 {"timestamp": "2026-07-01T06:24:28.648852+00:00", "action": "schema_search", "env": "HCM", "q": "JOB"}
 {"timestamp": "2026-07-01T06:24:30.967191+00:00", "action": "schema_columns", "env": "HCM", "owner": "SYSADM", "object_name": "PS_JOB"}
+{"timestamp": "2026-07-01T13:36:43.959082+00:00", "action": "execute", "query_id": "72706697-2a1e-47d3-b0ab-f3bf30ce11e8", "env": "HCM", "sql": "SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS WHERE TABLE_NAME='PSAUTHITEM' AND OWNER='SYSADM' ORDER BY COLUMN_ID", "elapsed_ms": 152, "row_count": 7, "status": "success", "page": 1, "page_size": 100}
+{"timestamp": "2026-07-01T13:36:51.206171+00:00", "action": "execute", "query_id": "14e50975-dd3d-4246-bbba-19750aa995af", "env": "HCM", "sql": "SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS WHERE TABLE_NAME='PSAUTHITEM' AND OWNER='SYSADM' ORDER BY COLUMN_ID", "elapsed_ms": 23, "row_count": 7, "status": "success", "page": 1, "page_size": 100}

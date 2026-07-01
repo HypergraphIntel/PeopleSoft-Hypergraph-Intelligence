@@ -440,6 +440,8 @@ _EXAMPLE_PROMPTS = [
     "What does the GPUS_TAX_CALC AE program do?",
     "What components depend on the EMPLOYMENT record?",
     "Compare object counts between HCM and FSCM",
+    "Show me active user sessions",
+    "How many users are currently using HCM?",
 ]
 
 
@@ -447,6 +449,7 @@ _EXAMPLE_PROMPTS = [
 def admin_assistant():
     examples_js = json.dumps(_EXAMPLE_PROMPTS)
     return _shell("AI Assistant", "assistant", env=False, noscroll=True, content=f"""\
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 *{{box-sizing:border-box;}}
 .chat-layout{{display:flex;height:calc(100vh - 90px);gap:0;}}
@@ -464,10 +467,18 @@ def admin_assistant():
 .chat-messages{{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;}}
 .msg{{display:flex;flex-direction:column;gap:4px;max-width:92%;}}
 .msg-user{{align-self:flex-end;}}
-.msg-assistant{{align-self:flex-start;}}
+.msg-assistant{{align-self:flex-start;width:100%;max-width:100%;}}
 .msg-bubble{{padding:10px 14px;font-size:12px;line-height:1.6;border-radius:2px;}}
 .msg-user .msg-bubble{{background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.25);color:#d7faff;}}
-.msg-assistant .msg-bubble{{background:rgba(10,26,36,.8);border:1px solid rgba(0,229,255,.1);color:#c8e8f0;white-space:pre-wrap;}}
+.msg-assistant .msg-bubble{{background:rgba(10,26,36,.8);border:1px solid rgba(0,229,255,.1);color:#c8e8f0;}}
+.msg-assistant .msg-bubble p{{margin:0 0 6px;}}
+.msg-assistant .msg-bubble ul,.msg-assistant .msg-bubble ol{{margin:4px 0 6px;padding-left:18px;}}
+.msg-assistant .msg-bubble li{{margin:2px 0;}}
+.msg-assistant .msg-bubble strong{{color:#d7faff;}}
+.msg-assistant .msg-bubble code{{background:#0b2030;border:1px solid #00e5ff22;padding:1px 4px;font-size:11px;}}
+.msg-assistant .msg-bubble pre{{background:#060f18;border:1px solid #00e5ff22;padding:8px;overflow-x:auto;}}
+.msg-assistant .msg-bubble pre code{{background:none;border:none;padding:0;}}
+.msg-assistant .msg-bubble h1,.msg-assistant .msg-bubble h2,.msg-assistant .msg-bubble h3{{color:#00e5ff;font-size:12px;margin:8px 0 4px;text-transform:uppercase;letter-spacing:1px;}}
 .tool-block{{border:1px solid rgba(0,229,255,.12);background:#060f18;margin:4px 0;}}
 .tool-head{{display:flex;align-items:center;gap:8px;padding:5px 10px;cursor:pointer;
   user-select:none;font-size:10px;color:#445;}}
@@ -490,6 +501,10 @@ textarea#chatInput:focus{{outline:none;border-color:rgba(0,229,255,.6);}}
 #sendBtn:disabled{{background:#0a2030;color:#334;cursor:default;}}
 .err-bubble{{background:#1a0000;border:1px solid #ff4444;color:#ff6666;
   padding:8px 12px;font-size:11px;}}
+/* Object link style — cyan dotted underline */
+a.obj-link{{color:#00e5ff;text-decoration:none;border-bottom:1px dotted rgba(0,229,255,.5);
+  cursor:pointer;transition:border-bottom-style .1s;}}
+a.obj-link:hover{{border-bottom-style:solid;}}
 </style>
 
 <div class="chat-layout">
@@ -518,6 +533,187 @@ const chatMessages = document.getElementById('chatMessages');
 const chatInput    = document.getElementById('chatInput');
 const sendBtn      = document.getElementById('sendBtn');
 let conversationHistory = [];
+
+// Configure marked for safe inline rendering
+if (typeof marked !== 'undefined') {{
+  marked.setOptions({{ breaks: true, gfm: true }});
+}}
+function renderMarkdown(text) {{
+  if (typeof marked !== 'undefined') return marked.parse(text);
+  // Minimal fallback if CDN unavailable (avoid backslash escapes in f-string)
+  return text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/[*][*](.+?)[*][*]/g,'<strong>$1</strong>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .split(String.fromCharCode(10)).join('<br>');
+}}
+
+// ── Link map builder — extracts named objects from tool_log ──────────────────
+function buildLinkMap(toolLog) {{
+  const links = {{}};  // name → {{url, title}}
+
+  // Object-type → URL path segment mapping
+  const typeToPath = {{
+    'record':              (n,e) => `/admin/record/${{n}}?env=${{e}}`,
+    'component':           (n,e) => `/admin/object/component/${{n}}?env=${{e}}`,
+    'page':                (n,e) => `/admin/object/page/${{n}}?env=${{e}}`,
+    'application_engine':  (n,e) => `/admin/object/application_engine/${{n}}?env=${{e}}`,
+    'sql_definition':      (n,e) => `/admin/object/sql_definition/${{n}}?env=${{e}}`,
+    'peoplecode':          (n,e) => `/admin/peoplecode/${{n}}?env=${{e}}`,
+    'field':               (n,e) => `/admin/field/${{n}}?env=${{e}}`,
+    'menu':                (n,e) => `/admin/menu/${{n}}?env=${{e}}`,
+    'role':                (n,e) => `/admin/role/${{n}}`,
+    'permissionlist':      (n,e) => `/admin/role/${{n}}`,
+    'query':               (n,e) => `/admin/query?name=${{n}}&env=${{e}}`,
+  }};
+
+  function addObj(name, type, env) {{
+    if (!name || name.length < 2) return;
+    const fn = typeToPath[type];
+    if (fn) links[name] = {{ url: fn(name, env || 'HCM'), title: type.replace('_',' ') }};
+  }}
+  function addRecord(name, env) {{
+    if (!name || name.length < 2) return;
+    links[name] = {{ url: `/admin/record/${{name}}?env=${{env||'HCM'}}`, title: 'Record' }};
+  }}
+  function addComponent(name, env) {{
+    if (!name || name.length < 2) return;
+    links[name] = {{ url: `/admin/object/component/${{name}}?env=${{env||'HCM'}}`, title: 'Component' }};
+  }}
+  function addRole(name) {{
+    if (!name || name.length < 2) return;
+    links[name] = {{ url: `/admin/role/${{name}}`, title: 'Role / Permission List' }};
+  }}
+  function addOprid(oprid, env) {{
+    if (!oprid || oprid.length < 1) return;
+    links[oprid] = {{ url: `/admin/tracing?oprid=${{encodeURIComponent(oprid)}}&env=${{env||'HCM'}}`, title: 'Transaction Tracing' }};
+  }}
+
+  if (!toolLog) return links;
+
+  for (const t of toolLog) {{
+    const env = (t.input && t.input.env) || 'HCM';
+    const res = t.result || {{}};
+
+    switch (t.tool) {{
+      case 'active_sessions':
+        for (const u of [...(res.recent_users||[]), ...(res.currently_active||[])]) {{
+          addOprid(u.oprid, env);
+          if (u.oprclass) addRole(u.oprclass);
+        }}
+        break;
+
+      case 'search_objects':
+        for (const r of (res.results||[])) {{
+          if (r.name && r.type) addObj(r.name, r.type, env);
+        }}
+        break;
+
+      case 'record_usage':
+        if (t.input && t.input.record) addRecord(t.input.record, env);
+        for (const c of (res.components||[]))               addComponent(c, env);
+        for (const c of (res.search_record_components||[])) addComponent(c, env);
+        for (const r of (res.records_inheriting_fields||[])) addRecord(r, env);
+        for (const ae of (res.ae_state_programs||[]))        addObj(ae, 'application_engine', env);
+        break;
+
+      case 'who_has_access':
+        if (t.input && t.input.component) addComponent(t.input.component, env);
+        for (const g of (res.access_grants||[])) {{
+          if (g.classid) addRole(g.classid);
+        }}
+        break;
+
+      case 'graph_impact':
+      case 'graph_dependencies': {{
+        const summary = res.impact_summary || res.dependency_summary || {{}};
+        for (const [type, names] of Object.entries(summary)) {{
+          for (const n of (names||[])) addObj(n, type, env);
+        }}
+        break;
+      }}
+
+      case 'ae_steps':
+        if (t.input && t.input.ae_name) addObj(t.input.ae_name, 'application_engine', env);
+        break;
+
+      case 'sql_lookup':
+        if (t.input && t.input.sqlid) addObj(t.input.sqlid, 'sql_definition', env);
+        break;
+
+      case 'peoplecode_search':
+        for (const r of (res.results||[])) {{
+          const prog = r.programname || r.program_name || r.objectvalue1;
+          if (prog) addObj(prog, 'peoplecode', env);
+          // recname often present in result rows
+          if (r.recname) addRecord(r.recname, env);
+        }}
+        break;
+
+      case 'project_impact':
+        if (t.input && t.input.project) {{
+          links[t.input.project] = {{ url: `/admin/project?name=${{t.input.project}}&env=${{env}}`, title: 'Project' }};
+        }}
+        for (const obj of (res.top_impacted_objects||[])) {{
+          if (obj.name && obj.type) addObj(obj.name, obj.type, env);
+        }}
+        break;
+    }}
+  }}
+  return links;
+}}
+
+// ── Text-node walker — wraps matched names in <a> tags ───────────────────────
+function applyLinks(rootEl, linkMap) {{
+  const names = Object.keys(linkMap);
+  if (!names.length) return;
+
+  // Sort longest first so JOB_DATA matches before JOB
+  names.sort((a,b) => b.length - a.length);
+
+  // PeopleSoft names are pure [A-Z0-9_$] — no regex escaping needed.
+  // Use lookaround to avoid partial matches (e.g. JOB inside JOB_DATA).
+  const pattern = new RegExp('(?<![A-Z0-9_$])(' + names.join('|') + ')(?![A-Z0-9_$])', 'g');
+
+  // Walk text nodes, skip inside <a>, <code>, <pre>
+  const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, {{
+    acceptNode(node) {{
+      const p = node.parentElement;
+      if (!p) return NodeFilter.FILTER_REJECT;
+      if (p.closest('a,code,pre')) return NodeFilter.FILTER_REJECT;
+      if (!node.textContent.trim()) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }}
+  }});
+
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+
+  for (const textNode of nodes) {{
+    const text = textNode.textContent;
+    pattern.lastIndex = 0;
+    if (!pattern.test(text)) continue;
+    pattern.lastIndex = 0;
+
+    const frag = document.createDocumentFragment();
+    let last = 0, m;
+    while ((m = pattern.exec(text)) !== null) {{
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const info = linkMap[m[1]];
+      const a = document.createElement('a');
+      a.className = 'obj-link';
+      a.href = info.url;
+      a.target = '_blank';
+      a.title = info.title;
+      a.textContent = m[1];
+      frag.appendChild(a);
+      last = m.index + m[1].length;
+    }}
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    textNode.parentNode.replaceChild(frag, textNode);
+  }}
+}}
 
 // ── Examples ──────────────────────────────────────────────────────────────────
 const el = document.getElementById('exampleList');
@@ -552,14 +748,13 @@ function appendMsg(role, content, toolLog) {{
   const wrap = document.createElement('div');
   wrap.className = `msg msg-${{role}}`;
 
-  // Tool call blocks (before final answer)
   if (toolLog && toolLog.length) {{
-    toolLog.forEach((t, i) => {{
-      const blk = document.createElement('div');
+    toolLog.forEach(t => {{
+      const blk  = document.createElement('div');
       blk.className = 'tool-block';
       const head = document.createElement('div');
       head.className = 'tool-head';
-      head.innerHTML = `<span>&#9654;</span><span class="tool-name">${{t.name}}</span><span style="margin-left:auto;font-size:9px">click to expand</span>`;
+      head.innerHTML = `<span>&#9654;</span><span class="tool-name">${{t.tool}}</span><span style="margin-left:auto;font-size:9px">click to expand</span>`;
       const body = document.createElement('div');
       body.className = 'tool-body';
       body.innerHTML = `<div class="tool-json">${{JSON.stringify({{input:t.input, result:t.result}}, null, 2)}}</div>`;
@@ -572,7 +767,16 @@ function appendMsg(role, content, toolLog) {{
 
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble';
-  bubble.textContent = content;
+
+  if (role === 'assistant' && content) {{
+    bubble.innerHTML = renderMarkdown(content);
+    // Build link map from what the AI actually fetched, then annotate the text
+    const linkMap = buildLinkMap(toolLog);
+    if (Object.keys(linkMap).length) applyLinks(bubble, linkMap);
+  }} else {{
+    bubble.textContent = content;
+  }}
+
   wrap.appendChild(bubble);
   chatMessages.appendChild(wrap);
   chatMessages.scrollTop = chatMessages.scrollHeight;

@@ -158,6 +158,118 @@ TOOLS = [
             "required": ["env", "project"],
         },
     },
+    {
+        "name": "active_sessions",
+        "description": (
+            "Show active and recent PeopleSoft user sessions from PSACCESSLOG. "
+            "IMPORTANT: In PeopleSoft, each page request creates its own log row (LOGINDTTM=LOGOUTDTTM). "
+            "A user is 'currently active' if they have made a request within the last `active_minutes` minutes — "
+            "returned in the `recently_active` list with is_active=true. "
+            "Returns: (1) recently_active — users active RIGHT NOW within `active_minutes` window; "
+            "(2) currently_active — sessions with open LOGOUTDTTM (rare in PS, usually 0); "
+            "(3) recent_users — all users in the broader `hours` window; "
+            "(4) signon type breakdown (type 1 = SSO/web browser users, type 0 = service accounts/IB). "
+            "Use this for: 'Who is in HCM right now?', 'Show active sessions', "
+            "'Is GUACUSER logged in?', 'How many users are currently using the system?'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env":            {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "hours":          {"type": "integer", "description": "Lookback window in hours for recent_users history (default 8)"},
+                "active_minutes": {"type": "integer", "description": "Window in minutes for 'currently active' detection (default 30). Increase to 60 if unsure."},
+                "limit":          {"type": "integer", "description": "Max users to return (default 50)"},
+            },
+            "required": ["env"],
+        },
+    },
+    {
+        "name": "record_usage",
+        "description": (
+            "Find every component, page, and AE program that uses a PeopleSoft record. "
+            "Queries live metadata tables (PSPNLFIELD, PSPNLGROUP, PSPNLGRPDEFN, PSAEAPPLSTATE, PSRECFIELD) "
+            "directly — not limited by Knowledge Graph coverage. "
+            "Use this for questions like: 'What components use record JOB?', "
+            "'What pages display JOB data?', 'What records inherit from JOB?', "
+            "'What AE programs use JOB as a state record?'. "
+            "PREFER this over graph_impact for record dependency questions."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env":    {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "record": {"type": "string", "description": "Record name (RECNAME), e.g. JOB, JOB_DATA, PERSONAL_DATA"},
+            },
+            "required": ["env", "record"],
+        },
+    },
+    {
+        "name": "log_search",
+        "description": (
+            "Search ingested web server and application server logs. "
+            "Use this to find what an OPRID was doing in the logs, or to search for errors, "
+            "component access, or any text pattern across web/app log entries. "
+            "Requires log sources to be configured and ingested. "
+            "Use for: 'What was GUACUSER doing in HCM at 10am?', "
+            "'Show me errors in the app server logs', 'Did anyone access component X today?'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env":         {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "tier":        {"type": "string", "description": "web | app | both (default: both)", "enum": ["web", "app", "both"]},
+                "oprid":       {"type": "string", "description": "Filter to a specific user OPRID"},
+                "component":   {"type": "string", "description": "Filter web entries to a specific component name"},
+                "errors_only": {"type": "boolean", "description": "If true, return only error entries"},
+                "start":       {"type": "string", "description": "ISO datetime start (e.g. 2026-07-01T08:00:00)"},
+                "end":         {"type": "string", "description": "ISO datetime end"},
+                "limit":       {"type": "integer", "description": "Max rows to return (default 100)"},
+            },
+            "required": ["env"],
+        },
+    },
+    {
+        "name": "log_errors",
+        "description": (
+            "Return a summary of errors from ingested logs, grouped by error code and object. "
+            "Shows which errors occur most frequently, which objects/components are responsible, "
+            "and which users triggered them. "
+            "Use this for: 'What errors are we seeing in HCM?', 'Are there ORA errors in the app logs?', "
+            "'What objects are causing errors?'. "
+            "Returns error_code, object_ref, count, first_seen, last_seen, and sample OPRIDs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env":        {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "error_code": {"type": "string", "description": "Filter to a specific error code (e.g. ORA-00942)"},
+                "object_ref": {"type": "string", "description": "Filter to errors related to a specific object name"},
+                "limit":      {"type": "integer", "description": "Max error groups to return (default 50)"},
+            },
+            "required": ["env"],
+        },
+    },
+    {
+        "name": "session_log_chain",
+        "description": (
+            "Return the full web-tier + app-tier log chain for a specific user (OPRID) in a time window. "
+            "Shows what pages/components they accessed in the web layer AND what the app server logged "
+            "for them simultaneously — correlated by OPRID and timestamp. "
+            "Use this to reconstruct exactly what a user was doing: "
+            "'What was GUACUSER doing between 9am and 10am?', "
+            "'Show me the full session trace for JNORRIS on Tuesday', "
+            "'Walk me through what happened during the GUACUSER error'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "oprid": {"type": "string", "description": "User OPRID to trace"},
+                "start": {"type": "string", "description": "ISO datetime start of the window"},
+                "end":   {"type": "string", "description": "ISO datetime end of the window"},
+            },
+            "required": ["oprid"],
+        },
+    },
 ]
 
 # Tool name → schema lookup
@@ -190,21 +302,21 @@ def _search_objects(env: str, query: str, type: str = None) -> dict:
 
 def _peoplecode_search(env: str, query: str, limit: int = 20) -> dict:
     limit = min(int(limit), 100)
-    results = peoplecode.source_search(env.upper(), query, limit=limit)
-    # Trim source snippets so the tool result stays manageable
+    raw = peoplecode.source_search(env.upper(), query, limit=limit)
+    # source_search returns {items: [...], warnings: [...]}
+    items = raw.get("items", raw) if isinstance(raw, dict) else raw
     trimmed = []
-    for r in results:
-        entry = {k: v for k, v in r.items() if k != "source"}
-        src = r.get("source") or ""
-        # Return up to 300 chars around the first match
+    for r in items:
+        if not isinstance(r, dict):
+            continue
+        src = r.get("pctext") or r.get("source") or ""
+        entry = {k: v for k, v in r.items() if k not in ("pctext", "source")}
         idx = src.lower().find(query.lower())
-        if idx >= 0:
-            start = max(0, idx - 100)
-            entry["snippet"] = src[start:start + 300]
-        else:
-            entry["snippet"] = src[:300]
+        start = max(0, idx - 100) if idx >= 0 else 0
+        entry["snippet"] = src[start:start + 300]
         trimmed.append(entry)
-    return {"results": trimmed, "count": len(trimmed)}
+    warnings = raw.get("warnings", []) if isinstance(raw, dict) else []
+    return {"results": trimmed, "count": len(trimmed), "warnings": warnings}
 
 
 def _graph_dependencies(env: str, node_id: str, depth: int = 2) -> dict:
@@ -237,19 +349,54 @@ def _graph_impact(env: str, node_id: str, depth: int = 2) -> dict:
 
 def _who_has_access(env: str, component: str) -> dict:
     from connectors import psdb as db
-    if not ptmetadata.has_table(env.upper(), "PSAUTHITEM"):
+    env = env.upper()
+    component = component.upper()
+    if not ptmetadata.has_table(env, "PSAUTHITEM"):
         return {"error": "PSAUTHITEM not accessible", "env": env}
-    rows = db.query(env.upper(), """
-        SELECT a.CLASSID, a.AUTHORIZATIONS,
-               COUNT(DISTINCT r.ROLEUSER) AS operator_count
-          FROM SYSADM.PSAUTHITEM a
-          LEFT JOIN SYSADM.PSROLEUSER r ON r.ROLENAME = a.CLASSID
-         WHERE UPPER(a.PNLGRPNAME) = UPPER(:comp)
-           AND a.PORTAL_OBJNAME = ' '
-         GROUP BY a.CLASSID, a.AUTHORIZATIONS
-         ORDER BY operator_count DESC
-    """, {"comp": component})
-    return {"component": component, "access_grants": rows[:50]}
+
+    # Get all permission list grants for this component (uses BARITEMNAME — version-safe)
+    page_rows = db.component_page_grants(env, component, limit=500)
+    if not page_rows:
+        return {"component": component, "access_grants": [], "note": "No grants found — check component name"}
+
+    # Aggregate by CLASSID (permission list)
+    from collections import Counter
+    classid_counts: Counter = Counter()
+    classid_actions: dict = {}
+    for r in page_rows:
+        cid = (r.get("classid") or "").strip()
+        if cid:
+            classid_counts[cid] += 1
+            classid_actions[cid] = r.get("actions_label") or r.get("authorizedactions") or ""
+
+    # Enrich with operator counts via PSROLEUSER
+    classids = list(classid_counts.keys())[:50]
+    op_counts = {}
+    if classids and ptmetadata.has_table(env, "PSROLEUSER"):
+        placeholders = ",".join(f":c{i}" for i in range(len(classids)))
+        bind = {f"c{i}": v for i, v in enumerate(classids)}
+        try:
+            role_rows = db.query(env, f"""
+                SELECT r.ROLENAME, COUNT(DISTINCT r.ROLEUSER) AS op_count
+                  FROM SYSADM.PSROLEUSER r
+                 WHERE r.ROLENAME IN ({placeholders})
+                 GROUP BY r.ROLENAME
+            """, bind)
+            op_counts = {r.get("rolename", ""): r.get("op_count", 0) for r in role_rows}
+        except Exception:
+            pass
+
+    grants = sorted([
+        {
+            "classid":        cid,
+            "page_count":     classid_counts[cid],
+            "actions":        classid_actions.get(cid, ""),
+            "operator_count": op_counts.get(cid, 0),
+        }
+        for cid in classids
+    ], key=lambda x: -x["operator_count"])
+
+    return {"component": component, "access_grants": grants}
 
 
 def _ae_steps(env: str, ae_name: str) -> dict:
@@ -286,6 +433,69 @@ def _sql_lookup(env: str, sqlid: str) -> dict:
     return {"sqlid": sqlid.upper(), "sql_text": sql_text}
 
 
+def _active_sessions(env: str, hours: int = 8, active_minutes: int = 30, limit: int = 50) -> dict:
+    from connectors import psdb as db
+    return db.active_sessions(env.upper(), hours=hours, active_minutes=active_minutes, limit=limit)
+
+
+def _record_usage(env: str, record: str) -> dict:
+    from connectors import psdb as db
+    return db.record_usage(env.upper(), record.upper())
+
+
+def _log_search(env: str, tier: str = "both", oprid: str = None,
+                component: str = None, errors_only: bool = False,
+                start: str = None, end: str = None, limit: int = 100) -> dict:
+    from connectors import logdb
+    logdb.init_db()
+    result: dict = {"env": env, "tier": tier}
+    if tier in ("web", "both"):
+        result["web"] = logdb.query_web(
+            env=env, oprid=oprid, component=component,
+            errors_only=errors_only, start=start, end=end, limit=limit
+        )
+    if tier in ("app", "both"):
+        result["app"] = logdb.query_app(
+            env=env, oprid=oprid, errors_only=errors_only,
+            start=start, end=end, limit=limit
+        )
+    if not result.get("web") and not result.get("app"):
+        result["note"] = "No log entries found. Ensure log sources are configured and enabled in config.json."
+    return result
+
+
+def _log_errors(env: str, error_code: str = None, object_ref: str = None,
+                limit: int = 50) -> dict:
+    from connectors import logdb
+    logdb.init_db()
+    groups = logdb.error_summary(env=env, limit=limit)
+    if error_code:
+        groups = [g for g in groups if (g.get("error_code") or "") == error_code]
+    if object_ref:
+        groups = [g for g in groups if (g.get("object_ref") or "").upper() == object_ref.upper()]
+    if not groups:
+        return {
+            "env": env,
+            "groups": [],
+            "note": "No errors found. Ensure log sources are configured and ingestion is running.",
+        }
+    return {"env": env, "groups": groups, "count": len(groups)}
+
+
+def _session_log_chain(oprid: str, start: str = None, end: str = None) -> dict:
+    from connectors import logdb
+    from datetime import datetime, timedelta
+    logdb.init_db()
+    if not start:
+        start = (datetime.utcnow() - timedelta(hours=8)).isoformat(timespec="seconds")
+    if not end:
+        end = datetime.utcnow().isoformat(timespec="seconds")
+    chain = logdb.session_chain(oprid.upper(), start, end)
+    if not chain["web"] and not chain["app"]:
+        chain["note"] = "No log entries for this OPRID in the given window. Ensure log sources are configured."
+    return chain
+
+
 def _envcompare_summary(env1: str, env2: str) -> dict:
     result = envcompare.summary(env1.upper(), env2.upper())
     return result
@@ -309,4 +519,9 @@ _HANDLERS = {
     "sql_lookup":         _sql_lookup,
     "envcompare_summary": _envcompare_summary,
     "project_impact":     _project_impact,
+    "active_sessions":    _active_sessions,
+    "record_usage":       _record_usage,
+    "log_search":         _log_search,
+    "log_errors":         _log_errors,
+    "session_log_chain":  _session_log_chain,
 }

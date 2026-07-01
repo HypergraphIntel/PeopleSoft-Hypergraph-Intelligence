@@ -1,12 +1,11 @@
 """
-Background scheduler for periodic graph snapshots and retention pruning.
+Background scheduler for periodic graph snapshots, drift comparison,
+and log ingestion.
 
-Starts a single daemon thread that:
-  1. Waits INITIAL_DELAY_SECONDS before its first run (avoids hammering the
-     database on every server restart).
-  2. Builds and snapshots the knowledge graph for each configured environment.
-  3. Prunes old snapshots beyond RETAIN_COUNT.
-  4. Sleeps INTERVAL_HOURS * 3600 before repeating.
+Threads
+-------
+snapshot-scheduler  — builds knowledge-graph snapshots daily (INTERVAL_HOURS)
+log-ingest          — ingests new log bytes from all enabled sources every 60s
 
 No external dependencies — pure threading.
 """
@@ -34,6 +33,13 @@ _last_run: dict = {}    # env → ISO timestamp of last successful graph snapsho
 _last_error: dict = {}  # env → last error string
 _last_drift_run: dict = {}   # "env1/env2" → ISO timestamp
 _last_drift_error: dict = {} # "env1/env2" → last error
+
+# Log ingest thread
+LOG_INGEST_INTERVAL_SECONDS: int = 60
+_log_thread: threading.Thread | None = None
+_log_stop_event = threading.Event()
+_last_log_ingest: str = ""
+_last_log_error: str = ""
 
 
 def _run_for_env(env: str) -> None:
@@ -92,27 +98,55 @@ def _loop() -> None:
     logger.info("Snapshot scheduler stopped")
 
 
+def _log_ingest_loop() -> None:
+    global _last_log_ingest, _last_log_error
+    logger.info("Log ingest scheduler started (interval=%ds)", LOG_INGEST_INTERVAL_SECONDS)
+    while not _log_stop_event.is_set():
+        try:
+            from connectors.logingest import run_ingest
+            run_ingest()
+            _last_log_ingest = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            _last_log_error = ""
+        except Exception as exc:
+            _last_log_error = str(exc)
+            logger.warning("Log ingest error: %s", exc)
+        _log_stop_event.wait(LOG_INGEST_INTERVAL_SECONDS)
+    logger.info("Log ingest scheduler stopped")
+
+
 def start() -> None:
-    global _thread
+    global _thread, _log_thread
     if _thread and _thread.is_alive():
         logger.debug("Scheduler already running")
-        return
-    _stop_event.clear()
-    _thread = threading.Thread(target=_loop, name="snapshot-scheduler", daemon=True)
-    _thread.start()
-    logger.info("Snapshot scheduler thread started")
+    else:
+        _stop_event.clear()
+        _thread = threading.Thread(target=_loop, name="snapshot-scheduler", daemon=True)
+        _thread.start()
+        logger.info("Snapshot scheduler thread started")
+
+    if _log_thread and _log_thread.is_alive():
+        logger.debug("Log ingest scheduler already running")
+    else:
+        _log_stop_event.clear()
+        _log_thread = threading.Thread(target=_log_ingest_loop, name="log-ingest", daemon=True)
+        _log_thread.start()
+        logger.info("Log ingest scheduler thread started")
 
 
 def stop() -> None:
     _stop_event.set()
+    _log_stop_event.set()
     if _thread:
         _thread.join(timeout=5)
-    logger.info("Snapshot scheduler thread stopped")
+    if _log_thread:
+        _log_thread.join(timeout=5)
+    logger.info("All scheduler threads stopped")
 
 
 def status() -> dict:
     return {
         "running": bool(_thread and _thread.is_alive()),
+        "log_ingest_running": bool(_log_thread and _log_thread.is_alive()),
         "envs": ENVS,
         "drift_env_pairs": DRIFT_ENV_PAIRS,
         "interval_hours": INTERVAL_HOURS,
@@ -124,6 +158,8 @@ def status() -> dict:
         "last_error": _last_error,
         "last_drift_run": _last_drift_run,
         "last_drift_error": _last_drift_error,
+        "last_log_ingest": _last_log_ingest,
+        "last_log_error": _last_log_error,
     }
 
 

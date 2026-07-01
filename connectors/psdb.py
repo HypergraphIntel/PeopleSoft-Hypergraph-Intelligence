@@ -2060,6 +2060,229 @@ def record_storage(env_name, recname):
         return None
 
 
+def record_usage(env_name, recname):
+    """
+    Find every component, page, and AE program that uses a given record.
+    Queries PSPNLFIELD/PSPNLGROUP, PSPNLGRPDEFN, PSAEAPPLSTATE, PSRECFIELD directly.
+    Does not rely on the Knowledge Graph — always returns live metadata.
+    """
+    from connectors import ptmetadata
+    rec = recname.strip().upper()
+    result = {"record": rec}
+
+    # Components that display this record's fields (PSPNLFIELD -> PSPNLGROUP join)
+    components = []
+    if ptmetadata.has_table(env_name, "PSPNLFIELD") and ptmetadata.has_table(env_name, "PSPNLGROUP"):
+        try:
+            rows = query(env_name, """
+                SELECT DISTINCT pg.PNLGRPNAME
+                  FROM SYSADM.PSPNLFIELD pf
+                  JOIN SYSADM.PSPNLGROUP  pg ON pg.PNLNAME = pf.PNLNAME
+                 WHERE pf.RECNAME = :rec
+                 ORDER BY pg.PNLGRPNAME
+                 FETCH FIRST 200 ROWS ONLY
+            """, {"rec": rec})
+            components = [r.get("pnlgrpname") for r in rows if r.get("pnlgrpname")]
+        except Exception as exc:
+            result["components_error"] = str(exc)
+    result["components"] = components
+    result["component_count"] = len(components)
+
+    # Pages that display this record's fields (PSPNLFIELD)
+    pages = []
+    if ptmetadata.has_table(env_name, "PSPNLFIELD"):
+        try:
+            rows = query(env_name, """
+                SELECT DISTINCT PNLNAME
+                  FROM SYSADM.PSPNLFIELD
+                 WHERE RECNAME = :rec
+                 ORDER BY PNLNAME
+                 FETCH FIRST 200 ROWS ONLY
+            """, {"rec": rec})
+            pages = [r.get("pnlname") for r in rows if r.get("pnlname")]
+        except Exception as exc:
+            result["pages_error"] = str(exc)
+    result["pages"] = pages
+    result["page_count"] = len(pages)
+
+    # Components using this record as search or add-search record (PSPNLGRPDEFN)
+    search_comps = []
+    if ptmetadata.has_table(env_name, "PSPNLGRPDEFN"):
+        grp_cols = table_columns(env_name, "PSPNLGRPDEFN")
+        has_add = "addsrchrecname" in grp_cols
+        sql = (
+            "SELECT DISTINCT PNLGRPNAME FROM SYSADM.PSPNLGRPDEFN"
+            " WHERE SEARCHRECNAME = :rec OR ADDSRCHRECNAME = :rec"
+            " ORDER BY PNLGRPNAME FETCH FIRST 100 ROWS ONLY"
+            if has_add else
+            "SELECT DISTINCT PNLGRPNAME FROM SYSADM.PSPNLGRPDEFN"
+            " WHERE SEARCHRECNAME = :rec"
+            " ORDER BY PNLGRPNAME FETCH FIRST 100 ROWS ONLY"
+        )
+        try:
+            rows = query(env_name, sql, {"rec": rec})
+            search_comps = [r.get("pnlgrpname") for r in rows if r.get("pnlgrpname")]
+        except Exception:
+            pass
+    result["search_record_components"] = search_comps
+
+    # AE programs using this record as their state record (PSAEAPPLSTATE)
+    ae_programs = []
+    if ptmetadata.has_table(env_name, "PSAEAPPLSTATE"):
+        ae_cols = table_columns(env_name, "PSAEAPPLSTATE")
+        if "ae_state_recname" in ae_cols:
+            try:
+                rows = query(env_name, """
+                    SELECT DISTINCT AE_APPLID
+                      FROM SYSADM.PSAEAPPLSTATE
+                     WHERE UPPER(AE_STATE_RECNAME) = :rec
+                     ORDER BY AE_APPLID
+                     FETCH FIRST 100 ROWS ONLY
+                """, {"rec": rec})
+                ae_programs = [r.get("ae_applid") for r in rows if r.get("ae_applid")]
+            except Exception:
+                pass
+    result["ae_state_programs"] = ae_programs
+
+    # Records that inherit fields from this record as a subrecord (PSRECFIELD.DEFRECNAME)
+    subrecord_derivations = []
+    rec_fld_cols = table_columns(env_name, "PSRECFIELD")
+    if "defrecname" in rec_fld_cols:
+        try:
+            rows = query(env_name, """
+                SELECT DISTINCT R.RECNAME
+                  FROM SYSADM.PSRECFIELD R
+                 WHERE UPPER(R.DEFRECNAME) = :rec
+                   AND R.RECNAME != :rec
+                 ORDER BY R.RECNAME
+                 FETCH FIRST 100 ROWS ONLY
+            """, {"rec": rec})
+            subrecord_derivations = [r.get("recname") for r in rows if r.get("recname")]
+        except Exception:
+            pass
+    result["records_inheriting_fields"] = subrecord_derivations
+
+    result["total_count"] = result["component_count"] + len(ae_programs) + len(subrecord_derivations)
+    return result
+
+
+def active_sessions(env_name, hours=8, active_minutes=30, limit=50):
+    """
+    Return active and recent PeopleSoft user sessions from PSACCESSLOG.
+
+    In PeopleSoft, each page request creates its own PSACCESSLOG row where
+    LOGINDTTM = LOGOUTDTTM (the row closes immediately). A user is "currently
+    active" if they have had any request within the last `active_minutes` minutes.
+
+    - currently_active: LOGOUTDTTM IS NULL (traditional open sessions, rare in PS)
+    - recently_active: unique users with activity in the last `active_minutes` mins,
+      with is_active=True — these users ARE currently using the system
+    - recent_users: unique users in the broader `hours` window (login history)
+    - by_signon_type: signon type breakdown (1=SSO/web user, 0=service/IB)
+    """
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSACCESSLOG"):
+        return {"error": "PSACCESSLOG not accessible", "env": env_name}
+
+    hours = max(1, min(int(hours), 168))
+    active_minutes = max(5, min(int(active_minutes), 480))
+    limit = max(1, min(int(limit), 200))
+    result = {"env": env_name, "window_hours": hours, "active_minutes": active_minutes}
+
+    has_opr = ptmetadata.has_table(env_name, "PSOPRDEFN")
+    log_cols = table_columns(env_name, "PSACCESSLOG")
+    has_signon_type = "pt_signon_type" in log_cols
+
+    opr_join   = "LEFT JOIN SYSADM.PSOPRDEFN o ON o.OPRID = a.OPRID" if has_opr else ""
+    opr_select = ", o.OPRDEFNDESC, o.EMAILID, o.OPRCLASS" if has_opr else ""
+    stype_col  = ", MAX(a.PT_SIGNON_TYPE) as pt_signon_type" if has_signon_type else ""
+
+    # Traditional open sessions (LOGOUTDTTM IS NULL)
+    try:
+        open_rows = query(env_name, f"""
+            SELECT a.OPRID, a.LOGINDTTM, a.LOGIPADDRESS
+                   {',' + 'a.PT_SIGNON_TYPE' if has_signon_type else ''}
+                   {opr_select}
+              FROM SYSADM.PSACCESSLOG a {opr_join}
+             WHERE a.LOGOUTDTTM IS NULL
+             ORDER BY a.LOGINDTTM DESC
+             FETCH FIRST {limit} ROWS ONLY
+        """)
+        result["currently_active"] = [dict(r) for r in open_rows]
+        result["currently_active_count"] = len(open_rows)
+    except Exception as exc:
+        result["currently_active"] = []
+        result["currently_active_count"] = 0
+        result["currently_active_error"] = str(exc)
+
+    # Recently active users — grouped by OPRID, activity within active_minutes
+    # is_active=True for these users: they ARE using the system right now
+    try:
+        active_rows = query(env_name, f"""
+            SELECT a.OPRID{opr_select}{stype_col},
+                   COUNT(*) as request_count,
+                   MAX(a.LOGINDTTM) as last_seen,
+                   MIN(a.LOGINDTTM) as first_seen_in_window
+              FROM SYSADM.PSACCESSLOG a {opr_join}
+             WHERE a.LOGINDTTM >= SYSDATE - :mins/1440
+             GROUP BY a.OPRID{', o.OPRDEFNDESC, o.EMAILID, o.OPRCLASS' if has_opr else ''}
+             ORDER BY last_seen DESC
+             FETCH FIRST {limit} ROWS ONLY
+        """, {"mins": active_minutes})
+        for r in active_rows:
+            r = dict(r)
+            r["is_active"] = True
+        result["recently_active"] = [dict(r) for r in active_rows]
+        result["recently_active_count"] = len(active_rows)
+    except Exception as exc:
+        result["recently_active"] = []
+        result["recently_active_count"] = 0
+        result["recently_active_error"] = str(exc)
+
+    # Broader historical window — unique users over `hours`
+    try:
+        user_rows = query(env_name, f"""
+            SELECT a.OPRID{opr_select}{stype_col},
+                   COUNT(*) as request_count,
+                   MAX(a.LOGINDTTM) as last_seen,
+                   MIN(a.LOGINDTTM) as first_seen_in_window
+              FROM SYSADM.PSACCESSLOG a {opr_join}
+             WHERE a.LOGINDTTM >= SYSDATE - :hours/24
+             GROUP BY a.OPRID{', o.OPRDEFNDESC, o.EMAILID, o.OPRCLASS' if has_opr else ''}
+             ORDER BY last_seen DESC
+             FETCH FIRST {limit} ROWS ONLY
+        """, {"hours": hours})
+        result["recent_users"] = [dict(r) for r in user_rows]
+        result["unique_user_count"] = len(user_rows)
+    except Exception as exc:
+        result["recent_users"] = []
+        result["unique_user_count"] = 0
+        result["recent_users_error"] = str(exc)
+
+    # Total request count in window
+    try:
+        cnt = query(env_name, "SELECT COUNT(*) as n FROM SYSADM.PSACCESSLOG WHERE LOGINDTTM >= SYSDATE - :h/24", {"h": hours})
+        result["total_requests_in_window"] = cnt[0].get("n", 0) if cnt else 0
+    except Exception:
+        pass
+
+    # Breakdown by signon type in window (1=SSO/web user, 0=service/IB)
+    if has_signon_type:
+        try:
+            type_rows = query(env_name, """
+                SELECT PT_SIGNON_TYPE, COUNT(DISTINCT OPRID) as unique_users, COUNT(*) as requests
+                  FROM SYSADM.PSACCESSLOG
+                 WHERE LOGINDTTM >= SYSDATE - :h/24
+                 GROUP BY PT_SIGNON_TYPE
+                 ORDER BY unique_users DESC
+            """, {"h": hours})
+            result["by_signon_type"] = [dict(r) for r in type_rows]
+        except Exception:
+            pass
+
+    return result
+
+
 def operator_permissionlists(env_name, oprid):
     role_columns = select_existing_columns(
         env_name,

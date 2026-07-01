@@ -18,6 +18,8 @@ _NAV_GROUPS = [
         ("envcompare", "Env Compare",   "/admin/envcompare"),
         ("drift",       "Drift History",  "/admin/drift"),
         ("promotions",  "Promotions",     "/admin/promotions"),
+        ("logs",        "Logs",           "/admin/logs"),
+        ("log_errors",  "Log Errors",     "/admin/log_errors"),
     ]),
     ("Data", [
         ("sqlws",  "SQL Workspace",  "/admin/sqlws"),

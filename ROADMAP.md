@@ -467,7 +467,130 @@ Each tool is a thin adapter over an existing connector function — no new SQL.
 
 ---
 
-# Phase 8 — Platform Extensibility
+# Phase 8 — Log Intelligence
+
+Ingest, store, query, and AI-analyze web server and application server logs from all
+PeopleSoft infrastructure tiers. Surface errors with drill-down to responsible objects
+and users, and guide engineers to a fix.
+
+---
+
+## Architecture (decided 2026-07-01)
+
+### Infrastructure Tiers
+
+PeopleSoft log sources covered:
+
+| Tier | Log type | Parser | Notes |
+|------|----------|--------|-------|
+| F5 LTM load balancer | `f5_access` | Apache combined | HSL iRule output |
+| nginx / Apache reverse proxy | `apache_access` / `apache_error` | Apache combined | Standard NCSA format |
+| WebLogic PIA (web) | `pia_access` / `pia_error` | PIA NCSA extended | OPRID in auth field |
+| Tuxedo App Server | `appsrv` | APPSRV format | OPRID, ORA-, PC errors |
+| Tuxedo ULOG | `tuxedo` | ULOG format | Domain-level events |
+
+### SSH Log Fetching
+
+All log sources are remote — fetched via SSH/SFTP using paramiko.
+- `ssh_hosts` in `config.json` defines reusable connection profiles (host, port, user, key or password)
+- Each log source references an `ssh_host` alias
+- File byte-offset tracking: only new content is fetched per cycle (no re-reading)
+- Connection pool per host; auto-reconnect on failure
+- Sources with `ssh_host: "local"` read files directly without SSH
+
+### Config Shape
+
+```json
+"ssh_hosts": {
+  "webserver1": { "host": "10.0.0.10", "port": 22, "username": "psadm1", "key_path": "~/.ssh/id_rsa" },
+  "appserver1": { "host": "10.0.0.11", "port": 22, "username": "psadm1", "key_path": "~/.ssh/id_rsa" }
+},
+"log_sources": [
+  { "name": "WEB1_ACCESS", "type": "pia_access",   "env": "HCM", "ssh_host": "webserver1",
+    "path": "/opt/oracle/psft/pt/webserv/HCM/servers/PIA/logs/PIA_access*.log", "enabled": true },
+  { "name": "WEB1_ERROR",  "type": "pia_error",    "env": "HCM", "ssh_host": "webserver1",
+    "path": "/opt/oracle/psft/pt/webserv/HCM/servers/PIA/logs/PIA_stderr*.log", "enabled": true },
+  { "name": "APP1",        "type": "appsrv",       "env": "HCM", "ssh_host": "appserver1",
+    "path": "/opt/oracle/psft/cfg/appserv/HCM/LOGS/APPSRV_*.LOG", "enabled": true },
+  { "name": "APP1_TUX",   "type": "tuxedo",        "env": "HCM", "ssh_host": "appserver1",
+    "path": "/opt/oracle/psft/cfg/appserv/HCM/LOGS/TUXLOG.*", "enabled": true },
+  { "name": "PROXY1",     "type": "apache_access",  "env": "HCM", "ssh_host": "webserver1",
+    "path": "/etc/nginx/logs/access.log", "enabled": true },
+  { "name": "F5_LTM",     "type": "f5_access",      "env": "HCM", "ssh_host": "local",
+    "path": "/var/log/f5/access.log", "enabled": false }
+]
+```
+
+### Storage — SQLite `data/logs.db`
+
+```
+log_sources    — source registry with last-ingest offset tracking (JSON per file)
+web_entries    — parsed access log rows (oprid, component, page, status, ms, ts)
+app_entries    — parsed APPSRV/ULOG rows (oprid, level, message, object_ref, ts)
+log_errors     — extracted errors deduped by (source, ts, raw)
+```
+
+Indices on `ts`, `oprid`, `status`, `error_code`, `object_ref` for fast filtering.
+
+### Session Chain Correlation
+
+```
+PSACCESSLOG (OPRID=GUACUSER, ts=10:22)
+   ↓
+web_entries WHERE oprid='GUACUSER' AND ts ∈ [login-15min, login+4h]
+   ↓ component/page extracted from URL pattern /psp/{site}/{portal}/{node}/c/{menu}.{component}.{page}.GBL
+app_entries WHERE oprid='GUACUSER' AND ts in same window
+   ↓ ORA-, PeopleCode errors → extract table/component/AE names
+log_errors  WHERE oprid='GUACUSER' → cross-ref with PS metadata
+```
+
+### Error Drill-Down
+
+1. **Surface**: `/admin/log_errors` — grouped by error_code + object_ref, top-N by count
+2. **Who**: which OPRIDs triggered the error, first/last seen
+3. **What object**: record/component/AE name extracted from error message → links to DeathStar pages
+4. **Fix**: "Ask AI" pre-loads the assistant with the error context; AI uses existing tools
+   (`peoplecode_search`, `record_usage`, `sql_lookup`) to diagnose and suggest a fix
+
+### AI Tools Added
+
+| Tool | Purpose |
+|------|---------|
+| `log_search` | Search web+app entries by OPRID, time range, component, text, level |
+| `log_errors` | Surface and group errors; returns error_code, object_ref, count, sample |
+| `session_log_chain` | Full web→app chain for an OPRID in a time window |
+
+---
+
+## Implementation Status
+
+### ✅ Completed (2026-07-01)
+
+- Architecture design and config schema
+- Phase 8 roadmap documentation
+
+### In Progress
+
+- `connectors/sshclient.py` — paramiko SSH/SFTP wrapper
+- `connectors/logparser.py` — PIA / APPSRV / Apache / F5 parsers
+- `connectors/logdb.py` — SQLite storage
+- `connectors/logingest.py` — ingestion orchestration
+- `connectors/scheduler.py` — 60s log ingest job
+- `routers/logs.py` — REST API
+- `routers/admin/logs.py` — Log viewer + error surface + session chain UI
+- AI tools: `log_search`, `log_errors`, `session_log_chain`
+
+### Design Decisions
+
+- **F5**: Supported via `f5_access` type using Apache-combined parser (HSL iRules log in NCSA format)
+- **Future F5 native**: When F5 Analytics/AVR logs become available, add `f5_avr` parser with VS name, pool, irule fields
+- **Retention**: 30 days of web entries, 90 days of app entries, 90 days of errors (configurable)
+- **Dedup**: log_errors has UNIQUE(source_name, ts, raw) — safe to re-ingest overlapping byte ranges
+- **OPRID extraction**: web logs — second NCSA field (auth user); app logs — `N.OPRID` pattern in APPSRV format
+
+---
+
+# Phase 9 — Platform Extensibility
 
 ## Plugin SDK
 

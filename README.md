@@ -48,50 +48,68 @@ PeopleSoft-Hypergraph-Intelligence/
 │   └── role_mapping.yml            # PeopleSoft role → Authelia group mapping
 ├── connectors/
 │   ├── ae.py                       # Application Engine metadata/runtime helpers
+│   ├── ai.py                       # AI provider abstraction (AIProvider ABC + get_provider factory)
+│   ├── ai_claude.py                # Anthropic Claude provider implementation
+│   ├── ai_openai.py                # OpenAI provider implementation
+│   ├── ai_ollama.py                # Ollama local inference provider implementation
+│   ├── ai_tools.py                 # AI tool definitions and dispatch (wraps existing connectors)
 │   ├── alerts.py                   # Runtime alert checks
+│   ├── driftdb.py                  # SQLite drift snapshot store (data/drift.db)
 │   ├── envcompare.py               # Cross-environment comparison logic
 │   ├── execution.py                # Oracle execution/runtime queries
 │   ├── graphdb.py                  # Knowledge graph store and dependency graph logic
 │   ├── ib.py                       # Integration Broker metadata/runtime discovery
+│   ├── impact.py                   # Impact forecasting: project KG traversal + env risk scoring
+│   ├── logdb.py                    # SQLite log store (data/logs.db): web, app, error tables
+│   ├── logingest.py                # Log ingestion orchestrator: SSH→parse→store per source
+│   ├── logparser.py                # Line parsers: pia_access, pia_error, appsrv, tuxedo, apache, f5
 │   ├── nginx.py                    # nginx log/status helpers
 │   ├── oracle.py                   # Oracle connectivity helpers
 │   ├── peoplecode.py               # PeopleCode decoding/source helpers
 │   ├── peoplesoft.py               # PeopleSoft environment helpers
+│   ├── promotiondb.py              # SQLite promotion event log (data/promotions.db)
 │   ├── psdb.py                     # Core PeopleSoft DB metadata access
 │   ├── ptmetadata.py               # PeopleTools/version-aware metadata discovery
-│   ├── scheduler.py                # Background graph snapshot scheduling
+│   ├── scheduler.py                # Background scheduler: 24h graph snapshots + 60s log ingest
 │   ├── sqlws.py                    # SQL Workspace backend helpers
+│   ├── sshclient.py                # Paramiko SSH/SFTP wrapper with per-host connection pooling
 │   ├── system.py                   # Host/service/container/log management
 │   ├── tracing.py                  # Transaction tracing helpers
 │   └── uom.py                      # Unified Object Model providers
 ├── routers/
-│   ├── admin/                      # Admin UI package (split 2026-07-01)
+│   ├── admin/                      # Admin UI package
 │   │   ├── __init__.py             #   Re-exports router; triggers sub-module imports
-│   │   ├── _core.py                #   Shared: router obj, nav groups, _shell, _nav_html, CSS/JS
-│   │   ├── home.py                 #   /, /users
-│   │   ├── security.py             #   /security, /record, /field, /operator, /role, /peoplecode
-│   │   ├── graph.py                #   /graph, /object, /portal, /metadata, /graphdb
-│   │   ├── runtime.py              #   /runtime, /infra, /tracing, /envcompare
-│   │   ├── data.py                 #   /sqlws, /query, /conqrs
-│   │   ├── integration.py          #   /ib, /ibmessage, /ibapp, /ibsvcgrp, /ibrtng, /iboper
-│   │   ├── objects.py              #   /ci, /tree, /menu, /appclass, /adsdef, /cbskill, /approval, /contsvc, /urldef
-│   │   ├── portal.py               #   /navcoll, /relcontent, /efmapping, /dropzone, /pivotgrid, /srchdef, /srchcat, /xpub, /stylesheet, /pcsearch
-│   │   ├── platform.py             #   /prcsdefn, /filelayout, /xlat, /project, /msgcat, /archobj, /timezone, /locale, /ptftest
-│   │   ├── perf.py                 #   /pmmetric, /pmtrans, /pmevent
-│   │   └── tools.py                #   /reports, /tools, /docs
+│   │   ├── _core.py                #   Shared: router obj, nav groups, _shell, CSS/JS
+│   │   ├── home.py                 #   /admin/, /admin/users
+│   │   ├── logs.py                 #   /admin/logs, /admin/log_errors, /admin/log_viewer, /admin/log_session
+│   │   ├── security.py             #   /admin/security, /record, /field, /operator, /role, /peoplecode
+│   │   ├── graph.py                #   /admin/graph, /object, /portal, /metadata, /graphdb
+│   │   ├── runtime.py              #   /admin/runtime, /infra, /tracing, /envcompare, /drift, /promotions
+│   │   ├── data.py                 #   /admin/sqlws, /query, /conqrs
+│   │   ├── integration.py          #   /admin/ib, /ibmessage, /ibapp, /ibsvcgrp, /ibrtng, /iboper
+│   │   ├── objects.py              #   /admin/ci, /tree, /menu, /appclass, /adsdef, /cbskill, /approval, /contsvc, /urldef
+│   │   ├── portal.py               #   /admin/navcoll, /relcontent, /efmapping, /dropzone, /pivotgrid, /srchdef, /srchcat, /xpub, /stylesheet, /pcsearch
+│   │   ├── platform.py             #   /admin/prcsdefn, /filelayout, /xlat, /project, /msgcat, /archobj, /timezone, /locale, /ptftest
+│   │   ├── perf.py                 #   /admin/pmmetric, /pmtrans, /pmevent
+│   │   └── tools.py                #   /admin/reports, /tools, /impact, /assistant, /docs
+│   ├── assistant.py                # AI Assistant API (/api/assistant/*)
 │   ├── authelia_admin.py           # Authelia user/group administration
+│   ├── drift.py                    # Drift snapshot/alert API (/api/drift/*)
 │   ├── envcompare.py               # Environment comparison API
 │   ├── field.py                    # Field metadata API
 │   ├── graphdb.py                  # Knowledge graph API
 │   ├── health.py                   # Health/status API
 │   ├── ib.py                       # Integration Broker API
 │   ├── identity.py                 # PeopleSoft → Authelia identity workflow
+│   ├── impact_api.py               # Impact forecasting API (/api/impact/*)
 │   ├── live.py                     # Live event stream API
+│   ├── logs.py                     # Log Intelligence REST API (/api/logs/*)
 │   ├── metadata.py                 # Metadata/version/relationship APIs
 │   ├── nginx.py                    # nginx API
 │   ├── operator.py                 # Operator/OPRID API
 │   ├── oracle.py                   # Oracle connectivity API
 │   ├── peoplesoft.py               # PeopleSoft environment API
+│   ├── promotions.py               # Promotion event log API (/api/promotions/*)
 │   ├── record.py                   # Record metadata API
 │   ├── role.py                     # Role/security API
 │   ├── runtime.py                  # Runtime Monitor, ASH, domains, alerts
@@ -101,7 +119,10 @@ PeopleSoft-Hypergraph-Intelligence/
 │   └── tracing.py                  # Transaction tracing API
 ├── data/
 │   ├── knowledge_graph_HCM.json    # Generated graph snapshot/cache
-│   └── knowledge_graph_FSCM.json   # Generated graph snapshot/cache
+│   ├── knowledge_graph_FSCM.json   # Generated graph snapshot/cache
+│   ├── drift.db                    # SQLite: scheduled drift snapshots and alerts
+│   ├── logs.db                     # SQLite: ingested web/app log entries and errors
+│   └── promotions.db               # SQLite: manual promotion event log
 ├── logs/
 │   ├── identity_audit.jsonl        # Identity workflow audit trail
 │   └── provision_requests.json     # Provision request state
@@ -124,8 +145,7 @@ PeopleSoft-Hypergraph-Intelligence/
 -   Python 3.11+
 -   Oracle Instant Client
 -   Network access to PeopleSoft Oracle databases
--   Optional access to nginx logs
--   Optional SSH/SFTP access to remote PeopleSoft tiers
+-   SSH access to web/app server hosts (for Phase 8 log ingestion)
 
 ### Python Requirements
 
@@ -135,7 +155,7 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Typical dependencies include:
+Core dependencies:
 
 ``` text
 fastapi
@@ -143,6 +163,15 @@ uvicorn
 oracledb
 pydantic
 python-dotenv
+paramiko       # SSH/SFTP for remote log ingestion
+```
+
+AI provider dependencies (install only the providers you use):
+
+``` bash
+pip install anthropic   # Claude (Anthropic)
+pip install openai      # OpenAI / Azure OpenAI
+# Ollama requires no Python package — it uses a local REST API
 ```
 
 ------------------------------------------------------------------------
@@ -160,14 +189,259 @@ export PATH=/opt/oracle/instantclient_19_28:$PATH
 
 ## Configuration
 
-Create:
+All configuration lives in a single file: `/opt/deathstar-api/config.json`.
 
-``` text
-/opt/deathstar-api/config.json
+The file has five top-level sections:
+
+| Section | Purpose |
+|---------|---------|
+| `oracle` | Raw Oracle database connections (used by non-PS queries) |
+| `peoplesoft` | PeopleSoft environment connections (used for all metadata queries) |
+| `ai` | AI provider selection and API keys |
+| `ssh_hosts` | Reusable SSH connection profiles for remote log access |
+| `log_sources` | Log files to ingest (web/app server logs per environment) |
+
+---
+
+### oracle
+
+Low-level Oracle connections. Used for queries that do not require a PS environment context.
+
+``` json
+"oracle": {
+  "databases": [
+    {
+      "name":     "HRDMO",
+      "host":     "192.168.1.10",
+      "port":     1521,
+      "service":  "HRDMO",
+      "user":     "DEATHSTAR_MON",
+      "password": "changeme"
+    }
+  ]
+}
 ```
 
-Populate it with your Oracle environments, log sources, and nginx log
-locations.
+---
+
+### peoplesoft
+
+PeopleSoft environment connections. Each entry becomes a named environment
+(e.g. `HCM`, `FSCM`) used in the UI and API `?env=` parameters.
+
+``` json
+"peoplesoft": {
+  "environments": [
+    {
+      "name":     "HCM",
+      "service":  "HRDMO",
+      "host":     "192.168.1.10",
+      "port":     1521,
+      "user":     "DEATHSTAR_MON",
+      "password": "changeme"
+    },
+    {
+      "name":     "FSCM",
+      "service":  "FSCMDMO",
+      "host":     "192.168.1.10",
+      "port":     1521,
+      "user":     "DEATHSTAR_MON",
+      "password": "changeme"
+    }
+  ]
+}
+```
+
+---
+
+### ai
+
+Controls the Engineering Assistant at `/admin/assistant`.
+
+``` json
+"ai": {
+  "provider": "openai",
+  "claude": {
+    "api_key": "sk-ant-...",
+    "model":   "claude-sonnet-4-6"
+  },
+  "openai": {
+    "api_key": "sk-...",
+    "model":   "gpt-4o"
+  },
+  "ollama": {
+    "base_url": "http://localhost:11434",
+    "model":    "llama3.1"
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `provider` | Active provider: `claude`, `openai`, or `ollama` |
+| `claude.api_key` | Anthropic API key |
+| `claude.model` | Recommended: `claude-sonnet-4-6` |
+| `openai.api_key` | OpenAI API key |
+| `openai.model` | Recommended: `gpt-4o` |
+| `ollama.base_url` | Ollama server URL — default `http://localhost:11434` |
+| `ollama.model` | e.g. `llama3.1`, `mistral`, `qwen2.5` |
+
+Only the `provider` field is required. Unused provider sections are ignored at runtime.
+
+**Environment variable overrides** take precedence over config.json values:
+
+``` bash
+export CLAUDE_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-..."
+export OLLAMA_BASE_URL="http://localhost:11434"
+```
+
+**Ollama** works in air-gapped environments with no external API key:
+
+``` bash
+ollama pull llama3.1
+# then set "provider": "ollama" in config.json
+```
+
+Check which provider is active (no secrets exposed):
+
+``` bash
+curl http://localhost:8088/api/assistant/status
+```
+
+---
+
+### ssh_hosts
+
+Defines reusable SSH connection profiles for remote log ingestion.
+Each key is an alias referenced in `log_sources[].ssh_host`.
+
+``` json
+"ssh_hosts": {
+  "webserver1": {
+    "host":     "10.0.0.10",
+    "port":     22,
+    "username": "psadm1",
+    "key_path": "~/.ssh/id_rsa",
+    "password": null
+  },
+  "appserver1": {
+    "host":     "10.0.0.11",
+    "port":     22,
+    "username": "psadm1",
+    "key_path": "~/.ssh/id_rsa",
+    "password": null
+  }
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `host` | yes | Hostname or IP of the remote server |
+| `port` | no | SSH port (default: 22) |
+| `username` | yes | SSH login username |
+| `key_path` | no | Path to private key — supports `~` expansion. Recommended over password. |
+| `password` | no | Password auth — use only if key auth is unavailable |
+
+Use the special alias `"local"` in `log_sources[].ssh_host` to read files
+directly from disk without SSH (for logs on the same host as the platform).
+
+---
+
+### log_sources
+
+Defines which log files to ingest. Each entry is one log file glob pattern
+on one host. The scheduler ingests all enabled sources every 60 seconds,
+reading only new bytes since the last run (byte-offset tracking per file).
+
+``` json
+"log_sources": [
+  {
+    "name":     "WEB1_ACCESS",
+    "type":     "pia_access",
+    "env":      "HCM",
+    "ssh_host": "webserver1",
+    "path":     "/opt/oracle/psft/pt/webserv/HCM/servers/PIA/logs/PIA_access*.log",
+    "enabled":  true
+  },
+  {
+    "name":     "WEB1_ERROR",
+    "type":     "pia_error",
+    "env":      "HCM",
+    "ssh_host": "webserver1",
+    "path":     "/opt/oracle/psft/pt/webserv/HCM/servers/PIA/logs/PIA_stderr*.log",
+    "enabled":  true
+  },
+  {
+    "name":     "APP1",
+    "type":     "appsrv",
+    "env":      "HCM",
+    "ssh_host": "appserver1",
+    "path":     "/opt/oracle/psft/cfg/appserv/HCM/LOGS/APPSRV_*.LOG",
+    "enabled":  true
+  },
+  {
+    "name":     "APP1_TUX",
+    "type":     "tuxedo",
+    "env":      "HCM",
+    "ssh_host": "appserver1",
+    "path":     "/opt/oracle/psft/cfg/appserv/HCM/LOGS/TUXLOG.*",
+    "enabled":  true
+  },
+  {
+    "name":     "PROXY1",
+    "type":     "apache_access",
+    "env":      "HCM",
+    "ssh_host": "webserver1",
+    "path":     "/etc/nginx/logs/access.log",
+    "enabled":  true
+  }
+]
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | yes | Unique source identifier shown in the UI and used for offset tracking |
+| `type` | yes | Log format (see table below) |
+| `env` | yes | PeopleSoft environment this source belongs to (`HCM`, `FSCM`, etc.) |
+| `ssh_host` | yes | SSH host alias from `ssh_hosts`, or `"local"` for local files |
+| `path` | yes | Absolute path or glob pattern on the remote host. Glob patterns (e.g. `APPSRV_*.LOG`) resolve to all matching files; each is tracked independently. |
+| `enabled` | no | Set to `false` to skip without removing the entry (default: `true`) |
+
+**Supported log types:**
+
+| Type | Source | Description |
+|------|--------|-------------|
+| `pia_access` | WebLogic PIA | NCSA extended access log — extracts OPRID, component, page, status, duration |
+| `pia_error` | WebLogic PIA | stderr/error log — extracts ORA- codes, OPRID |
+| `appsrv` | Tuxedo App Server | `APPSRV_MMDD.LOG` — extracts OPRID, ORA- codes, object refs |
+| `tuxedo` | Tuxedo ULOG | `TUXLOG.MMDDYY` / `ULOG.MMDDYY` — domain-level events and errors |
+| `apache_access` | Apache / nginx | Combined access log (standard NCSA) |
+| `apache_error` | Apache / nginx | Error log |
+| `f5_access` | F5 LTM | HSL iRule access log (NCSA combined format) |
+
+**Multiple web/app servers:** Add one entry per server. Give each a unique `name`
+and point to its own `ssh_host` alias.
+
+``` json
+{ "name": "WEB2_ACCESS", "type": "pia_access", "env": "HCM", "ssh_host": "webserver2", "path": "...", "enabled": true },
+{ "name": "APP2",        "type": "appsrv",     "env": "HCM", "ssh_host": "appserver2", "path": "...", "enabled": true }
+```
+
+**Checking ingestion status:**
+
+``` bash
+curl http://localhost:8088/api/logs/sources
+```
+
+Or visit `/admin/logs` in the UI. The page shows each source, when it was
+last ingested, how many files are being tracked, and any errors.
+
+**Triggering an immediate ingest** (useful after adding a new source):
+
+``` bash
+curl -X POST http://localhost:8088/api/logs/ingest
+```
 
 ------------------------------------------------------------------------
 
@@ -303,14 +577,148 @@ GET /api/envcompare/components?env1=HCM&env2=FSCM&q=
 GET /api/envcompare/permissions?env1=HCM&env2=FSCM&q=
 GET /api/envcompare/roles?env1=HCM&env2=FSCM&q=
 GET /api/envcompare/ae?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/ae-body?env1=HCM&env2=FSCM&ae_applid=GPUS_TAX_CALC
 GET /api/envcompare/peoplecode?env1=HCM&env2=FSCM&q=
 GET /api/envcompare/peoplecode-source?env1=HCM&env2=FSCM&ref={encoded_ref}
 GET /api/envcompare/sql_definitions?env1=HCM&env2=FSCM&q=
 GET /api/envcompare/queries?env1=HCM&env2=FSCM&q=
 GET /api/envcompare/portals?env1=HCM&env2=FSCM&q=
 GET /api/envcompare/portal-object?env1=HCM&env2=FSCM&name={PORTAL_OBJNAME}
+GET /api/envcompare/menus?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/trees?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/ib_routings?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/ib_messages?env1=HCM&env2=FSCM&q=
+GET /api/envcompare/ci?env1=HCM&env2=FSCM&q=
 GET /api/envcompare/graph?env1=HCM&env2=FSCM
 ```
+
+### Drift Detection
+
+Scheduled snapshots run automatically after each graph build cycle. Use the
+`POST /snapshot` endpoint to trigger manually.
+
+```text
+POST /api/drift/snapshot?env1=HCM&env2=FSCM
+GET  /api/drift/latest?env1=HCM&env2=FSCM
+GET  /api/drift/history?env1=HCM&env2=FSCM&days=30
+GET  /api/drift/alerts?env1=HCM&env2=FSCM
+GET  /api/drift/alerts?env1=HCM&env2=FSCM&include_resolved=true
+```
+
+### Impact Forecasting
+
+```text
+GET /api/impact/project?env=HCM&project=MY_PROJECT
+GET /api/impact/risk?env1=HCM&env2=FSCM
+```
+
+`/api/impact/risk` is KG-independent — it uses the latest drift snapshot to
+score deployment risk by object type without requiring a built knowledge graph.
+
+### Promotion History
+
+Phase 1 is a manual event log. Auto-detection from PSPROJECTDEFN is planned
+for Phase 2 when promotion-chain DB connections are available.
+
+```text
+POST   /api/promotions
+GET    /api/promotions?pillar=HCM&project=MY_PROJECT&env=TST
+GET    /api/promotions/timeline?pillar=HCM&project=MY_PROJECT
+GET    /api/promotions/summary?pillar=HCM
+DELETE /api/promotions/{id}
+```
+
+Example POST body:
+
+``` json
+{
+  "pillar":       "HCM",
+  "project":      "GPIT_HR92_OBJECTS",
+  "from_env":     "DV",
+  "to_env":       "TST",
+  "promoted_at":  "2026-07-01",
+  "promoted_by":  "jsmith",
+  "ticket_ref":   "JIRA-1234",
+  "notes":        "Initial promotion for Q3 patch"
+}
+```
+
+### AI Assistant
+
+```text
+GET  /api/assistant/status
+POST /api/assistant/chat
+```
+
+Chat request body:
+
+``` json
+{
+  "messages": [
+    {"role": "user", "content": "Which AE programs touch the JOB record?"}
+  ],
+  "stream": false
+}
+```
+
+Set `"stream": true` to receive a Server-Sent Events stream with `tool_start`,
+`tool_result`, `content`, and `done` events.
+
+The assistant has access to 14 tools backed by live DeathStar connectors:
+
+| Tool | Purpose |
+|------|---------|
+| `search_objects` | Find PS objects by name across all types |
+| `peoplecode_search` | Full-text search through PeopleCode source |
+| `graph_dependencies` | What does this object depend on? |
+| `graph_impact` | What depends on this object? (blast radius) |
+| `who_has_access` | Roles and permission lists that grant access to a component |
+| `ae_steps` | List sections and steps of an AE program |
+| `sql_lookup` | Retrieve a SQL definition by name |
+| `envcompare_summary` | Object count comparison between two environments |
+| `project_impact` | Downstream risk of promoting a project |
+| `active_sessions` | Currently active user sessions (PSACCESSLOG) |
+| `record_usage` | All components, pages, and AE programs using a record |
+| `log_search` | Search ingested web/app log entries by user, component, time |
+| `log_errors` | Grouped error summary from ingested logs |
+| `session_log_chain` | Full web→app log chain for a user in a time window |
+
+### Log Intelligence
+
+```text
+GET  /api/logs/sources                          # List all log sources with ingest status
+GET  /api/logs/web?env=HCM&oprid=GUACUSER       # Query web access entries
+GET  /api/logs/app?env=HCM&errors_only=true     # Query app server entries
+GET  /api/logs/errors?env=HCM&summary=true      # Error surface grouped by code + object
+GET  /api/logs/errors?env=HCM&error_code=ORA-00942  # Filter to a specific error
+GET  /api/logs/session/{oprid}?start=...&end=...    # Web+app chain for one user
+POST /api/logs/search?q=ORA-00942&env=HCM       # Full-text search across web+app entries
+POST /api/logs/ingest                            # Trigger immediate ingest (non-blocking)
+```
+
+Query parameters for `/api/logs/web`:
+
+| Parameter | Description |
+|-----------|-------------|
+| `env` | Filter to a specific environment (e.g. `HCM`) |
+| `oprid` | Filter to a specific user OPRID |
+| `component` | Filter to a specific PS component name |
+| `status` | Filter by HTTP status code (e.g. `500`) |
+| `errors_only` | `true` to return only error entries (status ≥ 500) |
+| `start` / `end` | ISO datetime range (e.g. `2026-07-01T08:00:00`) |
+| `limit` | Max rows (default 200, max 2000) |
+
+Query parameters for `/api/logs/app`:
+
+| Parameter | Description |
+|-----------|-------------|
+| `env` | Environment filter |
+| `oprid` | OPRID filter |
+| `object_ref` | Filter by extracted PS object name |
+| `level` | Log level filter: `ERROR`, `INFO`, `WARN` |
+| `errors_only` | `true` to return only error entries |
+| `start` / `end` | ISO datetime range |
+| `limit` | Max rows |
 
 ### Integration Broker
 
@@ -387,6 +795,65 @@ Additional APIs are exposed through the registered routers for:
 /api/operator/*
 /api/authelia/*
 ```
+
+------------------------------------------------------------------------
+
+## Log Intelligence
+
+Phase 8 adds continuous ingestion, storage, and AI analysis of PeopleSoft
+web server and application server logs.
+
+### How it works
+
+1. The background scheduler reads each enabled log source every 60 seconds
+   via SSH/SFTP (or directly from disk for `"local"` sources).
+2. Only new bytes since the last ingest are fetched — files are never re-read
+   from the beginning.
+3. Lines are parsed by format (PIA, APPSRV, Tuxedo, nginx, F5) and stored
+   in `data/logs.db` (SQLite).
+4. Errors (ORA- codes, HTTP 5xx, fatal messages) are extracted and stored
+   separately in the `log_errors` table, deduplicated by `(source, ts, raw)`.
+
+### Quick start
+
+1. Fill in real SSH hosts in `config.json → ssh_hosts`
+2. Add log source entries in `config.json → log_sources` with `"enabled": true`
+3. Restart the server (or POST to `/api/logs/ingest` to trigger immediately)
+4. Visit `/admin/logs` to see source status and ingest results
+
+### Admin UI pages
+
+| URL | Purpose |
+|-----|---------|
+| `/admin/logs` | Source overview — status, last ingest time, file count, errors |
+| `/admin/log_errors` | Error surface — grouped by error code + object, sorted by frequency |
+| `/admin/log_viewer` | Raw log browser — filter by user, component, level, time range |
+| `/admin/log_session` | Session chain — correlates web + app logs for one OPRID |
+
+### Asking the AI about logs
+
+Once log sources are ingesting, the assistant at `/admin/assistant` can answer:
+
+- "What errors are we seeing in HCM?" → uses `log_errors`
+- "What was GUACUSER doing between 9am and 10am?" → uses `session_log_chain`
+- "Are there any ORA-00942 errors?" → uses `log_errors`
+- "Show me 500 errors in the web logs for the JOB_DATA component" → uses `log_search`
+- "What objects are responsible for the most errors?" → uses `log_errors`
+
+The AI also links error codes directly to PS metadata tools (`peoplecode_search`,
+`record_usage`, `sql_lookup`) to suggest a diagnosis or further troubleshooting steps.
+
+### Session chain correlation
+
+The session chain (`/admin/log_session`) correlates web and app log entries
+for a single OPRID by timestamp. It shows:
+
+- Every component/page the user accessed (from web access logs)
+- Everything the app server logged for them simultaneously (ORA- errors, PC errors, state record loads)
+- A link directly to Transaction Tracing for the same OPRID
+
+This is the fastest path from "a user is having a problem" to understanding exactly
+what failed and what object is responsible.
 
 ------------------------------------------------------------------------
 
