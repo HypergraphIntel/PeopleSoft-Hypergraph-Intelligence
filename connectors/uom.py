@@ -5275,6 +5275,346 @@ def connected_query_payload(env, conqrsname):
 
 
 # ---------------------------------------------------------------------------
+# IB Message Definitions (PSMSGDEFN)
+# ---------------------------------------------------------------------------
+
+_IB_MSG_STATUS_CLS = {0: ("chip-ok", "Active"), 1: ("chip-muted", "Inactive")}
+_IB_MSG_TYPE_CLS = {
+    0: "chip-muted", 1: "chip-muted", 2: "chip-info", 3: "chip-muted", 4: "chip-muted"
+}
+
+
+def ib_message_object(env, msgname):
+    data = psdb.get_ib_message(env, msgname.upper())
+    if "error" in data:
+        return None
+    defn = data.get("definition", {})
+    status = defn.get("msgstatus", 0)
+    status_cls, status_label = _IB_MSG_STATUS_CLS.get(status, ("chip-muted", "Unknown"))
+    return {
+        "type": "message",
+        "name": defn.get("msgname", msgname),
+        "title": (defn.get("descr") or defn.get("msgdisplayname") or "").strip() or msgname,
+        "channel": (defn.get("chnlname") or "").strip() or None,
+        "default_ver": (defn.get("defaultver") or "").strip() or None,
+        "status": status,
+        "status_label": status_label,
+        "status_cls": status_cls,
+        "owner": (defn.get("objectownerid") or "").strip() or None,
+        "xml_alias": (defn.get("xmlalias") or "").strip() or None,
+        "lastupdoprid": (defn.get("lastupdoprid") or "").strip() or None,
+        "lastupddttm": defn.get("lastupddttm"),
+        "versions": data.get("versions", []),
+        "schema_records": data.get("schema_records", []),
+        "counts": data.get("counts", {}),
+        "_raw": data,
+        "_links": {"admin": "/admin/ibmessage"},
+        "warnings": data.get("warnings", []),
+    }
+
+
+def sections_for_ib_message(obj):
+    from connectors.psdb import _IB_MSG_TYPE
+    sections = []
+
+    # Overview
+    ov_rows = []
+    ov_rows.append({"label": "Status", "chips": [{"label": obj["status_label"], "cls": obj["status_cls"]}]})
+    if obj.get("channel"):
+        ov_rows.append({"label": "Queue/Channel", "value": obj["channel"]})
+    if obj.get("default_ver"):
+        ov_rows.append({"label": "Default Version", "value": obj["default_ver"]})
+    if obj.get("owner"):
+        ov_rows.append({"label": "Owner", "value": obj["owner"]})
+    if obj.get("xml_alias"):
+        ov_rows.append({"label": "XML Alias", "value": obj["xml_alias"]})
+    if obj.get("lastupdoprid"):
+        ov_rows.append({"label": "Last Updated By", "value": obj["lastupdoprid"]})
+    if obj.get("lastupddttm"):
+        ov_rows.append({"label": "Last Updated", "value": str(obj["lastupddttm"])[:19]})
+
+    sections.append({"id": "overview", "title": "Overview", "type": "kv", "rows": ov_rows})
+
+    # Versions
+    vers = obj.get("versions", [])
+    if vers:
+        items = []
+        for v in vers:
+            ver_name = (v.get("apmsgver") or "").strip()
+            type_label = _IB_MSG_TYPE.get(v.get("ib_msgtype"), f"Type {v.get('ib_msgtype')}")
+            chips = [{"label": type_label, "cls": _IB_MSG_TYPE_CLS.get(v.get("ib_msgtype"), "chip-muted")}]
+            if v.get("ib_parts"):
+                chips.append({"label": "Multi-Part", "cls": "chip-info"})
+            items.append({
+                "name": ver_name,
+                "chips": chips,
+                "meta": None,
+            })
+        sections.append({
+            "id": "versions",
+            "title": f"Versions ({len(vers)})",
+            "type": "items",
+            "items": items,
+        })
+
+    # Schema records
+    schema_recs = obj.get("schema_records", [])
+    if schema_recs:
+        items = []
+        for r in schema_recs:
+            rec = (r.get("recname") or "").strip()
+            parent = (r.get("prntrecname") or "").strip() or None
+            alias = (r.get("xmlalias") or "").strip() or None
+            meta_parts = []
+            if parent:
+                meta_parts.append(f"parent: {parent}")
+            if alias and alias != rec:
+                meta_parts.append(f"alias: {alias}")
+            items.append({
+                "name": rec,
+                "chips": [{"label": "Record", "cls": "chip-ok"}],
+                "meta": " | ".join(meta_parts) if meta_parts else None,
+            })
+        sections.append({
+            "id": "schema_records",
+            "title": f"Schema Records ({len(schema_recs)})",
+            "type": "items",
+            "items": items,
+        })
+
+    return sections
+
+
+def ib_message_payload(env, msgname):
+    obj = ib_message_object(env, msgname)
+    if obj is None:
+        return None
+    return {
+        "type": "message",
+        "name": obj["name"],
+        "title": obj["title"],
+        "overview": {"status": obj["status_label"], "channel": obj.get("channel")},
+        "sections": sections_for_ib_message(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
+# ---------------------------------------------------------------------------
+# App Designer Projects (PSPROJECTDEFN)
+# ---------------------------------------------------------------------------
+
+_PRJOBJ_TYPE_CLS = {
+    0: "chip-ok",    # Record
+    2: "chip-ok",    # Page
+    4: "chip-ok",    # Component
+    5: "chip-ok",    # Component Interface
+    7: "chip-ok",    # Application Engine
+    8: "chip-ok",    # Application Package
+    44: "chip-info", # PeopleCode
+    50: "chip-info", # Stylesheet
+    58: "chip-muted", # Tree
+    74: "chip-info", # PS Query
+}
+
+
+def project_object(env, projectname):
+    data = psdb.get_project(env, projectname.upper())
+    if "error" in data:
+        return None
+    defn = data.get("definition", {})
+    return {
+        "type": "project",
+        "name": defn.get("projectname", projectname),
+        "title": (defn.get("projectdescr") or "").strip() or projectname,
+        "release_label": (defn.get("releaselabel") or "").strip() or None,
+        "lastupdoprid": (defn.get("lastupdoprid") or "").strip() or None,
+        "lastupddttm": defn.get("lastupddttm"),
+        "type_summary": data.get("type_summary", []),
+        "items_by_type": data.get("items_by_type", {}),
+        "counts": data.get("counts", {}),
+        "_raw": data,
+        "_links": {"admin": "/admin/project"},
+        "warnings": data.get("warnings", []),
+    }
+
+
+def sections_for_project(obj):
+    sections = []
+
+    # Overview
+    ov_rows = []
+    if obj.get("release_label"):
+        ov_rows.append({"label": "Release", "value": obj["release_label"]})
+    if obj.get("lastupdoprid"):
+        ov_rows.append({"label": "Last Updated By", "value": obj["lastupdoprid"]})
+    if obj.get("lastupddttm"):
+        ov_rows.append({"label": "Last Updated", "value": str(obj["lastupddttm"])[:19]})
+    total = obj["counts"].get("total_items", 0)
+    type_cnt = obj["counts"].get("types", 0)
+    if total:
+        ov_rows.append({"label": "Total Objects", "value": str(total)})
+    if type_cnt:
+        ov_rows.append({"label": "Object Types", "value": str(type_cnt)})
+
+    if ov_rows:
+        sections.append({"id": "overview", "title": "Overview", "type": "kv", "rows": ov_rows})
+
+    # Object type summary as chips
+    ts = obj.get("type_summary", [])
+    if ts:
+        from connectors.psdb import _PRJOBJ_TYPE_LABEL
+        chips = []
+        for t in ts:
+            label_name = _PRJOBJ_TYPE_LABEL.get(t["objecttype"], f"Type {t['objecttype']}")
+            chips.append({
+                "label": f"{label_name} ({t['count']})",
+                "cls": _PRJOBJ_TYPE_CLS.get(t["objecttype"], "chip-muted"),
+            })
+        sections.append({
+            "id": "type_summary",
+            "title": f"Object Types ({len(ts)})",
+            "type": "chips",
+            "chips": chips,
+        })
+
+    # Items grouped by type
+    items_by_type = obj.get("items_by_type", {})
+    from connectors.psdb import _PRJOBJ_TYPE_LABEL, _PRJOBJ_ENCODED
+    for otype, type_items in sorted(items_by_type.items(), key=lambda x: -len(x[1])):
+        label_name = _PRJOBJ_TYPE_LABEL.get(otype, f"Type {otype}")
+        encoded = otype in _PRJOBJ_ENCODED
+        row_items = []
+        seen = set()
+        for it in type_items:
+            v1 = (it.get("objectvalue1") or "").strip()
+            v2 = (it.get("objectvalue2") or "").strip()
+            display_name = v1 if not encoded else f"[{v1}]"
+            meta = v2 if v2 and v2 != v1 else None
+            key = (v1, v2)
+            if key in seen:
+                continue
+            seen.add(key)
+            row_items.append({
+                "name": display_name,
+                "chips": [{"label": label_name, "cls": _PRJOBJ_TYPE_CLS.get(otype, "chip-muted")}],
+                "meta": meta,
+            })
+        if row_items:
+            sections.append({
+                "id": f"objects_{otype}",
+                "title": f"{label_name} ({len(row_items)})",
+                "type": "items",
+                "items": row_items[:100],  # cap per-type display
+            })
+
+    return sections
+
+
+def project_payload(env, projectname):
+    obj = project_object(env, projectname)
+    if obj is None:
+        return None
+    return {
+        "type": "project",
+        "name": obj["name"],
+        "title": obj["title"],
+        "overview": {
+            "release": obj.get("release_label"),
+            "operator": obj.get("lastupdoprid"),
+        },
+        "sections": sections_for_project(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Translate Values (PSXLATITEM / PSXLATDEFN)
+# ---------------------------------------------------------------------------
+
+def xlat_field_object(env, fieldname):
+    data = psdb.get_translate_values(env, fieldname.upper())
+    if "error" in data:
+        return None
+    return {
+        "type": "xlat_field",
+        "name": data["fieldname"],
+        "title": data["fieldname"],
+        "values": data.get("values", []),
+        "active_values": data.get("active_values", []),
+        "inactive_values": data.get("inactive_values", []),
+        "counts": data.get("counts", {}),
+        "_raw": data,
+        "_links": {"admin": "/admin/xlat"},
+        "warnings": data.get("warnings", []),
+    }
+
+
+def sections_for_xlat_field(obj):
+    sections = []
+
+    active = obj.get("active_values", [])
+    inactive = obj.get("inactive_values", [])
+
+    if active:
+        items = []
+        for v in active:
+            val = (v.get("fieldvalue") or "").strip()
+            long_name = (v.get("xlatlongname") or "").strip()
+            short_name = (v.get("xlatshortname") or "").strip()
+            display = long_name if long_name and long_name != val else (short_name or val)
+            items.append({
+                "name": val,
+                "chips": [{"label": "Active", "cls": "chip-ok"}],
+                "meta": display if display != val else None,
+            })
+        sections.append({
+            "id": "active_values",
+            "title": f"Active Values ({len(active)})",
+            "type": "items",
+            "items": items,
+        })
+
+    if inactive:
+        items = []
+        for v in inactive:
+            val = (v.get("fieldvalue") or "").strip()
+            long_name = (v.get("xlatlongname") or "").strip()
+            items.append({
+                "name": val,
+                "chips": [{"label": "Inactive", "cls": "chip-muted"}],
+                "meta": long_name if long_name and long_name != val else None,
+            })
+        sections.append({
+            "id": "inactive_values",
+            "title": f"Inactive Values ({len(inactive)})",
+            "type": "items",
+            "items": items,
+        })
+
+    return sections
+
+
+def xlat_field_payload(env, fieldname):
+    obj = xlat_field_object(env, fieldname)
+    if obj is None:
+        return None
+    return {
+        "type": "xlat_field",
+        "name": obj["name"],
+        "title": obj["title"],
+        "overview": {"total": obj["counts"].get("total", 0)},
+        "sections": sections_for_xlat_field(obj),
+        "warnings": obj.get("warnings", []),
+        "_links": obj["_links"],
+        "_uom": obj,
+    }
+
+
+# ---------------------------------------------------------------------------
 # File Layout Definitions (PSFLDDEFN)
 # ---------------------------------------------------------------------------
 
@@ -5625,6 +5965,12 @@ def canonical_object(env, object_type, name):
         return process_defn_object(env, name)
     if object_type == "file_layout":
         return file_layout_object(env, name)
+    if object_type == "xlat_field":
+        return xlat_field_object(env, name)
+    if object_type == "project":
+        return project_object(env, name)
+    if object_type == "message":
+        return ib_message_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])

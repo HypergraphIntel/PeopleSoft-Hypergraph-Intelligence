@@ -31,6 +31,9 @@ _NAV = [
     ("conqrs",     "Conn. Queries", "/admin/conqrs"),
     ("prcsdefn",   "Processes",     "/admin/prcsdefn"),
     ("filelayout", "File Layouts",  "/admin/filelayout"),
+    ("xlat",       "Translate",     "/admin/xlat"),
+    ("project",    "Projects",      "/admin/project"),
+    ("ibmessage",  "IB Messages",   "/admin/ibmessage"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3057,6 +3060,9 @@ const TYPE_CHIP_CFG = {
     connected_query:         {label:'Conn. Query',   bg:'#001018',border:'#00ccee44',color:'#00ccee'},
     prcs_defn:               {label:'Process Def',   bg:'#100a18',border:'#aa66ff44',color:'#aa66ff'},
     file_layout:             {label:'File Layout',   bg:'#0a1218',border:'#44aaff44',color:'#44aaff'},
+    xlat_field:              {label:'Translate',      bg:'#100f00',border:'#ddcc0044',color:'#ddcc00'},
+    project:                 {label:'Project',        bg:'#0a100a',border:'#55ee5544',color:'#55ee55'},
+    message:                 {label:'IB Message',     bg:'#180a1a',border:'#cc44ff44',color:'#cc44ff'},
 };
 
 function typeChipHtml(type) {
@@ -12970,6 +12976,417 @@ async function selectItem(idx, name) {{
     html += `<div class="muted">No detail available.</div>`;
   }}
 
+  detail.innerHTML = html;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/xlat")
+def admin_xlat(request: Request, env: str = "HCM"):
+    nav = _nav_html("xlat", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Translate Values</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0d0d11;color:#ccd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}}
+{_NAV_CSS}
+.shell{{display:flex;flex:1;overflow:hidden}}
+.sidebar{{width:280px;min-width:200px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}}
+.filters{{padding:10px;border-bottom:1px solid #1a1a22}}
+.filters input{{width:100%;background:#111;border:1px solid #333;color:#ccd;padding:5px 8px;border-radius:3px;font-size:12px}}
+.list{{overflow-y:auto;flex:1;padding:4px 0}}
+.item{{padding:7px 12px;cursor:pointer;border-left:3px solid transparent;transition:background .1s}}
+.item:hover{{background:#151520}}
+.item.sel{{background:#12121e;border-left-color:#ddcc00}}
+.item-name{{font-family:monospace;font-size:12px;color:#ddcc00;font-weight:bold}}
+.item-meta{{font-size:10px;color:#556;margin-top:2px}}
+.detail{{flex:1;overflow-y:auto;padding:20px}}
+.muted{{color:#445;font-size:12px;padding:20px}}
+h2{{color:#ddcc00;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:16px 0 6px;padding-bottom:4px;border-bottom:1px solid #1e1e2a}}
+.chip{{display:inline-block;padding:1px 7px;border-radius:2px;font-size:10px;font-weight:bold;margin:1px 3px 1px 0;white-space:nowrap}}
+.chip-ok{{background:#0a1a0a;border:1px solid #22cc6644;color:#22cc66}}
+.chip-muted{{background:#1a1a1a;border:1px solid #33333388;color:#778}}
+.stat{{display:inline-block;margin-right:14px;font-size:11px;color:#556}}
+.stat b{{color:#ddcc00;font-size:14px;margin-right:4px}}
+.val-row{{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-bottom:1px solid #16161e;font-size:12px}}
+.val-code{{font-family:monospace;color:#ddcc00;min-width:60px;font-weight:bold}}
+.val-long{{color:#aab;flex:1}}
+.val-short{{color:#667;font-size:10px;min-width:80px;text-align:right}}
+.val-inactive{{opacity:0.45}}
+</style></head>
+<body>
+{nav}
+<div class="shell">
+  <div class="sidebar">
+    <div class="filters">
+      <input id="qInput" placeholder="Search field name…" oninput="doSearch()">
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+  <div class="detail" id="detail"><div class="muted">Select a field to see its translate values.</div></div>
+</div>
+<script>
+const ENV = {repr(env)};
+let _all = [];
+
+async function api(url) {{
+  try {{ const r = await fetch(url); return r.ok ? r.json() : null; }} catch {{ return null; }}
+}}
+function esc(s) {{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }}
+function chip(cls, label) {{ return `<span class="chip ${{cls}}">${{esc(label)}}</span>`; }}
+
+async function doSearch() {{
+  const q = document.getElementById('qInput').value;
+  const data = await api(`/api/peoplesoft/translate-fields?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=500`);
+  _all = (data?.items || []);
+  const list = document.getElementById('list');
+  list.innerHTML = _all.map((it, i) => `
+    <div class="item" id="item-${{i}}" onclick="selectItem(${{i}}, '${{encodeURIComponent(it.fieldname)}}')">
+      <div class="item-name">${{esc(it.fieldname)}}</div>
+      <div class="item-meta">${{it.active_count||0}} active / ${{it.value_count||0}} total</div>
+    </div>`).join('');
+}}
+
+async function selectItem(idx, name) {{
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${{idx}}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/xlat_field/${{name}}?env=${{ENV}}`);
+  if (!d) {{ detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }}
+
+  const uom = d._uom || {{}};
+  const counts = uom.counts || {{}};
+  const sections = d.sections || [];
+  const activeSec = sections.find(s => s.id === 'active_values');
+  const inactiveSec = sections.find(s => s.id === 'inactive_values');
+
+  let html = `<div style="margin-bottom:12px">
+    <span style="font-family:monospace;font-size:15px;font-weight:bold;color:#ddcc00">${{esc(uom.name||'')}}</span>
+  </div>`;
+
+  html += `<div style="margin:8px 0 14px">
+    <span class="stat"><b>${{counts.active||0}}</b>Active</span>
+    <span class="stat"><b>${{counts.inactive||0}}</b>Inactive</span>
+    <span class="stat"><b>${{counts.total||0}}</b>Total</span>
+  </div>`;
+
+  function renderValueRows(items, inactive) {{
+    return items.map(it =>
+      `<div class="val-row${{inactive?' val-inactive':''}}">
+         <span class="val-code">${{esc(it.name)}}</span>
+         <span class="val-long">${{esc(it.meta||it.name)}}</span>
+       </div>`
+    ).join('');
+  }}
+
+  if (activeSec?.items?.length) {{
+    html += `<h2>Active Values (${{activeSec.items.length}})</h2>`;
+    html += renderValueRows(activeSec.items, false);
+  }}
+  if (inactiveSec?.items?.length) {{
+    html += `<h2>Inactive Values (${{inactiveSec.items.length}})</h2>`;
+    html += renderValueRows(inactiveSec.items, true);
+  }}
+  if (!activeSec && !inactiveSec) {{
+    html += `<div class="muted">No translate values found.</div>`;
+  }}
+
+  detail.innerHTML = html;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/project")
+def admin_project(request: Request, env: str = "HCM"):
+    nav = _nav_html("project", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>App Designer Projects</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0d0d11;color:#ccd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}}
+{_NAV_CSS}
+.shell{{display:flex;flex:1;overflow:hidden}}
+.sidebar{{width:300px;min-width:220px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}}
+.filters{{padding:10px;border-bottom:1px solid #1a1a22}}
+.filters input{{width:100%;background:#111;border:1px solid #333;color:#ccd;padding:5px 8px;border-radius:3px;font-size:12px}}
+.list{{overflow-y:auto;flex:1;padding:4px 0}}
+.item{{padding:7px 12px;cursor:pointer;border-left:3px solid transparent;transition:background .1s}}
+.item:hover{{background:#151520}}
+.item.sel{{background:#12121e;border-left-color:#55ee55}}
+.item-name{{font-family:monospace;font-size:12px;color:#55ee55;font-weight:bold}}
+.item-meta{{font-size:10px;color:#556;margin-top:2px}}
+.item-descr{{font-size:11px;color:#889;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.detail{{flex:1;overflow-y:auto;padding:20px}}
+.muted{{color:#445;font-size:12px;padding:20px}}
+h2{{color:#55ee55;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:16px 0 6px;padding-bottom:4px;border-bottom:1px solid #1e1e2a}}
+.kv-grid{{display:grid;grid-template-columns:140px 1fr;gap:4px 10px;font-size:12px;margin-bottom:10px}}
+.kv-key{{color:#556;padding-top:1px}}
+.kv-val{{color:#aab;font-family:monospace;word-break:break-all}}
+.chip{{display:inline-block;padding:1px 7px;border-radius:2px;font-size:10px;font-weight:bold;margin:2px 4px 2px 0;white-space:nowrap}}
+.chip-ok{{background:#0a1a0a;border:1px solid #22cc6644;color:#22cc66}}
+.chip-info{{background:#001018;border:1px solid #00ccee44;color:#00ccee}}
+.chip-muted{{background:#1a1a1a;border:1px solid #33333388;color:#778}}
+.stat{{display:inline-block;margin-right:14px;font-size:11px;color:#556}}
+.stat b{{color:#55ee55;font-size:14px;margin-right:4px}}
+.field-row{{display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #16161e;font-size:12px}}
+.obj-name{{font-family:monospace;color:#aad;flex:1}}
+.obj-meta{{color:#445;font-size:10px}}
+</style></head>
+<body>
+{nav}
+<div class="shell">
+  <div class="sidebar">
+    <div class="filters">
+      <input id="qInput" placeholder="Search project name / description…" oninput="doSearch()">
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+  <div class="detail" id="detail"><div class="muted">Select a project.</div></div>
+</div>
+<script>
+const ENV = {repr(env)};
+let _all = [];
+
+async function api(url) {{
+  try {{ const r = await fetch(url); return r.ok ? r.json() : null; }} catch {{ return null; }}
+}}
+function esc(s) {{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }}
+function chip(cls, label) {{ return `<span class="chip ${{cls}}">${{esc(label)}}</span>`; }}
+
+function fmtDate(d) {{
+  if (!d) return '';
+  return String(d).slice(0,10);
+}}
+
+async function doSearch() {{
+  const q = document.getElementById('qInput').value;
+  const data = await api(`/api/peoplesoft/projects?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=500`);
+  _all = (data?.items || []);
+  const list = document.getElementById('list');
+  list.innerHTML = _all.map((it, i) => `
+    <div class="item" id="item-${{i}}" onclick="selectItem(${{i}}, '${{encodeURIComponent(it.projectname)}}')">
+      <div class="item-name">${{esc(it.projectname)}}</div>
+      <div class="item-meta">${{fmtDate(it.lastupddttm)}} · ${{esc(it.lastupdoprid||'')}} · ${{it.item_count||0}} objects</div>
+      <div class="item-descr">${{esc(it.projectdescr||'')}}</div>
+    </div>`).join('');
+}}
+
+async function selectItem(idx, name) {{
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${{idx}}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/project/${{name}}?env=${{ENV}}`);
+  if (!d) {{ detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }}
+
+  const uom = d._uom || {{}};
+  const sections = d.sections || [];
+  const ovSec = sections.find(s => s.id === 'overview');
+  const tsSec = sections.find(s => s.id === 'type_summary');
+  const objSecs = sections.filter(s => s.id.startsWith('objects_'));
+  const counts = uom.counts || {{}};
+
+  let html = `<div style="margin-bottom:12px">
+    <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#55ee55">${{esc(uom.name||'')}}</span>
+  </div>`;
+
+  if (uom.title && uom.title !== uom.name) {{
+    html += `<div style="color:#889;font-size:13px;margin-bottom:10px">${{esc(uom.title)}}</div>`;
+  }}
+
+  if (ovSec?.rows?.length) {{
+    html += `<div class="kv-grid">`;
+    for (const row of ovSec.rows) {{
+      html += `<div class="kv-key">${{esc(row.label)}}</div><div class="kv-val">${{esc(String(row.value||''))}}</div>`;
+    }}
+    html += `</div>`;
+  }}
+
+  html += `<div style="margin:10px 0">
+    <span class="stat"><b>${{counts.total_items||0}}</b>Objects</span>
+    <span class="stat"><b>${{counts.types||0}}</b>Types</span>
+  </div>`;
+
+  if (tsSec?.chips?.length) {{
+    html += `<h2>Object Types</h2><div style="margin-bottom:8px">`;
+    html += tsSec.chips.map(c => chip(c.cls||'chip-muted', c.label)).join('');
+    html += `</div>`;
+  }}
+
+  for (const sec of objSecs) {{
+    if (sec.items?.length) {{
+      html += `<h2>${{esc(sec.title)}}</h2>`;
+      html += sec.items.map(it =>
+        `<div class="field-row">
+           <span class="obj-name">${{esc(it.name)}}</span>
+           ${{it.meta ? `<span class="obj-meta">${{esc(it.meta)}}</span>` : ''}}
+         </div>`
+      ).join('');
+      if (sec.items.length >= 100) {{
+        html += `<div style="color:#556;font-size:10px;padding:4px 0">Showing first 100 of this type…</div>`;
+      }}
+    }}
+  }}
+
+  if (!ovSec && !tsSec && !objSecs.length) {{
+    html += `<div class="muted">No items in project.</div>`;
+  }}
+
+  detail.innerHTML = html;
+}}
+
+doSearch();
+</script>
+</body></html>""")
+
+
+@router.get("/admin/ibmessage")
+def admin_ibmessage(request: Request, env: str = "HCM"):
+    nav = _nav_html("ibmessage", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>IB Messages</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0d0d11;color:#ccd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}}
+{_NAV_CSS}
+.shell{{display:flex;flex:1;overflow:hidden}}
+.sidebar{{width:300px;min-width:220px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}}
+.filters{{padding:10px;border-bottom:1px solid #1a1a22}}
+.filters input{{width:100%;background:#111;border:1px solid #333;color:#ccd;padding:5px 8px;border-radius:3px;font-size:12px}}
+.list{{overflow-y:auto;flex:1;padding:4px 0}}
+.item{{padding:7px 12px;cursor:pointer;border-left:3px solid transparent;transition:background .1s}}
+.item:hover{{background:#151520}}
+.item.sel{{background:#12121e;border-left-color:#cc44ff}}
+.item-name{{font-family:monospace;font-size:12px;color:#cc44ff;font-weight:bold}}
+.item-meta{{font-size:10px;color:#556;margin-top:2px}}
+.item-descr{{font-size:11px;color:#889;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.detail{{flex:1;overflow-y:auto;padding:20px}}
+.muted{{color:#445;font-size:12px;padding:20px}}
+h2{{color:#cc44ff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:16px 0 6px;padding-bottom:4px;border-bottom:1px solid #1e1e2a}}
+.kv-grid{{display:grid;grid-template-columns:140px 1fr;gap:4px 10px;font-size:12px;margin-bottom:10px}}
+.kv-key{{color:#556;padding-top:1px}}
+.kv-val{{color:#aab;font-family:monospace;word-break:break-all}}
+.chip{{display:inline-block;padding:1px 7px;border-radius:2px;font-size:10px;font-weight:bold;margin:1px 3px 1px 0;white-space:nowrap}}
+.chip-ok{{background:#0a1a0a;border:1px solid #22cc6644;color:#22cc66}}
+.chip-info{{background:#001018;border:1px solid #00ccee44;color:#00ccee}}
+.chip-muted{{background:#1a1a1a;border:1px solid #33333388;color:#778}}
+.chip-purple{{background:#180a1a;border:1px solid #cc44ff44;color:#cc44ff}}
+.stat{{display:inline-block;margin-right:14px;font-size:11px;color:#556}}
+.stat b{{color:#cc44ff;font-size:14px;margin-right:4px}}
+.field-row{{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #1a1a22;font-size:12px}}
+</style></head>
+<body>
+{nav}
+<div class="shell">
+  <div class="sidebar">
+    <div class="filters">
+      <input id="qInput" placeholder="Search message name / description…" oninput="doSearch()">
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+  <div class="detail" id="detail"><div class="muted">Select an IB message definition.</div></div>
+</div>
+<script>
+const ENV = {repr(env)};
+let _all = [];
+
+async function api(url) {{
+  try {{ const r = await fetch(url); return r.ok ? r.json() : null; }} catch {{ return null; }}
+}}
+function esc(s) {{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }}
+function chip(cls, label) {{ return `<span class="chip ${{cls}}">${{esc(label)}}</span>`; }}
+
+function statusChip(s) {{
+  return s === 'Active' ? chip('chip-ok', 'Active') : chip('chip-muted', s||'?');
+}}
+
+async function doSearch() {{
+  const q = document.getElementById('qInput').value;
+  const data = await api(`/api/peoplesoft/ib-messages?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=500`);
+  _all = (data?.items || []);
+  const list = document.getElementById('list');
+  list.innerHTML = _all.map((it, i) => `
+    <div class="item" id="item-${{i}}" onclick="selectItem(${{i}}, '${{encodeURIComponent(it.msgname)}}')">
+      <div class="item-name">${{esc(it.msgname)}}</div>
+      <div class="item-meta">${{esc((it.chnlname||'').trim()||'No Queue')}} · ${{esc(it.msgstatus_label||'')}}</div>
+      <div class="item-descr">${{esc(it.descr||'')}}</div>
+    </div>`).join('');
+}}
+
+async function selectItem(idx, name) {{
+  document.querySelectorAll('.item').forEach(el => el.classList.remove('sel'));
+  const el = document.getElementById(`item-${{idx}}`);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api(`/api/peoplesoft/object/message/${{name}}?env=${{ENV}}`);
+  if (!d) {{ detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }}
+
+  const uom = d._uom || {{}};
+  const sections = d.sections || [];
+  const ovSec = sections.find(s => s.id === 'overview');
+  const verSec = sections.find(s => s.id === 'versions');
+  const recSec = sections.find(s => s.id === 'schema_records');
+  const counts = uom.counts || {{}};
+
+  let html = `<div style="margin-bottom:12px">
+    ${{statusChip(uom.status_label)}}
+    <span style="font-family:monospace;font-size:14px;font-weight:bold;color:#cc44ff">${{esc(uom.name||'')}}</span>
+  </div>`;
+  if (uom.title && uom.title !== uom.name) {{
+    html += `<div style="color:#889;font-size:13px;margin-bottom:12px">${{esc(uom.title)}}</div>`;
+  }}
+
+  const ovRows = (ovSec?.rows || []).filter(r => r.label !== 'Status');
+  if (ovRows.length) {{
+    html += `<div class="kv-grid">`;
+    for (const row of ovRows) {{
+      const val = row.value ? esc(String(row.value)) :
+        (row.chips||[]).map(c => chip(c.cls||'chip-info', c.label)).join('') || '';
+      html += `<div class="kv-key">${{esc(row.label)}}</div><div class="kv-val">${{val}}</div>`;
+    }}
+    html += `</div>`;
+  }}
+
+  html += `<div style="margin:10px 0">
+    <span class="stat"><b>${{counts.versions||0}}</b>Versions</span>
+    <span class="stat"><b>${{counts.schema_records||0}}</b>Schema Records</span>
+  </div>`;
+
+  if (verSec?.items?.length) {{
+    html += `<h2>Versions</h2>`;
+    html += verSec.items.map(it =>
+      `<div class="field-row">
+         <span style="font-family:monospace;color:#cc44ff;min-width:100px">${{esc(it.name)}}</span>
+         ${{(it.chips||[]).map(c => chip(c.cls||'chip-muted', c.label)).join('')}}
+       </div>`
+    ).join('');
+  }}
+  if (recSec?.items?.length) {{
+    html += `<h2>Schema Records (${{recSec.items.length}})</h2>`;
+    html += recSec.items.map(it =>
+      `<div class="field-row">
+         <span style="font-family:monospace;color:#aad;min-width:180px">${{esc(it.name)}}</span>
+         ${{it.meta ? `<span style="color:#445;font-size:10px">${{esc(it.meta)}}</span>` : ''}}
+       </div>`
+    ).join('');
+  }}
+
+  if (!ovRows.length && !verSec && !recSec) {{
+    html += `<div class="muted">No detail available.</div>`;
+  }}
   detail.innerHTML = html;
 }}
 

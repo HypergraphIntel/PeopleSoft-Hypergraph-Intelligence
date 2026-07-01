@@ -926,6 +926,56 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "connected_query", cid, r.get("descr") or cid, r)
         return len(rows)
 
+    def ib_messages():
+        if not ptmetadata.has_table(env, "PSMSGDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT MSGNAME, DESCR, CHNLNAME, MSGSTATUS, OBJECTOWNERID
+              FROM SYSADM.PSMSGDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY MSGNAME
+        """) or []
+        for r in rows:
+            mid = r.get("msgname")
+            if not mid:
+                continue
+            add_node(graph, "message", mid, r.get("descr") or mid, r)
+        return len(rows)
+
+    def projects():
+        if not ptmetadata.has_table(env, "PSPROJECTDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT PROJECTNAME, PROJECTDESCR, LASTUPDOPRID, LASTUPDDTTM
+              FROM SYSADM.PSPROJECTDEFN
+             WHERE ROWNUM <= {limit}
+             ORDER BY LASTUPDDTTM DESC
+        """) or []
+        for r in rows:
+            pid = r.get("projectname")
+            if not pid:
+                continue
+            add_node(graph, "project", pid, r.get("projectdescr") or pid, r)
+        return len(rows)
+
+    def xlat_fields():
+        if not ptmetadata.has_table(env, "PSXLATDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT d.FIELDNAME, COUNT(i.FIELDVALUE) AS VALUE_COUNT
+              FROM SYSADM.PSXLATDEFN d
+              LEFT JOIN SYSADM.PSXLATITEM i ON i.FIELDNAME = d.FIELDNAME AND i.EFF_STATUS = 'A'
+             WHERE ROWNUM <= {limit}
+             GROUP BY d.FIELDNAME
+             ORDER BY d.FIELDNAME
+        """) or []
+        for r in rows:
+            fid = r.get("fieldname")
+            if not fid:
+                continue
+            add_node(graph, "xlat_field", fid, fid, r)
+        return len(rows)
+
     def file_layouts():
         if not ptmetadata.has_table(env, "PSFLDDEFN"):
             return 0
@@ -986,6 +1036,9 @@ def build(env="HCM", limit=50, persist=True):
         ("drop_zones", drop_zones),
         ("pivot_grids", pivot_grids),
         ("connected_queries", connected_queries),
+        ("ib_messages", ib_messages),
+        ("projects", projects),
+        ("xlat_fields", xlat_fields),
         ("file_layouts", file_layouts),
         ("process_definitions", process_definitions),
     ):

@@ -375,6 +375,12 @@ def object_payload(env, object_type, object_name):
         return uom.process_defn_payload(env, object_name)
     if object_type == "file_layout":
         return uom.file_layout_payload(env, object_name)
+    if object_type == "xlat_field":
+        return uom.xlat_field_payload(env, object_name)
+    if object_type == "project":
+        return uom.project_payload(env, object_name)
+    if object_type == "message":
+        return uom.ib_message_payload(env, object_name)
 
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
@@ -1139,6 +1145,24 @@ def peoplesoft_process_definitions(env: str = "HCM", q: str = "", prcstype: str 
 def peoplesoft_file_layouts(env: str = "HCM", q: str = "", limit: int = 200):
     """Search File Layout definitions (PSFLDDEFN)."""
     return psdb.search_file_layouts(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/translate-fields")
+def peoplesoft_translate_fields(env: str = "HCM", q: str = "", limit: int = 200):
+    """Search fields with translate values (PSXLATDEFN)."""
+    return psdb.search_translate_fields(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/projects")
+def peoplesoft_projects(env: str = "HCM", q: str = "", limit: int = 200):
+    """Search App Designer projects (PSPROJECTDEFN)."""
+    return psdb.search_projects(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/ib-messages")
+def peoplesoft_ib_messages(env: str = "HCM", q: str = "", limit: int = 200):
+    """Search IB Message definitions (PSMSGDEFN)."""
+    return psdb.search_ib_messages(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")

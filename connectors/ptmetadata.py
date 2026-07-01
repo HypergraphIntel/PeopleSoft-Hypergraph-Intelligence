@@ -730,6 +730,32 @@ OBJECT_REGISTRY.setdefault("connected_query", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("project", {
+    "display_title": "App Designer Project",
+    "icon": "package",
+    "graph_node_type": "project",
+    "object_page": "/admin/project",
+    "discovery": {"table": "PSPROJECTDEFN", "name_column": "PROJECTNAME"},
+    "search": {"table": "PSPROJECTDEFN", "name_column": "PROJECTNAME",
+               "description_columns": ["PROJECTDESCR"],
+               "extra_search_columns": ["LASTUPDOPRID", "RELEASELABEL"]},
+    "supported_versions": ["8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("xlat_field", {
+    "display_title": "Translate Values",
+    "icon": "list",
+    "graph_node_type": "xlat_field",
+    "object_page": "/admin/xlat",
+    "discovery": {"table": "PSXLATDEFN", "name_column": "FIELDNAME"},
+    "search": {"table": "PSXLATDEFN", "name_column": "FIELDNAME",
+               "description_columns": [],
+               "extra_search_columns": []},
+    "supported_versions": ["8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 OBJECT_REGISTRY.setdefault("file_layout", {
     "display_title": "File Layout",
     "icon": "file-text",
@@ -757,12 +783,24 @@ OBJECT_REGISTRY.setdefault("prcs_defn", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY["message"] = {
+    "display_title": "IB Message",
+    "icon": "mail",
+    "graph_node_type": "message",
+    "object_page": "/admin/ibmessage",
+    "discovery": {"table": "PSMSGDEFN", "name_column": "MSGNAME"},
+    "search": {"table": "PSMSGDEFN", "name_column": "MSGNAME",
+               "description_columns": ["DESCR"],
+               "extra_search_columns": ["CHNLNAME", "OBJECTOWNERID", "MSGSTATUS"]},
+    "supported_versions": ["8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+}
+
 for object_type in [
     "content_reference",
     "section",
     "step",
     "sql",
-    "message",
     "process_scheduler",
     "runtime_instance",
 ]:

@@ -5738,3 +5738,345 @@ def get_file_layout(env_name, flddefnname):
         },
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# Translate Values (PSXLATITEM / PSXLATDEFN)
+# ---------------------------------------------------------------------------
+
+def search_translate_fields(env_name, q="", limit=200):
+    from connectors import ptmetadata
+    warnings = []
+    items = []
+    if not ptmetadata.has_table(env_name, "PSXLATDEFN"):
+        warnings.append("PSXLATDEFN not found in schema")
+        return {"items": [], "warnings": warnings}
+    try:
+        sql = """
+            SELECT d.FIELDNAME,
+                   COUNT(DISTINCT i.FIELDVALUE) AS VALUE_COUNT,
+                   SUM(CASE WHEN i.EFF_STATUS = 'A' THEN 1 ELSE 0 END) AS ACTIVE_COUNT
+              FROM SYSADM.PSXLATDEFN d
+              LEFT JOIN SYSADM.PSXLATITEM i ON i.FIELDNAME = d.FIELDNAME
+             WHERE (:q IS NULL OR UPPER(d.FIELDNAME) LIKE UPPER(:q))
+             GROUP BY d.FIELDNAME
+             ORDER BY d.FIELDNAME
+             FETCH FIRST :lim ROWS ONLY
+        """
+        q_param = f"%{q}%" if q else None
+        rows = query(env_name, sql, {"q": q_param, "lim": limit})
+        items = [dict(r) for r in (rows or [])]
+    except Exception as exc:
+        warnings.append(f"PSXLATDEFN search: {exc}")
+    return {"items": items, "warnings": warnings}
+
+
+def get_translate_values(env_name, fieldname):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSXLATITEM"):
+        return {"error": "PSXLATITEM not found"}
+
+    # Confirm field exists in translate table
+    if ptmetadata.has_table(env_name, "PSXLATDEFN"):
+        try:
+            check = query(env_name, """
+                SELECT FIELDNAME FROM SYSADM.PSXLATDEFN WHERE FIELDNAME = :id
+            """, {"id": fieldname.upper()})
+            if not check:
+                return {"error": f"No translate values defined for field: {fieldname}"}
+        except Exception:
+            pass
+
+    # Get all effective-dated values — latest active per FIELDVALUE
+    values = []
+    try:
+        rows = query(env_name, """
+            SELECT FIELDVALUE, EFFDT, EFF_STATUS, XLATLONGNAME, XLATSHORTNAME,
+                   LASTUPDOPRID, LASTUPDDTTM
+              FROM SYSADM.PSXLATITEM
+             WHERE FIELDNAME = :id
+             ORDER BY FIELDVALUE, EFFDT DESC
+        """, {"id": fieldname.upper()})
+        # Deduplicate: keep only the row with the latest EFFDT per FIELDVALUE
+        seen = set()
+        for r in (rows or []):
+            fv = r.get("fieldvalue")
+            if fv not in seen:
+                seen.add(fv)
+                values.append(dict(r))
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    active = [v for v in values if v.get("eff_status") == "A"]
+    inactive = [v for v in values if v.get("eff_status") != "A"]
+
+    return {
+        "fieldname": fieldname.upper(),
+        "values": values,
+        "active_values": active,
+        "inactive_values": inactive,
+        "counts": {
+            "total": len(values),
+            "active": len(active),
+            "inactive": len(inactive),
+        },
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# App Designer Projects (PSPROJECTDEFN / PSPROJECTITEM)
+# ---------------------------------------------------------------------------
+
+_PRJOBJ_TYPE_LABEL = {
+    0:   "Record",
+    2:   "Page",
+    4:   "Component",
+    5:   "Component Interface",
+    6:   "Menu",
+    7:   "Application Engine",
+    8:   "Application Package",
+    9:   "Field",
+    10:  "PS Query",
+    11:  "Crystal Report",
+    12:  "HTML Object",
+    14:  "Image/File",
+    17:  "StyleSheet",
+    19:  "Free-form Style",
+    22:  "nVision Report",
+    25:  "SQL Definition",
+    26:  "Role",
+    27:  "Permission List",
+    28:  "Security Group",
+    30:  "AE SQL Step",
+    33:  "Process Definition",
+    34:  "Process Job",
+    37:  "Query Group",
+    43:  "AE Activity",
+    44:  "PeopleCode",
+    46:  "Related Content Defn",
+    47:  "Related Content Service",
+    48:  "Portal Registry",
+    49:  "IB Handler",
+    50:  "Stylesheet (Free-form)",
+    51:  "IB Routing",
+    53:  "Fluid Tile/Homepage",
+    55:  "Classic Menu",
+    58:  "Tree",
+    60:  "Portal Content Ref",
+    74:  "PS Query",
+    104: "App Package Class",
+    106: "Message Catalog Set",
+}
+
+# Types where OBJECTVALUE1 is NOT a human-readable name
+_PRJOBJ_ENCODED = {25, 30, 106}
+
+
+def search_projects(env_name, q="", limit=200):
+    from connectors import ptmetadata
+    warnings = []
+    items = []
+    if not ptmetadata.has_table(env_name, "PSPROJECTDEFN"):
+        warnings.append("PSPROJECTDEFN not found in schema")
+        return {"items": [], "warnings": warnings}
+    try:
+        sql = """
+            SELECT d.PROJECTNAME, d.PROJECTDESCR, d.RELEASELABEL,
+                   d.LASTUPDOPRID, d.LASTUPDDTTM,
+                   COUNT(i.OBJECTTYPE) AS ITEM_COUNT
+              FROM SYSADM.PSPROJECTDEFN d
+              LEFT JOIN SYSADM.PSPROJECTITEM i ON i.PROJECTNAME = d.PROJECTNAME
+             WHERE (:q IS NULL OR UPPER(d.PROJECTNAME) LIKE UPPER(:q)
+                    OR UPPER(d.PROJECTDESCR) LIKE UPPER(:q))
+             GROUP BY d.PROJECTNAME, d.PROJECTDESCR, d.RELEASELABEL,
+                      d.LASTUPDOPRID, d.LASTUPDDTTM
+             ORDER BY d.LASTUPDDTTM DESC, d.PROJECTNAME
+             FETCH FIRST :lim ROWS ONLY
+        """
+        q_param = f"%{q}%" if q else None
+        rows = query(env_name, sql, {"q": q_param, "lim": limit})
+        items = [dict(r) for r in (rows or [])]
+    except Exception as exc:
+        warnings.append(f"PSPROJECTDEFN search: {exc}")
+    return {"items": items, "warnings": warnings}
+
+
+def get_project(env_name, projectname):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSPROJECTDEFN"):
+        return {"error": "PSPROJECTDEFN not found"}
+
+    # Header
+    defn = None
+    try:
+        rows = query(env_name, """
+            SELECT PROJECTNAME, PROJECTDESCR, RELEASELABEL, DESCRLONG,
+                   MAINTPROJ, COMPARETYPE, LASTUPDOPRID, LASTUPDDTTM
+              FROM SYSADM.PSPROJECTDEFN
+             WHERE PROJECTNAME = :id
+        """, {"id": projectname.upper()})
+        if not rows:
+            return {"error": f"Project not found: {projectname}"}
+        defn = dict(rows[0])
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    # Object type summary
+    type_summary = []
+    items_by_type = {}
+    if ptmetadata.has_table(env_name, "PSPROJECTITEM"):
+        try:
+            # Summary counts
+            sum_rows = query(env_name, """
+                SELECT OBJECTTYPE, COUNT(*) CNT
+                  FROM SYSADM.PSPROJECTITEM
+                 WHERE PROJECTNAME = :id
+                 GROUP BY OBJECTTYPE
+                 ORDER BY CNT DESC
+            """, {"id": projectname.upper()})
+            for r in (sum_rows or []):
+                otype = r.get("objecttype", -1)
+                type_summary.append({
+                    "objecttype": otype,
+                    "label": _PRJOBJ_TYPE_LABEL.get(otype, f"Type {otype}"),
+                    "count": r.get("cnt", 0),
+                    "encoded": otype in _PRJOBJ_ENCODED,
+                })
+        except Exception as exc:
+            warnings.append(f"PSPROJECTITEM summary: {exc}")
+
+        try:
+            # All items (cap at 500 for performance)
+            item_rows = query(env_name, """
+                SELECT OBJECTTYPE, OBJECTVALUE1, OBJECTVALUE2,
+                       SOURCESTATUS, TARGETSTATUS, UPGRADEACTION
+                  FROM SYSADM.PSPROJECTITEM
+                 WHERE PROJECTNAME = :id
+                 ORDER BY OBJECTTYPE, OBJECTVALUE1, OBJECTVALUE2
+                 FETCH FIRST 500 ROWS ONLY
+            """, {"id": projectname.upper()})
+            for r in (item_rows or []):
+                otype = r.get("objecttype", -1)
+                if otype not in items_by_type:
+                    items_by_type[otype] = []
+                items_by_type[otype].append(dict(r))
+        except Exception as exc:
+            warnings.append(f"PSPROJECTITEM items: {exc}")
+
+    total = sum(t["count"] for t in type_summary)
+    return {
+        "definition": defn,
+        "type_summary": type_summary,
+        "items_by_type": items_by_type,
+        "counts": {
+            "types": len(type_summary),
+            "total_items": total,
+        },
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# IB Message Definitions (PSMSGDEFN)
+# ---------------------------------------------------------------------------
+
+_IB_MSG_STATUS = {0: "Active", 1: "Inactive"}
+_IB_MSG_TYPE = {0: "Document", 1: "Service", 2: "Rowset-Based", 3: "Non-Structured", 4: "Container"}
+
+
+def search_ib_messages(env_name, q="", limit=200):
+    from connectors import ptmetadata
+    warnings = []
+    items = []
+    if not ptmetadata.has_table(env_name, "PSMSGDEFN"):
+        warnings.append("PSMSGDEFN not found in schema")
+        return {"items": [], "warnings": warnings}
+    try:
+        sql = """
+            SELECT MSGNAME, DESCR, CHNLNAME, MSGSTATUS, OBJECTOWNERID,
+                   LASTUPDDTTM, LASTUPDOPRID
+              FROM SYSADM.PSMSGDEFN
+             WHERE (:q IS NULL OR UPPER(MSGNAME) LIKE UPPER(:q)
+                    OR UPPER(DESCR) LIKE UPPER(:q))
+             ORDER BY MSGNAME
+             FETCH FIRST :lim ROWS ONLY
+        """
+        q_param = f"%{q}%" if q else None
+        rows = query(env_name, sql, {"q": q_param, "lim": limit})
+        for r in rows:
+            d = dict(r)
+            d["msgstatus_label"] = _IB_MSG_STATUS.get(d.get("msgstatus"), "Unknown")
+            items.append(d)
+    except Exception as exc:
+        warnings.append(f"PSMSGDEFN search: {exc}")
+    return {"items": items, "warnings": warnings}
+
+
+def get_ib_message(env_name, msgname):
+    from connectors import ptmetadata
+    warnings = []
+    if not ptmetadata.has_table(env_name, "PSMSGDEFN"):
+        return {"error": "PSMSGDEFN not found"}
+
+    # Header
+    defn = None
+    try:
+        rows = query(env_name, """
+            SELECT MSGNAME, DESCR, MSGDISPLAYNAME, CHNLNAME, DEFAULTVER,
+                   MSGSTATUS, XMLALIAS, OBJECTOWNERID, LASTUPDDTTM, LASTUPDOPRID
+              FROM SYSADM.PSMSGDEFN
+             WHERE MSGNAME = :id
+        """, {"id": msgname.upper()})
+        if not rows:
+            return {"error": f"IB Message not found: {msgname}"}
+        defn = dict(rows[0])
+        defn["msgstatus_label"] = _IB_MSG_STATUS.get(defn.get("msgstatus"), "Unknown")
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    # Versions
+    versions = []
+    if ptmetadata.has_table(env_name, "PSMSGVER"):
+        try:
+            ver_rows = query(env_name, """
+                SELECT APMSGVER, IB_MSGTYPE, IB_PARTS, IB_PACKAGEID, IB_SCHEMANAME
+                  FROM SYSADM.PSMSGVER
+                 WHERE MSGNAME = :id
+                 ORDER BY APMSGVER
+            """, {"id": msgname.upper()})
+            for r in (ver_rows or []):
+                d = dict(r)
+                d["ib_msgtype_label"] = _IB_MSG_TYPE.get(d.get("ib_msgtype"), f"Type {d.get('ib_msgtype')}")
+                versions.append(d)
+        except Exception as exc:
+            warnings.append(f"PSMSGVER: {exc}")
+
+    # Records (schema) — use default version
+    schema_records = []
+    default_ver = (defn.get("defaultver") or "").strip()
+    if default_ver and ptmetadata.has_table(env_name, "PSMSGREC"):
+        try:
+            rec_rows = query(env_name, """
+                SELECT RECNAME, PRNTRECNAME, SEQNO, XMLALIAS, IB_SCHEMAMIN, IB_SCHEMAMAX
+                  FROM SYSADM.PSMSGREC
+                 WHERE MSGNAME = :id AND APMSGVER = :ver
+                 ORDER BY SEQNO, RECNAME
+                 FETCH FIRST 100 ROWS ONLY
+            """, {"id": msgname.upper(), "ver": default_ver})
+            schema_records = [dict(r) for r in (rec_rows or [])]
+        except Exception as exc:
+            warnings.append(f"PSMSGREC: {exc}")
+
+    return {
+        "definition": defn,
+        "versions": versions,
+        "schema_records": schema_records,
+        "counts": {
+            "versions": len(versions),
+            "schema_records": len(schema_records),
+        },
+        "warnings": warnings,
+    }
