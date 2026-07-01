@@ -164,6 +164,37 @@ DEFAULT_PAGES = [
     ("/admin/pmtrans",    "#q",          True, True,  []),
     ("/admin/pmevent",    "#q",          True, True,  []),
     ("/admin/iboper",     "#q",          True, True,  []),
+    # Pages added in admin package refactor (2026-07-01)
+    ("/admin/infra",      "#hostMetrics",    True, True,  []),
+    ("/admin/tracing",    "#envSel",         True, True,  []),
+    ("/admin/conqrs",     "#cqSearch",       True, True,  []),
+    # Pages using _nav_html() directly — env shown as label, no ds-env-sel select
+    ("/admin/ibmessage",  "#qInput",         False, True,  []),
+    ("/admin/ibapp",      "#q",              False, True,  []),
+    ("/admin/ibrtng",     "#q",              False, True,  []),
+    ("/admin/ibsvcgrp",   "#q",              False, True,  []),
+    ("/admin/adsdef",     "#q",              False, True,  []),
+    ("/admin/appclass",   "#q",              False, True,  []),
+    ("/admin/cbskill",    "#q",              False, True,  []),
+    ("/admin/contsvc",    "#q",              False, True,  []),
+    ("/admin/urldef",     "#q",              False, True,  []),
+    ("/admin/archobj",    "#q",              False, True,  []),
+    ("/admin/filelayout", "#qInput",         False, True,  []),
+    ("/admin/xlat",       "#qInput",         False, True,  []),
+    ("/admin/project",    "#qInput",         False, True,  []),
+    ("/admin/ptftest",    "#q",              False, True,  []),
+    ("/admin/stylesheet", "#q",              False, True,  []),
+    ("/admin/pivotgrid",  "#pgSearch",       True, True,  []),
+    ("/admin/prcsdefn",   "#qInput",         False, True,  []),
+    # env-independent pages (no ds-env-sel)
+    ("/admin/drift",      "#driftDays",      False, True,  []),
+    ("/admin/promotions", "#fPillar",        False, True,  []),
+    ("/admin/impact",     "#riskResult",     True, True,  []),
+    ("/admin/assistant",  "#chatMessages",   False, True,  []),
+    ("/admin/logs",       "#ingest-btn",     True, True,  []),
+    ("/admin/log_errors", "#env-sel",        True, True,  []),
+    ("/admin/tools",      "#buildStatus",    False, True,  []),
+    ("/admin/docs",       ".ds-page-title",  False, True,  []),
 ]
 
 
@@ -340,7 +371,7 @@ def evaluate_page(
     title: document.title,
     readyState: document.readyState,
     brandCount: document.querySelectorAll('.ds-brand').length,
-    activeNavCount: document.querySelectorAll('.ds-nav-link.ds-active').length,
+    activeNavCount: document.querySelectorAll('.ds-nav-link.ds-active,.ds-nav-drop-link.ds-active').length,
     envSelectCount: document.querySelectorAll('.ds-env-sel').length,
     markerFound: !!document.querySelector(selector),
     bodyText: document.body ? document.body.innerText.slice(0, 500) : ''

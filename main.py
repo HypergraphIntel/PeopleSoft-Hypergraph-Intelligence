@@ -88,6 +88,11 @@ async def frontend_shell_middleware(request: Request, call_next):
     )
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return RedirectResponse(url="/static/images/favicon-32.png")
+
+
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/static/index.html")

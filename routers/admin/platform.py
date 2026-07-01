@@ -353,7 +353,7 @@ function esc(s) {{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;
 function chip(cls, label) {{ return `<span class="chip ${{cls}}">${{esc(label)}}</span>`; }}
 
 function fmtChip(fmt) {{
-  const cls = {{Fixed:' Width':'chip-info',Delimited:'chip-ok',XML:'chip-ok'}}[fmt] || 'chip-muted';
+  const cls = {{'Fixed Width':'chip-info','Delimited':'chip-ok','XML':'chip-ok'}}[fmt] || 'chip-muted';
   const map = {{'Fixed Width':'chip-info','Delimited':'chip-ok','XML':'chip-ok'}};
   return chip(map[fmt]||'chip-muted', fmt||'?');
 }}

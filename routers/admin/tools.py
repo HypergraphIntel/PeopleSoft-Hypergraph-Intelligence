@@ -284,14 +284,14 @@ tr:hover td{background:rgba(0,229,255,.04);}
 </div>
 <script>
 const $ = id => document.getElementById(id);
-function esc(s){return String(s==null?'—':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function esc(s){return String(s==null?'\u2014':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 function riskCls(label){
   const m={None:'risk-low',Low:'risk-low',Medium:'risk-medium',High:'risk-high',Critical:'risk-critical'};
   return m[label]||'';
 }
 
-// ── Risk Assessment ────────────────────────────────────────────────────────
+// --- Risk Assessment ---
 async function runRisk(){
   const e1=$('riskEnv1').value, e2=$('riskEnv2').value;
   $('riskSpinner').classList.add('on');
@@ -335,12 +335,12 @@ function renderRisk(d){
     });
     h+='</table>';
   } else {
-    h+='<div class="empty">No drift detected — environments are in sync.</div>';
+    h+='<div class="empty">No drift detected \u2014 environments are in sync.</div>';
   }
   $('riskResult').innerHTML=h;
 }
 
-// ── Project Impact ─────────────────────────────────────────────────────────
+// --- Project Impact ---
 async function runImpact(){
   const env=$('impEnv').value;
   const proj=($('impProject').value||'').trim().toUpperCase();
@@ -393,7 +393,7 @@ function renderImpact(d){
     });
     h+='</table>';
   } else {
-    h+='<div class="empty">No downstream KG impact found. The graph may not cover this project\'s objects yet — use the Tools page to rebuild the graph with higher coverage.</div>';
+    h+='<div class="empty">No downstream KG impact found. The graph may not cover this project\\'s objects yet \u2014 use the Tools page to rebuild the graph with higher coverage.</div>';
   }
 
   // Top impacted objects
