@@ -57,9 +57,10 @@ The following major subsystems are production-ready:
 - Drop Zone Explorer
 - Timezone Explorer
 - Locale Explorer
+- PM Metrics Explorer
 - Version-aware metadata adapters
 - Shared frontend shell with global navigation and environment selector
-- Admin shell smoke test harness (24+ pages; 18 new providers added in Phase 5)
+- Admin shell smoke test harness (25+ pages; 19 new providers added in Phase 5)
 - Scheduled graph snapshots with retention pruning
 
 Development focus now shifts from feature parity toward platform intelligence.
@@ -451,8 +452,8 @@ Deprioritized (no backing tables or too few rows):
 
 Candidates for future sessions:
 - **IB Schema Definitions** — PSIBSCMADATA/PSIBSCMADFN (3680/3618 rows): IB XML schema metadata; investigate if human-readable name + type columns exist for browsing
-- **Performance Monitor Metrics** — PSPMMETRICDEFN (206 rows) + PSPMTRANSDEFN (74 rows) + PSPMEVENTDEFN (32 rows): metric/transaction/event catalog for PeopleSoft Performance Monitor
 
 Completed (previous candidates now implemented):
-- **Timezone Definitions** — PSTIMEZONEDEFN (61 rows) + PSTIMEZONEIANA (592 rows): timezone catalog with IANA mappings; effective-dated; UTCOFFSET in minutes; full admin UI with search and detail panel
-- **Locale Definitions** — PSLOCALEDEFN (191 rows) + PSLOCALEOPTNDFN (923 rows): ISO locale catalog with format options (decimal/thousands separators, date/time format, AM/PM designators)
+- **Timezone Definitions** — PSTIMEZONEDEFN (61 rows) + PSTIMEZONEIANA (592 rows)
+- **Locale Definitions** — PSLOCALEDEFN (191 rows) + PSLOCALEOPTNDFN (923 rows)
+- **Performance Monitor Metrics** — PSPMMETRICDEFN (206 rows) + PSPMTRANSDEFN (74 rows) + PSPMEVENTDEFN (32 rows): metric/transaction/event catalog; reverse lookup shows which transactions and events reference each metric

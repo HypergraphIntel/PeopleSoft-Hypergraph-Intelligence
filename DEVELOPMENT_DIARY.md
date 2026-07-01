@@ -6,6 +6,53 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Performance Monitor Metrics Explorer Vertical Slice
+
+Date/time: 2026-06-30 (continued)
+
+Features implemented:
+- Full PM Metrics Explorer slice from `psdb.py` through to the admin UI page.
+- `psdb.search_pm_metrics(env, q, limit)` — numeric ID search or label/description text search; `FETCH FIRST :lim ROWS ONLY` pagination.
+- `psdb.get_pm_metric(env, metric_id)` — fetches metric definition + enum values from `PSPMMETRICVALUE` + transaction references (reverse lookup across all 7 metric ID slots in `PSPMTRANSDEFN`) + event references (`PSPMEVENTDEFN`); returns `{definition, enum_values, transactions, events, warnings}`.
+- `ptmetadata.py` — added `OBJECT_REGISTRY["pm_metric"]` with icon `activity`.
+- `connectors/uom.py` — `pm_metric_object()`: Metric Overview kv section, Enum Values chips section (for flag/enum metrics), Used in Transactions items section, Used in Events items section; metric type codes decoded (1=Config Counter, 2=Collected Metric, 3=Flag/Enum, 4=String, 5-7=rare).
+- `connectors/graphdb.py` — `pm_metrics()` provider with `has_table()` guard.
+- `routers/peoplesoft.py` — `GET /api/peoplesoft/pm-metrics` endpoint; object dispatch for `pm_metric`.
+- `routers/admin.py` — NAV entry, chip (purple `#9988ff`), `GET /pmmetric` page with search (label/description/numeric ID), type badge in list items, detail with all sections.
+- `scripts/smoke_admin_shell.py` — added `/admin/pmmetric` to `DEFAULT_PAGES`; passes.
+
+Files modified:
+- `connectors/psdb.py`
+- `connectors/ptmetadata.py`
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `routers/peoplesoft.py`
+- `routers/admin.py`
+- `scripts/smoke_admin_shell.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- PM metric ID is an integer; the UOM `canonical_base` `name` is the string representation of the integer. Object URLs use the numeric string (e.g., `/api/peoplesoft/object/pm_metric/81`).
+- Reverse transaction lookup uses `WHERE :id IN (PM_METRICID_1, ..., PM_METRICID_7)` — Oracle handles `IN` with bind variables correctly.
+- Enum values only exist for flag/enum type metrics (`pm_metric_disp=Y`); most metrics have no enum values.
+- `PSPMCONTEXTDEFN` (56 rows) not surfaced — contexts are linked to transactions, not directly to metrics.
+
+Verification:
+- `python -m py_compile ...` — OK.
+- `psdb.search_pm_metrics('HCM', 'PeopleCode', 5)` → 5 rows.
+- `psdb.get_pm_metric('HCM', '81')` → 14 transaction references, 0 events.
+- `psdb.get_pm_metric('HCM', '47')` → 6 enum values (Standby/Error/Warning/Standard/Verbose/Debug).
+- `uom.pm_metric_object('HCM', '81')` → display `81 — Record Field PCode Exec Count`, sections: Overview (6 items), Transactions (14).
+- `GET /api/peoplesoft/pm-metrics?env=HCM&q=SQL&limit=3` — OK.
+- `python scripts/smoke_admin_shell.py` — `/admin/pmmetric` passes; no regressions.
+
+Next recommended work:
+- IB Schema Definitions (`PSIBSCMADATA`/`PSIBSCMADFN`, 3680/3618 rows) — investigate if browsable name/type columns exist
+- PM Transaction Explorer (`PSPMTRANSDEFN` as primary) — complement to PM Metrics, shows transaction definitions with their metric and context slots
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Locale Explorer Vertical Slice
 
 Date/time: 2026-06-30 (continued)
