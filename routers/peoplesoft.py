@@ -405,6 +405,8 @@ def object_payload(env, object_type, object_name):
         return uom.object_payload(uom.archive_object_object(env, object_name))
     if object_type == "timezone":
         return uom.object_payload(uom.timezone_object(env, object_name))
+    if object_type == "locale":
+        return uom.object_payload(uom.locale_object(env, object_name))
 
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
@@ -1259,6 +1261,12 @@ def peoplesoft_archive_objects(env: str = "HCM", q: str = "", limit: int = 200):
 def peoplesoft_timezones(env: str = "HCM", q: str = "", limit: int = 200):
     """Search Timezone definitions (PSTIMEZONEDEFN)."""
     return psdb.search_timezones(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/locales")
+def peoplesoft_locales(env: str = "HCM", q: str = "", limit: int = 200):
+    """Search Locale definitions (PSLOCALEDEFN)."""
+    return psdb.search_locales(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")

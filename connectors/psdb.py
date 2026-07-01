@@ -7132,3 +7132,42 @@ def get_timezone(env_name, tz_code):
             pass
     return {"definition": dict(rows[0]) if rows else {}, "iana": iana,
             "warnings": [] if rows else [f"Timezone '{tz_code}' not found"]}
+
+
+def search_locales(env_name, q="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSLOCALEDEFN"):
+        return []
+    where = ""
+    params: dict = {"lim": limit}
+    if q:
+        where = "WHERE UPPER(d.LOCALECD) LIKE :q OR UPPER(d.DESCR) LIKE :q"
+        params["q"] = f"%{q.upper()}%"
+    rows = query(env_name, f"""
+        SELECT d.LOCALECD, d.DESCR
+          FROM SYSADM.PSLOCALEDEFN d
+        {where}
+         ORDER BY d.LOCALECD
+         FETCH FIRST :lim ROWS ONLY
+    """, params)
+    return [dict(r) for r in (rows or [])]
+
+
+def get_locale(env_name, locale_cd):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSLOCALEDEFN"):
+        return {"definition": {}, "options": [], "warnings": ["PSLOCALEDEFN not accessible"]}
+    rows = query(env_name, "SELECT LOCALECD, DESCR FROM SYSADM.PSLOCALEDEFN WHERE LOCALECD = :cd",
+                 {"cd": locale_cd})
+    defn = rows[0] if rows else None
+    warnings_out = [] if defn else [f"Locale '{locale_cd}' not found"]
+    options = []
+    if ptmetadata.has_table(env_name, "PSLOCALEOPTNDFN"):
+        options = query(env_name, """
+            SELECT USEROPTN, USER_OPTION_VALUE
+              FROM SYSADM.PSLOCALEOPTNDFN
+             WHERE LOCALECD = :cd
+             ORDER BY USEROPTN
+        """, {"cd": locale_cd}) or []
+    return {"definition": dict(defn) if defn else {}, "options": [dict(o) for o in options],
+            "warnings": warnings_out}

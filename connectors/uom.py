@@ -5995,6 +5995,8 @@ def canonical_object(env, object_type, name):
         return archive_object_object(env, name)
     if object_type == "timezone":
         return timezone_object(env, name)
+    if object_type == "locale":
+        return locale_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])
@@ -7159,4 +7161,62 @@ def timezone_object(env, tz_code):
         sections=sections,
         overview={"utc_offset_minutes": utc_offset, "observes_dst": observedst == "Y"},
         _metadata={"environment": env.upper(), "source_table": "PSTIMEZONEDEFN"},
+    )
+
+
+def locale_object(env, locale_cd):
+    from connectors import psdb as _psdb
+    data = _psdb.get_locale(env, locale_cd)
+    defn = data.get("definition") or {}
+    options = data.get("options") or []
+    warnings = data.get("warnings") or []
+
+    descr = (defn.get("descr") or "").strip()
+    display = f"{locale_cd} \u2014 {descr}" if descr else locale_cd
+
+    _OPT_LABELS = {
+        "DCSP":  "Decimal Separator",
+        "TSEP":  "Thousands Separator",
+        "DTSP":  "Date Separator",
+        "DFRMT": "Date Format",
+        "TFRMT": "Time Format",
+        "MDES":  "AM Designator",
+        "ADES":  "PM Designator",
+    }
+    _DATE_FMT = {"M": "MDY (month-first)", "D": "DMY (day-first)", "Y": "YMD (year-first)"}
+    _TIME_FMT = {"C": "12-hour clock", "M": "24-hour clock"}
+
+    opt_map = {o["useroptn"]: o["user_option_value"] for o in options}
+
+    sections = [{
+        "title": "Locale Overview",
+        "type": "kv",
+        "items": [
+            {"label": "Locale Code", "value": locale_cd},
+            {"label": "Description",  "value": descr or "(none)"},
+        ],
+    }]
+
+    fmt_items = []
+    for key, lbl in _OPT_LABELS.items():
+        val = opt_map.get(key)
+        if val is not None:
+            if key == "DFRMT":
+                val = _DATE_FMT.get(val, val)
+            elif key == "TFRMT":
+                val = _TIME_FMT.get(val, val)
+            fmt_items.append({"label": lbl, "value": val})
+    if fmt_items:
+        sections.append({"title": "Format Options", "type": "kv", "items": fmt_items})
+
+    return canonical_base(
+        env,
+        "locale",
+        locale_cd,
+        display_name=display,
+        status="active",
+        warnings=warnings,
+        sections=sections,
+        overview={"locale_cd": locale_cd, "descr": descr, "has_options": bool(opt_map)},
+        _metadata={"environment": env.upper(), "source_table": "PSLOCALEDEFN"},
     )

@@ -46,6 +46,7 @@ _NAV = [
     ("stylesheet", "Style Sheets",  "/admin/stylesheet"),
     ("archobj",    "Archive Objs",  "/admin/archobj"),
     ("timezone",   "Timezones",     "/admin/timezone"),
+    ("locale",     "Locales",       "/admin/locale"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3087,6 +3088,7 @@ const TYPE_CHIP_CFG = {
     style_sheet:             {label:'Style Sheet',     bg:'#181208',border:'#ffcc4444',color:'#ffcc44'},
     archive_object:          {label:'Archive Object',  bg:'#100a18',border:'#aa66cc44',color:'#aa66cc'},
     timezone:                {label:'Timezone',         bg:'#001828',border:'#0066cc44',color:'#4499ee'},
+    locale:                  {label:'Locale',           bg:'#081808',border:'#22aa4444',color:'#55cc55'},
 };
 
 function typeChipHtml(type) {
@@ -14783,6 +14785,110 @@ async function selectTz(idx) {
   }
   if (ovSec) html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Overview</h3>' + kvTable(ovSec);
   if (ianaSec) html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">' + esc(ianaSec.title) + '</h3>' + chipList(ianaSec);
+  detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")
+
+
+@router.get("/locale", response_class=HTMLResponse)
+def admin_locale():
+    return _shell("Locale Explorer", "locale", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#55cc55;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #55cc5533;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #55cc5522;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #55cc5522;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input{background:#0b1b0b;color:#d7faff;border:1px solid #55cc5544;padding:5px 8px;font-size:12px}
+input:focus{outline:none;border-color:#55cc55}
+button{background:#55cc55;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(85,204,85,.07);border-left-color:#55cc5555}
+.item.sel{background:rgba(85,204,85,.12);border-left-color:#55cc55}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.muted{color:#556;font-style:italic}
+</style>
+<div class="topbar">
+  <input id="q" type="text" placeholder="Search locale code or description..." style="width:280px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>Locales</h2>
+    <div id="list" class="muted">Search to load locales.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Locale</h2>
+    <div id="detail" class="muted">Select a locale from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+let _rows = [];
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function doSearch() {
+  const q = document.getElementById('q').value.trim();
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 250});
+  if (q) params.set('q', q);
+  const d = await api('/api/peoplesoft/locales?' + params);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  _rows = Array.isArray(d) ? d : (d.items || []);
+  document.getElementById('stats').textContent = _rows.length + ' result' + (_rows.length !== 1 ? 's' : '');
+  if (!_rows.length) { list.innerHTML = '<div class="muted">No locales found.</div>'; return; }
+  list.innerHTML = _rows.map(function(r, i) {
+    return '<div class="item" id="lc-' + i + '" data-idx="' + i + '">' +
+      '<div class="item-name">' + esc(r.localecd) + '</div>' +
+      '<div class="item-meta">' + esc((r.descr||'').slice(0,60)) + '</div>' +
+      '</div>';
+  }).join('');
+  list.querySelectorAll('.item').forEach(function(el) {
+    el.addEventListener('click', function() { selectLocale(+el.dataset.idx); });
+  });
+}
+
+async function selectLocale(idx) {
+  const r = _rows[idx];
+  if (!r) return;
+  document.querySelectorAll('.item').forEach(function(el) { el.classList.remove('sel'); });
+  const el = document.getElementById('lc-' + idx);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api('/api/peoplesoft/object/locale/' + encodeURIComponent(r.localecd) + '?env=' + ENV);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const sections = d.sections || [];
+  const ovSec  = sections.find(function(s) { return s.title && s.title.indexOf('Overview') >= 0; });
+  const fmtSec = sections.find(function(s) { return s.title && s.title.indexOf('Format') >= 0; });
+
+  function kvTable(sec) {
+    if (!sec || !sec.items || !sec.items.length) return '';
+    return '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px">' +
+      sec.items.map(function(item) {
+        return '<tr><td style="padding:4px 12px 4px 0;color:#778;white-space:nowrap">' + esc(item.label) + '</td>' +
+          '<td style="padding:4px 0;color:#c8d8e8;font-family:monospace">' + esc(String(item.value||'')) + '</td></tr>';
+      }).join('') + '</table>';
+  }
+
+  let html = '<h2 style="font-family:monospace;color:#55cc55;font-size:14px;margin:0 0 4px">' + esc(r.localecd) + '</h2>' +
+    '<div style="font-size:12px;color:#556;margin-bottom:16px">' + esc(d.display_name||'') + '</div>';
+  if (d.warnings && d.warnings.length) {
+    html += '<div style="color:#f90;font-size:11px;margin-bottom:12px">' + d.warnings.map(esc).join('<br>') + '</div>';
+  }
+  if (ovSec)  html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Overview</h3>' + kvTable(ovSec);
+  if (fmtSec) html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">Format Options</h3>' + kvTable(fmtSec);
   detail.innerHTML = html;
 }
 

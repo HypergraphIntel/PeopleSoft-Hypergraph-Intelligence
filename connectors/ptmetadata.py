@@ -862,6 +862,18 @@ OBJECT_REGISTRY.setdefault("timezone", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("locale", {
+    "display_title": "Locale",
+    "icon": "globe",
+    "graph_node_type": "locale",
+    "object_page": "/admin/locale",
+    "discovery": {"table": "PSLOCALEDEFN", "name_column": "LOCALECD"},
+    "search": {"table": "PSLOCALEDEFN", "name_column": "LOCALECD",
+               "description_columns": ["DESCR"], "extra_search_columns": []},
+    "supported_versions": ["8.50", "8.51", "8.52", "8.53", "8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 OBJECT_REGISTRY.setdefault("archive_object", {
     "display_title": "Archive Object",
     "icon": "archive",

@@ -1039,6 +1039,24 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "timezone", tzname, label, r)
         return len(rows)
 
+    def locales():
+        if not ptmetadata.has_table(env, "PSLOCALEDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT d.LOCALECD, d.DESCR
+              FROM SYSADM.PSLOCALEDEFN d
+             WHERE ROWNUM <= {limit}
+             ORDER BY d.LOCALECD
+        """) or []
+        for r in rows:
+            lcode = r.get("localecd")
+            if not lcode:
+                continue
+            label = (r.get("descr") or "").strip() or lcode
+            add_node(graph, "locale", lcode, label, r)
+        return len(rows)
+
+
     def ib_routings():
         if not ptmetadata.has_table(env, "PSIBRTNGDEFN"):
             return 0
@@ -1272,6 +1290,7 @@ def build(env="HCM", limit=50, persist=True):
         ("ib_service_groups", ib_service_groups),
         ("ads_definitions", ads_definitions),
         ("timezones", timezones),
+        ("locales", locales),
     ):
         provider(graph, name, loader)
 
