@@ -6,6 +6,77 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Domain Graph Vocabulary Bridge
+
+Date/time: 2026-07-01 16:15 CDT
+
+Features implemented:
+- Added `connectors/graphshape.py`, a small shared helper for graph payload
+  annotations and edge type aliases.
+- Annotated PeopleCode graph payloads with `_source: peoplecode`,
+  `_vocabulary: domain_peoplecode`, and `_semantics: source-reference graph`.
+- Annotated Application Engine graph payloads with `_source:
+  application_engine`, `_vocabulary: domain_ae`, and `_semantics:
+  application-engine dependency graph`.
+- Annotated generic UOM graph route responses with `_source: uom`,
+  `_vocabulary: compact_uom`, and `_semantics: compact object preview`.
+- Annotated persisted Knowledge Graph fallback responses with `_source:
+  knowledge_graph`, `_vocabulary: knowledge_graph`, and `_semantics:
+  persisted graph neighborhood`.
+- Added `type` aliases to graph edges while preserving existing
+  `relationship` labels for UI compatibility.
+
+Files modified:
+- `connectors/graphshape.py`
+- `connectors/peoplecode.py`
+- `connectors/ae.py`
+- `routers/peoplesoft.py`
+- `ARCHITECTURE.md`
+- `README.md`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Did not rename existing relationship labels. The UI and downstream callers
+  can continue using `relationship`, while graph-oriented consumers can use
+  the normalized `type` alias.
+- Kept graph construction in existing domain connectors. The new helper only
+  annotates completed graph payloads.
+- Documented graph payload semantics in `ARCHITECTURE.md` because it is now a
+  cross-provider API convention.
+
+Bugs fixed:
+- PeopleCode and AE graph payloads previously lacked a clear source/vocabulary
+  marker, making it hard for Graph Explorer and API consumers to distinguish
+  compact UOM previews from richer domain graphs.
+
+Technical debt:
+- Persisted Knowledge Graph ingestion still needs an edge-vocabulary audit
+  against UOM/domain graph metadata.
+- Future edge coverage still needs explicit WRITES/READS examples and DEPLOYS
+  relationship implementation.
+
+Verification:
+- `python -m py_compile connectors/graphshape.py connectors/peoplecode.py connectors/ae.py routers/peoplesoft.py connectors/uom.py` — OK.
+- `python -c "import main; print('main import ok')"` — OK.
+- Direct graph checks:
+  - PeopleCode graph for `DERIVED_HR.JOB_DATA.ROWINIT.0` returned `_source:
+    peoplecode`, `_vocabulary: domain_peoplecode`, 4 nodes / 3 edges, and edge
+    `relationship/type` both present.
+  - AE graph for `BEN_SRCH_JOB` returned `_source: application_engine`,
+    `_vocabulary: domain_ae`, 6 nodes / 5 edges, and edge `relationship/type`
+    both present.
+  - Generic UOM graph route for `record:JOB` returned `_source: uom`,
+    `_vocabulary: compact_uom`, 32 nodes / 31 edges, with lowercase
+    `relationship` preserved and uppercase `type` alias added.
+
+Next recommended work:
+- Audit `connectors/graphdb.py` ingestion edge names against the UOM/domain
+  graph metadata and begin adding missing READS/WRITES/DEPLOYS relationships
+  where source metadata supports them.
+
+------------------------------------------------------------------------
+
 ## 2026-07-01 — Generic Graph Route UOM Alignment
 
 Date/time: 2026-07-01 15:40 CDT

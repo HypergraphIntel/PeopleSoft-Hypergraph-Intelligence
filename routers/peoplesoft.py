@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from connectors import ae, graphdb, peoplecode, peoplesoft, psdb, ptmetadata, uom
+from connectors import ae, graphdb, graphshape, peoplecode, peoplesoft, psdb, ptmetadata, uom
 
 router = APIRouter()
 
@@ -97,12 +97,11 @@ def uom_graph_response(env, object_type, object_name):
     """
     canonical = uom.canonical_object(env, object_type, object_name)
     graph = canonical.get("_graph") or {}
-    return {
+    return graphshape.annotate_graph({
         "root": canonical.get("id") or f"{canonical.get('type', object_type)}:{canonical.get('name', object_name)}",
         "nodes": graph.get("nodes", []),
         "edges": graph.get("edges", []),
-        "_source": "uom",
-    }
+    }, "uom", "compact_uom", "compact object preview")
 
 
 def graphdb_response(env, root_type, root_name):
@@ -142,12 +141,11 @@ def graphdb_response(env, root_type, root_name):
         for item in neighborhood.get("edges", [])
     ]
 
-    return {
+    return graphshape.annotate_graph({
         "root": root,
         "nodes": list(nodes.values()),
         "edges": edges,
-        "_source": "knowledge_graph",
-    }
+    }, "knowledge_graph", "knowledge_graph", "persisted graph neighborhood")
 
 
 def section(name, items=None, data=None):

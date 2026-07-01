@@ -1,7 +1,7 @@
 import re
 from urllib.parse import quote, unquote
 
-from connectors import psdb, ptmetadata
+from connectors import graphshape, psdb, ptmetadata
 
 PEOPLECODE_OBJECT_TYPES = {
     1:  "Record",
@@ -670,9 +670,9 @@ def graph(reference, env):
         nodes.append({"id": f"function:{call['name'].upper()}", "type": "function", "name": call["name"], "label": call["name"], "data": call, "_links": {"admin": f"/admin/object/function/{call['name']}"}})
         edges.append({"source": f"peoplecode:{ref}", "target": f"function:{call['name'].upper()}", "relationship": "CALLS"})
 
-    return {
+    return graphshape.annotate_graph({
         "root": f"peoplecode:{ref}",
         "nodes": nodes,
         "edges": edges,
         "warnings": result["warnings"],
-    }
+    }, "peoplecode", "domain_peoplecode", "source-reference graph")

@@ -226,6 +226,7 @@ Continue enriching graph relationships.
 
 - Shared UOM relationship graph helper introduced; all in-module UOM object graph previews now use it, including Field, Record, Component, Page, Portal Registry, Operator, Role, Permission List, IB Service Operation, IB Node, IB Queue, IB Routing, SQL Definition, Tree, Component Interface, and other compact UOM previews
 - Generic `/api/peoplesoft/graph/{type}/{name}` now resolves canonical object types through UOM first, so Graph Explorer compact graph previews align with Object Explorer for Record, Operator, Role, Permission List, Component, Page, Portal Registry, IB Node/Queue/Routing, Tree, CI, SQL Definition, and future UOM-backed providers
+- PeopleCode and Application Engine domain graph endpoints now declare `_source`, `_vocabulary`, and `_semantics` and expose Knowledge Graph-compatible edge `type` aliases while preserving existing `relationship` labels
 - Page graph API unified with UOM Page provider so Object Explorer and Graph Explorer share the same relationship model
 - Component graph API unified with UOM Component provider so Object Explorer and Graph Explorer share the same relationship model
 - CALLS, REFERENCES, USES, CONTAINS, WRAPS, SECURES edge types in active use
@@ -237,8 +238,7 @@ Continue enriching graph relationships.
 
 ### Remaining
 
-- Reconcile intentionally richer domain graph endpoints (`peoplecode`, `application_engine`, and persisted Knowledge Graph neighborhood fallback) with the compact UOM preview vocabulary where appropriate
-- Align UOM `_relationships`, UOM `_graph`, route-specific domain graph APIs, and Knowledge Graph ingestion around one relationship vocabulary
+- Align persisted Knowledge Graph ingestion with UOM `_relationships`, UOM `_graph`, and domain graph vocabulary metadata
 - GENERATES and DEPLOYS edge types
 - Full relationship coverage examples: WRITES, READS
 

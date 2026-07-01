@@ -58,6 +58,7 @@ PeopleSoft-Hypergraph-Intelligence/
 │   ├── envcompare.py               # Cross-environment comparison logic
 │   ├── execution.py                # Oracle execution/runtime queries
 │   ├── graphdb.py                  # Knowledge graph store and dependency graph logic
+│   ├── graphshape.py               # Shared graph payload annotations and edge type aliases
 │   ├── ib.py                       # Integration Broker metadata/runtime discovery
 │   ├── impact.py                   # Impact forecasting: project KG traversal + env risk scoring
 │   ├── logdb.py                    # SQLite log store (data/logs.db): web, app, error tables

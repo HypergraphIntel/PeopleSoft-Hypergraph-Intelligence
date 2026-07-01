@@ -1,4 +1,4 @@
-from connectors import psdb, ptmetadata
+from connectors import graphshape, psdb, ptmetadata
 
 AE_ACTION_TYPES = {
     "S": "SQL",
@@ -575,8 +575,8 @@ def program_graph(env, ae_applid):
         if prcsname:
             link("process_scheduler", ae_applid, "process", prcsname, "SCHEDULED_AS")
 
-    return {
+    return graphshape.annotate_graph({
         "root": f"application_engine:{ae_applid}",
         "nodes": list(nodes.values()),
         "edges": edges,
-    }
+    }, "application_engine", "domain_ae", "application-engine dependency graph")

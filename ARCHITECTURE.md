@@ -140,6 +140,14 @@ assembly, relationship resolution, graph shape, links, and warnings.
 built from UOM relationships. Global search aggregates provider results. Snapshots enable
 point-in-time comparison and drift detection.
 
+Graph-shaped API payloads preserve the UI-facing `relationship` edge label and
+also expose a Knowledge Graph-compatible `type` edge alias where possible.
+Shared metadata fields identify graph semantics:
+
+- `_source` — provider family (`uom`, `peoplecode`, `application_engine`, `knowledge_graph`)
+- `_vocabulary` — vocabulary flavor (`compact_uom`, `domain_peoplecode`, `domain_ae`, `knowledge_graph`)
+- `_semantics` — intent such as `compact object preview` or `application-engine dependency graph`
+
 **Intelligence Layer** — Cross-object reasoning: impact analysis, access explanation,
 anomaly detection, configuration drift, performance correlation. Consumes graph + runtime
 data to answer questions that cannot be answered by querying a single table.
