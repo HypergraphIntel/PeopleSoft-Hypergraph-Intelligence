@@ -361,18 +361,109 @@ Predict downstream impact before migration.
 
 # Phase 7 — AI Engineering Assistant
 
-Leverage the knowledge graph for engineering assistance.
+Leverage the knowledge graph and source search for natural-language engineering assistance.
+Answer questions like "Where is employee termination implemented?", "Which AEs update PS_JOB?",
+"Who has access to this component?", or "Show me the SQL definitions that touch COMPENSATION."
 
-## Natural Language Search
+---
 
-### Remaining
+## Architecture (decided 2026-07-01)
 
-Examples:
+### Provider Abstraction
+
+All AI communication goes through a single abstract interface in `connectors/ai.py`.
+Provider-specific implementations live in separate modules. Nothing above the connector
+layer touches provider-specific code.
+
+```
+connectors/ai.py          ← get_provider() factory + AIProvider ABC
+connectors/ai_claude.py   ← Anthropic SDK, native tool_use blocks
+connectors/ai_openai.py   ← OpenAI SDK, function calling
+connectors/ai_ollama.py   ← Ollama local REST API (no external key required)
+connectors/ai_tools.py    ← Tool definitions wrapping existing DeathStar connectors
+```
+
+**Design decision:** All three providers ship at launch. Ollama enables air-gap / lab use
+with no external API key. The factory pattern means adding a fourth provider later requires
+only a new `ai_<name>.py` file and a config entry.
+
+### Config Shape (`config.json`)
+
+```json
+"ai": {
+  "provider": "claude",
+  "claude":  { "api_key": "sk-ant-...", "model": "claude-sonnet-4-6" },
+  "openai":  { "api_key": "sk-...",     "model": "gpt-4o" },
+  "ollama":  { "base_url": "http://localhost:11434", "model": "llama3.1" }
+}
+```
+
+Only the active provider's section is used at runtime. API keys may also be supplied via
+environment variables (`CLAUDE_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_BASE_URL`) — env vars
+take precedence over config.json values when both are present.
+
+**Design decision:** `config.json` is the primary source (consistent with DB credentials).
+Environment variable override is available for CI/container deployments.
+
+### Tools (AI-callable DeathStar capabilities)
+
+Each tool is a thin adapter over an existing connector function — no new SQL.
+
+| Tool | Backs |
+|------|-------|
+| `search_objects` | `ptmetadata` global search |
+| `peoplecode_search` | `peoplecode.source_search()` |
+| `graph_dependencies` | `graphdb.dependency_tree()` forward |
+| `graph_impact` | `graphdb.dependency_tree()` reverse |
+| `who_has_access` | permlist/role/component security connectors |
+| `ae_steps` | `ae.ae_steps()` |
+| `sql_lookup` | `sqlws` read-only query execution |
+| `envcompare_summary` | `envcompare.summary()` |
+| `project_impact` | `impact.project_impact()` |
+
+### UI — `/admin/assistant`
+
+- Streaming chat window (SSE or chunked response)
+- Provider/model badge showing active configuration
+- Tool calls shown as collapsible "thinking" blocks (what was queried, what came back)
+- Conversation history held in session (not persisted to disk)
+- Example prompts for first-time users
+
+---
+
+## Natural Language Search Examples
 
 - Where is employee termination implemented?
 - Show every SQL touching PS_JOB.
 - Which AEs update JOB?
 - Which Components use this record?
+- Who has access to the Benefits Administration component?
+- What PeopleCode fires on save for PERSONAL_DATA?
+- Compare security between HCM and FSCM.
+
+---
+
+## Implementation Status
+
+### ✅ Completed (2026-07-01)
+
+- Architecture design and provider abstraction pattern
+- Tool inventory defined (backed by existing connectors)
+- Config schema defined
+
+### ✅ Completed (2026-07-01)
+
+- `connectors/ai.py` — `AIProvider` ABC with `chat()`, `format_tool_call_turn()`, `format_tool_results_turn()` abstract methods; `get_provider()` factory; `provider_status()` (no secrets exposed)
+- `connectors/ai_claude.py` — Anthropic SDK; native tool_use content blocks; Anthropic message history format
+- `connectors/ai_openai.py` — OpenAI SDK; function calling; OpenAI message history format
+- `connectors/ai_ollama.py` — Ollama local REST (`/api/chat`); OpenAI-compatible tool format; no external key required
+- `connectors/ai_tools.py` — 9 tool definitions + dispatch: `search_objects`, `peoplecode_search`, `graph_dependencies`, `graph_impact`, `who_has_access`, `ae_steps`, `sql_lookup`, `envcompare_summary`, `project_impact`
+- `routers/assistant.py` — `POST /api/assistant/chat` (blocking + SSE streaming); agentic loop up to 8 tool rounds; `GET /api/assistant/status`
+- `/admin/assistant` — Chat UI: example prompts sidebar, provider/model badge, collapsible tool-call blocks, auto-resize textarea, Enter to send
+- Provider message format isolation: each provider implements its own `format_tool_call_turn()` / `format_tool_results_turn()` so the router stays provider-agnostic
+- `anthropic` and `openai` packages installed in venv
+- `config.json["ai"]` section with provider selection + per-provider config; env var overrides (`CLAUDE_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_BASE_URL`)
+- Tested end-to-end with OpenAI GPT-4o: `search_objects` tool called, 20 records returned, synthesized answer ✓
 
 ---
 

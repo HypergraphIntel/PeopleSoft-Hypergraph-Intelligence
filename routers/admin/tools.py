@@ -430,3 +430,212 @@ function renderImpact(d){
 runRisk();
 </script>""")
 
+
+_EXAMPLE_PROMPTS = [
+    "Where is employee termination implemented?",
+    "Which AE programs touch the JOB record?",
+    "Who has access to the JOB_DATA component in HCM?",
+    "What PeopleCode fires on the PERSONAL_DATA record?",
+    "Show me the SQL definition HR_GET_SETID",
+    "What does the GPUS_TAX_CALC AE program do?",
+    "What components depend on the EMPLOYMENT record?",
+    "Compare object counts between HCM and FSCM",
+]
+
+
+@router.get("/assistant", response_class=HTMLResponse)
+def admin_assistant():
+    examples_js = json.dumps(_EXAMPLE_PROMPTS)
+    return _shell("AI Assistant", "assistant", env=False, noscroll=True, content=f"""\
+<style>
+*{{box-sizing:border-box;}}
+.chat-layout{{display:flex;height:calc(100vh - 90px);gap:0;}}
+.chat-sidebar{{width:220px;flex-shrink:0;border-right:1px solid rgba(0,229,255,.15);
+  padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;}}
+.sidebar-head{{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#445;margin-bottom:4px;}}
+.example-btn{{background:none;border:1px solid rgba(0,229,255,.15);color:#7faab2;
+  font-size:10px;padding:6px 8px;cursor:pointer;text-align:left;line-height:1.4;
+  transition:border-color .15s,color .15s;}}
+.example-btn:hover{{border-color:rgba(0,229,255,.4);color:#d7faff;}}
+.provider-badge{{margin-top:auto;padding:8px;border:1px solid rgba(0,229,255,.12);
+  font-size:10px;color:#445;line-height:1.6;}}
+.provider-name{{color:#00e5ff;font-weight:bold;}}
+.chat-main{{flex:1;display:flex;flex-direction:column;min-width:0;}}
+.chat-messages{{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;}}
+.msg{{display:flex;flex-direction:column;gap:4px;max-width:92%;}}
+.msg-user{{align-self:flex-end;}}
+.msg-assistant{{align-self:flex-start;}}
+.msg-bubble{{padding:10px 14px;font-size:12px;line-height:1.6;border-radius:2px;}}
+.msg-user .msg-bubble{{background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.25);color:#d7faff;}}
+.msg-assistant .msg-bubble{{background:rgba(10,26,36,.8);border:1px solid rgba(0,229,255,.1);color:#c8e8f0;white-space:pre-wrap;}}
+.tool-block{{border:1px solid rgba(0,229,255,.12);background:#060f18;margin:4px 0;}}
+.tool-head{{display:flex;align-items:center;gap:8px;padding:5px 10px;cursor:pointer;
+  user-select:none;font-size:10px;color:#445;}}
+.tool-head:hover{{color:#7faab2;}}
+.tool-name{{color:#00e5ff;font-family:monospace;font-size:11px;}}
+.tool-body{{display:none;padding:8px 10px;border-top:1px solid rgba(0,229,255,.08);}}
+.tool-body.open{{display:block;}}
+.tool-json{{font-family:monospace;font-size:10px;color:#7faab2;white-space:pre-wrap;
+  max-height:200px;overflow-y:auto;}}
+.thinking{{color:#445;font-size:11px;font-style:italic;padding:6px 14px;}}
+.chat-input-bar{{padding:12px 16px;border-top:1px solid rgba(0,229,255,.15);
+  display:flex;gap:8px;align-items:flex-end;}}
+textarea#chatInput{{flex:1;background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
+  padding:8px 10px;font-size:12px;resize:none;min-height:42px;max-height:140px;
+  font-family:inherit;line-height:1.5;}}
+textarea#chatInput:focus{{outline:none;border-color:rgba(0,229,255,.6);}}
+#sendBtn{{background:#00e5ff;border:none;padding:8px 18px;cursor:pointer;
+  font-size:12px;color:#000;font-weight:bold;height:42px;flex-shrink:0;}}
+#sendBtn:hover{{background:#33eeff;}}
+#sendBtn:disabled{{background:#0a2030;color:#334;cursor:default;}}
+.err-bubble{{background:#1a0000;border:1px solid #ff4444;color:#ff6666;
+  padding:8px 12px;font-size:11px;}}
+</style>
+
+<div class="chat-layout">
+
+  <!-- Sidebar: examples + provider badge -->
+  <div class="chat-sidebar">
+    <div class="sidebar-head">Example questions</div>
+    <div id="exampleList"></div>
+    <div class="provider-badge" id="providerBadge">Loading provider…</div>
+  </div>
+
+  <!-- Main chat area -->
+  <div class="chat-main">
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input-bar">
+      <textarea id="chatInput" rows="1" placeholder="Ask anything about your PeopleSoft environments…"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){{event.preventDefault();sendMessage();}}"></textarea>
+      <button id="sendBtn" onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+
+</div>
+<script>
+const EXAMPLES = {examples_js};
+const chatMessages = document.getElementById('chatMessages');
+const chatInput    = document.getElementById('chatInput');
+const sendBtn      = document.getElementById('sendBtn');
+let conversationHistory = [];
+
+// ── Examples ──────────────────────────────────────────────────────────────────
+const el = document.getElementById('exampleList');
+EXAMPLES.forEach(ex => {{
+  const b = document.createElement('button');
+  b.className = 'example-btn';
+  b.textContent = ex;
+  b.onclick = () => {{ chatInput.value = ex; chatInput.focus(); }};
+  el.appendChild(b);
+}});
+
+// ── Provider badge ────────────────────────────────────────────────────────────
+(async () => {{
+  try {{
+    const r = await fetch('/api/assistant/status');
+    const d = await r.json();
+    const p = d.active_provider || '?';
+    const pCfg = d[p] || {{}};
+    const model = pCfg.model || '';
+    const keyOk = pCfg.api_key !== 'missing';
+    const badge = document.getElementById('providerBadge');
+    badge.innerHTML = `<span class="provider-name">${{p.toUpperCase()}}</span><br>
+      Model: ${{model}}<br>
+      Key: ${{keyOk ? '&#10003; configured' : '<span style="color:#ff6666">&#10005; missing</span>'}}`;
+  }} catch(e) {{
+    document.getElementById('providerBadge').textContent = 'Provider unknown';
+  }}
+}})();
+
+// ── Chat ──────────────────────────────────────────────────────────────────────
+function appendMsg(role, content, toolLog) {{
+  const wrap = document.createElement('div');
+  wrap.className = `msg msg-${{role}}`;
+
+  // Tool call blocks (before final answer)
+  if (toolLog && toolLog.length) {{
+    toolLog.forEach((t, i) => {{
+      const blk = document.createElement('div');
+      blk.className = 'tool-block';
+      const head = document.createElement('div');
+      head.className = 'tool-head';
+      head.innerHTML = `<span>&#9654;</span><span class="tool-name">${{t.name}}</span><span style="margin-left:auto;font-size:9px">click to expand</span>`;
+      const body = document.createElement('div');
+      body.className = 'tool-body';
+      body.innerHTML = `<div class="tool-json">${{JSON.stringify({{input:t.input, result:t.result}}, null, 2)}}</div>`;
+      head.onclick = () => body.classList.toggle('open');
+      blk.appendChild(head);
+      blk.appendChild(body);
+      wrap.appendChild(blk);
+    }});
+  }}
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.textContent = content;
+  wrap.appendChild(bubble);
+  chatMessages.appendChild(wrap);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return wrap;
+}}
+
+function appendThinking() {{
+  const d = document.createElement('div');
+  d.className = 'thinking';
+  d.id = 'thinking';
+  d.textContent = 'Thinking…';
+  chatMessages.appendChild(d);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}}
+
+function removeThinking() {{
+  const t = document.getElementById('thinking');
+  if (t) t.remove();
+}}
+
+async function sendMessage() {{
+  const text = (chatInput.value || '').trim();
+  if (!text) return;
+  chatInput.value = '';
+  sendBtn.disabled = true;
+
+  appendMsg('user', text, null);
+  conversationHistory.push({{ role: 'user', content: text }});
+  appendThinking();
+
+  try {{
+    const r = await fetch('/api/assistant/chat', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ messages: conversationHistory, stream: false }}),
+    }});
+    removeThinking();
+    if (!r.ok) {{
+      const e = await r.json();
+      const d = document.createElement('div');
+      d.className = 'err-bubble';
+      d.textContent = e.detail || 'Request failed';
+      chatMessages.appendChild(d);
+    }} else {{
+      const d = await r.json();
+      appendMsg('assistant', d.content, d.tool_log);
+      conversationHistory.push({{ role: 'assistant', content: d.content }});
+    }}
+  }} catch(e) {{
+    removeThinking();
+    const d = document.createElement('div');
+    d.className = 'err-bubble';
+    d.textContent = String(e);
+    chatMessages.appendChild(d);
+  }}
+
+  sendBtn.disabled = false;
+  chatInput.focus();
+}}
+
+chatInput.addEventListener('input', () => {{
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
+}});
+</script>""")
+

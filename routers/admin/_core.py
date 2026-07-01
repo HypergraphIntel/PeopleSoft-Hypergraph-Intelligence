@@ -74,8 +74,9 @@ _NAV_GROUPS = [
     ("Tools", [
         ("reports", "Reports",    "/admin/reports"),
         ("tools",   "Tools",      "/admin/tools"),
-        ("impact",  "Impact",     "/admin/impact"),
-        ("docs",    "Docs",    "/admin/docs"),
+        ("impact",     "Impact",     "/admin/impact"),
+        ("assistant",  "Assistant",  "/admin/assistant"),
+        ("docs",       "Docs",       "/admin/docs"),
     ]),
     (None, [("users", "Users", "/admin/users")]),
 ]
