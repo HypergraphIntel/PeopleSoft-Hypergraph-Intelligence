@@ -160,6 +160,7 @@ DEFAULT_PAGES = [
     ("/admin/dropzone",   "#dzSearch",   True, True,  []),
     ("/admin/timezone",   "#q",          True, True,  []),
     ("/admin/locale",     "#q",          True, True,  []),
+    ("/admin/pmmetric",   "#q",          True, True,  []),
 ]
 
 

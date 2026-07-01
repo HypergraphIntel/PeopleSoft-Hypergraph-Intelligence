@@ -7171,3 +7171,79 @@ def get_locale(env_name, locale_cd):
         """, {"cd": locale_cd}) or []
     return {"definition": dict(defn) if defn else {}, "options": [dict(o) for o in options],
             "warnings": warnings_out}
+
+
+def search_pm_metrics(env_name, q="", limit=200):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPMMETRICDEFN"):
+        return []
+    where = ""
+    params: dict = {"lim": limit}
+    if q:
+        # Support numeric search by ID or text search by label
+        if q.isdigit():
+            where = "WHERE m.PM_METRICID = :qid"
+            params["qid"] = int(q)
+        else:
+            where = "WHERE UPPER(m.PM_METRICLABEL) LIKE :q OR UPPER(m.DESCR60) LIKE :q"
+            params["q"] = f"%{q.upper()}%"
+    rows = query(env_name, f"""
+        SELECT m.PM_METRICID, m.PM_METRICLABEL, m.DESCR60, m.PM_METRICTYPE,
+               m.PM_METRICINT, m.PM_METRIC_DISP, m.PM_METRIC_DEFSCALE
+          FROM SYSADM.PSPMMETRICDEFN m
+        {where}
+         ORDER BY m.PM_METRICID
+         FETCH FIRST :lim ROWS ONLY
+    """, params)
+    return [dict(r) for r in (rows or [])]
+
+
+def get_pm_metric(env_name, metric_id):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPMMETRICDEFN"):
+        return {"definition": {}, "enum_values": [], "transactions": [], "events": [], "warnings": ["PSPMMETRICDEFN not accessible"]}
+    try:
+        mid = int(metric_id)
+    except (ValueError, TypeError):
+        return {"definition": {}, "enum_values": [], "transactions": [], "events": [], "warnings": [f"Invalid metric ID: {metric_id}"]}
+    rows = query(env_name, """
+        SELECT PM_METRICID, PM_METRICLABEL, DESCR60, PM_METRICTYPE,
+               PM_METRICINT, PM_METRIC_DISP, PM_METRIC_DEFSCALE
+          FROM SYSADM.PSPMMETRICDEFN
+         WHERE PM_METRICID = :id
+    """, {"id": mid})
+    defn = rows[0] if rows else None
+    warnings_out = [] if defn else [f"PM Metric ID {mid} not found"]
+    enum_values = []
+    if ptmetadata.has_table(env_name, "PSPMMETRICVALUE"):
+        enum_values = query(env_name, """
+            SELECT PM_METRIC_VALUE, PM_METRICLABEL
+              FROM SYSADM.PSPMMETRICVALUE
+             WHERE PM_METRICID = :id
+             ORDER BY PM_METRIC_VALUE
+        """, {"id": mid}) or []
+    transactions = []
+    if ptmetadata.has_table(env_name, "PSPMTRANSDEFN"):
+        transactions = query(env_name, """
+            SELECT PM_TRANS_DEFN_ID, PM_TRANS_LABEL, DESCR60
+              FROM SYSADM.PSPMTRANSDEFN
+             WHERE :id IN (PM_METRICID_1, PM_METRICID_2, PM_METRICID_3,
+                           PM_METRICID_4, PM_METRICID_5, PM_METRICID_6, PM_METRICID_7)
+             ORDER BY PM_TRANS_LABEL
+        """, {"id": mid}) or []
+    events = []
+    if ptmetadata.has_table(env_name, "PSPMEVENTDEFN"):
+        events = query(env_name, """
+            SELECT PM_EVENT_DEFN_ID, PM_EVENT_LABEL, DESCR60
+              FROM SYSADM.PSPMEVENTDEFN
+             WHERE :id IN (PM_METRICID_1, PM_METRICID_2, PM_METRICID_3,
+                           PM_METRICID_4, PM_METRICID_5, PM_METRICID_6, PM_METRICID_7)
+             ORDER BY PM_EVENT_LABEL
+        """, {"id": mid}) or []
+    return {
+        "definition": dict(defn) if defn else {},
+        "enum_values": [dict(v) for v in enum_values],
+        "transactions": [dict(t) for t in transactions],
+        "events": [dict(e) for e in events],
+        "warnings": warnings_out,
+    }

@@ -5997,6 +5997,8 @@ def canonical_object(env, object_type, name):
         return timezone_object(env, name)
     if object_type == "locale":
         return locale_object(env, name)
+    if object_type == "pm_metric":
+        return pm_metric_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])
@@ -7219,4 +7221,80 @@ def locale_object(env, locale_cd):
         sections=sections,
         overview={"locale_cd": locale_cd, "descr": descr, "has_options": bool(opt_map)},
         _metadata={"environment": env.upper(), "source_table": "PSLOCALEDEFN"},
+    )
+
+
+def pm_metric_object(env, metric_id):
+    from connectors import psdb as _psdb
+    data = _psdb.get_pm_metric(env, metric_id)
+    defn = data.get("definition") or {}
+    enum_values = data.get("enum_values") or []
+    transactions = data.get("transactions") or []
+    events = data.get("events") or []
+    warnings = data.get("warnings") or []
+
+    mid = defn.get("pm_metricid", metric_id)
+    label = (defn.get("pm_metriclabel") or "").strip()
+    descr60 = (defn.get("descr60") or "").strip()
+    mtype = str(defn.get("pm_metrictype") or "")
+    is_int = defn.get("pm_metricint") == "Y"
+    is_disp = defn.get("pm_metric_disp") == "Y"
+    scale = defn.get("pm_metric_defscale")
+
+    _TYPE_LABELS = {
+        "1": "Config Counter", "2": "Collected Metric", "3": "Flag/Enum",
+        "4": "String", "5": "Count", "6": "Duration", "7": "Identifier",
+    }
+    type_label = _TYPE_LABELS.get(mtype, f"Type {mtype}")
+    display = f"{mid} \u2014 {label}" if label else str(mid)
+
+    kv_items = [
+        {"label": "Metric ID",    "value": str(mid)},
+        {"label": "Label",        "value": label or "(none)"},
+        {"label": "Description",  "value": descr60 or "(none)"},
+        {"label": "Type",         "value": f"{type_label} ({mtype})"},
+        {"label": "Integer",      "value": "Yes" if is_int else "No"},
+        {"label": "Displayable",  "value": "Yes" if is_disp else "No"},
+    ]
+    if scale is not None and scale != 1.0:
+        kv_items.append({"label": "Default Scale", "value": str(scale)})
+
+    sections = [{"title": "Metric Overview", "type": "kv", "items": kv_items}]
+
+    if enum_values:
+        ev_items = [
+            {"label": f"{v['pm_metric_value']} = {v['pm_metriclabel']}"}
+            for v in enum_values
+        ]
+        sections.append({"title": f"Enum Values ({len(enum_values)})", "type": "chips", "items": ev_items})
+
+    if transactions:
+        t_items = [
+            {"label": t["pm_trans_label"] or str(t["pm_trans_defn_id"]),
+             "value": (t.get("descr60") or "").strip(),
+             "id": str(t["pm_trans_defn_id"])}
+            for t in transactions
+        ]
+        sections.append({"title": f"Used in Transactions ({len(transactions)})", "type": "items", "items": t_items})
+
+    if events:
+        e_items = [
+            {"label": e["pm_event_label"] or str(e["pm_event_defn_id"]),
+             "value": (e.get("descr60") or "").strip(),
+             "id": str(e["pm_event_defn_id"])}
+            for e in events
+        ]
+        sections.append({"title": f"Used in Events ({len(events)})", "type": "items", "items": e_items})
+
+    return canonical_base(
+        env,
+        "pm_metric",
+        str(mid),
+        display_name=display,
+        status="active",
+        warnings=warnings,
+        sections=sections,
+        overview={"metric_id": mid, "label": label, "metric_type": mtype,
+                  "type_label": type_label, "is_integer": is_int},
+        _metadata={"environment": env.upper(), "source_table": "PSPMMETRICDEFN"},
     )

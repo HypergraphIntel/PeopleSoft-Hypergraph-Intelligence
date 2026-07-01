@@ -874,6 +874,18 @@ OBJECT_REGISTRY.setdefault("locale", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("pm_metric", {
+    "display_title": "PM Metric",
+    "icon": "activity",
+    "graph_node_type": "pm_metric",
+    "object_page": "/admin/pmmetric",
+    "discovery": {"table": "PSPMMETRICDEFN", "name_column": "PM_METRICID"},
+    "search": {"table": "PSPMMETRICDEFN", "name_column": "PM_METRICID",
+               "description_columns": ["PM_METRICLABEL", "DESCR60"], "extra_search_columns": []},
+    "supported_versions": ["8.50", "8.51", "8.52", "8.53", "8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 OBJECT_REGISTRY.setdefault("archive_object", {
     "display_title": "Archive Object",
     "icon": "archive",

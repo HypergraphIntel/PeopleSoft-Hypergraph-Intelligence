@@ -1056,6 +1056,23 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "locale", lcode, label, r)
         return len(rows)
 
+    def pm_metrics():
+        if not ptmetadata.has_table(env, "PSPMMETRICDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT m.PM_METRICID, m.PM_METRICLABEL, m.PM_METRICTYPE
+              FROM SYSADM.PSPMMETRICDEFN m
+             WHERE ROWNUM <= {limit}
+             ORDER BY m.PM_METRICID
+        """) or []
+        for r in rows:
+            mid = r.get("pm_metricid")
+            if mid is None:
+                continue
+            label = (r.get("pm_metriclabel") or "").strip() or str(mid)
+            add_node(graph, "pm_metric", str(mid), label, r)
+        return len(rows)
+
 
     def ib_routings():
         if not ptmetadata.has_table(env, "PSIBRTNGDEFN"):
@@ -1291,6 +1308,7 @@ def build(env="HCM", limit=50, persist=True):
         ("ads_definitions", ads_definitions),
         ("timezones", timezones),
         ("locales", locales),
+        ("pm_metrics", pm_metrics),
     ):
         provider(graph, name, loader)
 
