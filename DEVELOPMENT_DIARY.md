@@ -932,7 +932,7 @@ Date/time: 2026-06-30 00:54:51 CDT
 - Implemented a small shared-shell cleanup as the next slice of the Frontend
   Shell roadmap work.
 - Replaced the duplicate shell brand/nav construction with a single brand link
-  that contains the cyan logo and `PeopleSoft Explorer` title.
+  that contains the cyan logo and `PeopleSoft Hypergraph Intelligence` title.
 - Added `deathstar:envchange` event emission in `/static/app.js` whenever the
   shared environment selector initializes, changes, or falls back to a stored
   environment.
@@ -3078,3 +3078,49 @@ Verification:
 - Service restarted via `kill -HUP`; `journalctl` confirmed clean startup
 - Nav groupings confirmed in browser; dropdown hover works; active group highlights correctly
 - `app.css?v=2` cache-buster forces browsers to fetch updated stylesheet
+
+------------------------------------------------------------------------
+
+## 2026-07-01 — Phase 5 Complete; Phase 6 Continuous Drift Detection
+
+### Phase 5 Closed
+
+IB Schema Definitions (PSIBSCMADATA / PSIBSCMADFN) was the last Phase 5 candidate.
+Investigated: `has_table()` returns True (visible in `all_objects`) but actual SELECT yields
+ORA-00942 — no grant in HCM. Even with grants, PSIBSCMADATA stores raw XML as CLOB chunks
+with no human-readable names or types; PSIBSCMADFN header is redundant with PSMSGDEFN coverage.
+Decision: deprioritize. Phase 5 declared complete.
+
+ROADMAP updated: "Remaining Providers" replaced by "Deprioritized Providers" table with one row
+per unimplementable table, each documenting the exact table names and reason.
+
+### Phase 6 — Environment Compare Expansion (Continuous Drift Detection)
+
+Existing envcompare covered: Records, Fields, Components, Permissions, AE, Roles, PeopleCode,
+SQL Definitions, Portals, PS Queries. The Phase 6 roadmap items (Menus, Trees, IB metadata)
+were all missing.
+
+Implemented four new compare functions following the existing `_run()` / `_compare()` pattern:
+
+| Function | Table | Key | Notes |
+|---|---|---|---|
+| `compare_menus()` | PSMENUDEFN (637 rows) | MENUNAME | Compares menutype, descr, objectownerid, lastupddttm |
+| `compare_trees()` | PSTREEDEFN (326 rows) | TREE_NAME | Inner-join to MAX(EFFDT) per TREE_NAME+SETID; latest effective row only |
+| `compare_ib_routings()` | PSIBRTNGDEFN | ROUTINGDEFNNAME | Filters `NOT LIKE '~%'` to exclude auto-generated rows; compares type, operation, sender/receiver |
+| `compare_ib_messages()` | PSMSGDEFN (4272 rows) | MSGNAME | Compares msgstatus, descr, objectownerid, lastupddttm |
+
+Also updated `summary()` to include Menus, Trees, IB Routings, IB Messages in the object count sidebar.
+
+Files modified:
+- `connectors/envcompare.py` — four new functions + updated summary()
+- `routers/envcompare.py` — four new GET endpoints (/menus, /trees, /ib_routings, /ib_messages)
+- `routers/admin/runtime.py` — four new tabs in envcompare UI; updated TABS, Q_IDS, nameCol, metaHeaders, metaCells
+- `ROADMAP.md` — Phase 5 closed; Phase 6 Continuous Drift Detection section updated
+
+Verification:
+- `python3 -m py_compile` on all three Python files: OK
+- `python3 -c "import main"`: OK
+- Live connector calls: compare_menus (20 diffs), compare_trees (OK), compare_ib_routings (OK), compare_ib_messages (OK)
+- HTTP endpoints all returned 200 after service restart
+- `/admin/envcompare` page confirmed 44,822 bytes; Menus/Trees/IB Routings tabs present
+

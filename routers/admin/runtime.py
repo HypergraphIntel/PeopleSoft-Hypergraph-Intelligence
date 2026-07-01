@@ -1086,6 +1086,10 @@ a.obj-link:hover{text-decoration:underline;}
     <div class="tab"     onclick="switchTab('sql_definitions')">SQL Defs</div>
     <div class="tab"     onclick="switchTab('portals')">Portals</div>
     <div class="tab"     onclick="switchTab('queries')">PS Queries</div>
+    <div class="tab"     onclick="switchTab('menus')">Menus</div>
+    <div class="tab"     onclick="switchTab('trees')">Trees</div>
+    <div class="tab"     onclick="switchTab('ib_routings')">IB Routings</div>
+    <div class="tab"     onclick="switchTab('ib_messages')">IB Messages</div>
     <div class="tab"     onclick="switchTab('graph')">Graph</div>
   </div>
 
@@ -1207,6 +1211,47 @@ a.obj-link:hover{text-decoration:underline;}
     <div id="res-queries"></div>
   </div>
 
+  <!-- Menus tab -->
+  <div id="pane-menus" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="menuQ" type="text" placeholder="Search menus…" style="width:220px;" onkeydown="if(event.key==='Enter')runCompare('menus')">
+      <button onclick="runCompare('menus')">Compare</button>
+      <span class="spinner" id="spin-menus">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-menus"></div>
+  </div>
+
+  <!-- Trees tab -->
+  <div id="pane-trees" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="treeQ" type="text" placeholder="Search trees…" style="width:220px;" onkeydown="if(event.key==='Enter')runCompare('trees')">
+      <button onclick="runCompare('trees')">Compare</button>
+      <span class="spinner" id="spin-trees">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-trees"></div>
+  </div>
+
+  <!-- IB Routings tab -->
+  <div id="pane-ib_routings" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="ibrtngQ" type="text" placeholder="Search routing name or operation…" style="width:280px;" onkeydown="if(event.key==='Enter')runCompare('ib_routings')">
+      <button onclick="runCompare('ib_routings')">Compare</button>
+      <span class="spinner" id="spin-ib_routings">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div class="warn-msg" style="margin-bottom:6px;">Named routings only — auto-generated (~GENERATED~, ~GEN~UPG~) excluded.</div>
+    <div id="res-ib_routings"></div>
+  </div>
+
+  <!-- IB Messages tab -->
+  <div id="pane-ib_messages" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="ibmsgQ" type="text" placeholder="Search message name or description…" style="width:280px;" onkeydown="if(event.key==='Enter')runCompare('ib_messages')">
+      <button onclick="runCompare('ib_messages')">Compare</button>
+      <span class="spinner" id="spin-ib_messages">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-ib_messages"></div>
+  </div>
+
   <!-- Graph tab -->
   <div id="pane-graph" class="pane" style="display:none;">
     <div class="ctrl">
@@ -1223,7 +1268,7 @@ a.obj-link:hover{text-decoration:underline;}
 
 <script>
 const $ = id => document.getElementById(id);
-const TABS = ['records','fields','components','permissions','ae','roles','peoplecode','sql_definitions','portals','queries','graph'];
+const TABS = ['records','fields','components','permissions','ae','roles','peoplecode','sql_definitions','portals','queries','menus','trees','ib_routings','ib_messages','graph'];
 let currentTab = 'records';
 
 function env1() { return $('env1Sel').value || 'HCM'; }
@@ -1278,6 +1323,7 @@ async function loadSummary() {
 const Q_IDS = {
   records: 'recQ', components: 'compQ', permissions: 'permQ', ae: 'aeQ', roles: 'roleQ',
   peoplecode: 'pcQ', sql_definitions: 'sqlQ', portals: 'portalQ', queries: 'queryQ',
+  menus: 'menuQ', trees: 'treeQ', ib_routings: 'ibrtngQ', ib_messages: 'ibmsgQ',
 };
 
 async function runCompare(type) {
@@ -1719,19 +1765,27 @@ function nameCol(type) {
     ae: 'ae_applid',
     roles: 'rolename',
     queries: 'qryname',
+    menus: 'menuname',
+    trees: 'tree_name',
+    ib_routings: 'routingdefnname',
+    ib_messages: 'msgname',
   };
   return map[type] || 'name';
 }
 
 function metaHeaders(type) {
   const map = {
-    records:     ['Name', 'Type', 'Fields', 'Description'],
-    fields:      ['Name', 'Seq', 'Type', 'Length'],
-    components:  ['Name', 'Search Rec', 'Add Rec', 'Actions'],
-    permissions: ['Name', 'Description'],
-    ae:          ['Name', 'Status', 'Description'],
-    roles:       ['Name', 'Description'],
-    queries:     ['Name', 'Type', 'Folder', 'Disabled', 'Valid'],
+    records:      ['Name', 'Type', 'Fields', 'Description'],
+    fields:       ['Name', 'Seq', 'Type', 'Length'],
+    components:   ['Name', 'Search Rec', 'Add Rec', 'Actions'],
+    permissions:  ['Name', 'Description'],
+    ae:           ['Name', 'Status', 'Description'],
+    roles:        ['Name', 'Description'],
+    queries:      ['Name', 'Type', 'Folder', 'Disabled', 'Valid'],
+    menus:        ['Name', 'Type', 'Description', 'Owner'],
+    trees:        ['Name', 'SetID', 'Status', 'Description'],
+    ib_routings:  ['Name', 'Type', 'Operation', 'Sender', 'Receiver'],
+    ib_messages:  ['Name', 'Status', 'Description', 'Owner'],
   };
   return map[type] || ['Name'];
 }
@@ -1752,6 +1806,14 @@ function metaCells(r, type) {
       return `<td>${esc(r.descr)}</td>`;
     case 'queries':
       return `<td>${esc(r.qrytype)}</td><td>${esc(r.qryfolder)}</td><td>${esc(r.qrydisabled)}</td><td>${esc(r.qryvalid)}</td>`;
+    case 'menus':
+      return `<td>${esc(r.menutype)}</td><td>${esc(r.descr)}</td><td>${esc(r.objectownerid)}</td>`;
+    case 'trees':
+      return `<td class="mono">${esc(r.setid)}</td><td>${esc(r.eff_status)}</td><td>${esc(r.descr)}</td>`;
+    case 'ib_routings':
+      return `<td>${esc(r.rtngtype)}</td><td class="mono">${esc(r.ib_operationname)}</td><td class="mono">${esc(r.sendernodename)}</td><td class="mono">${esc(r.receivernodename)}</td>`;
+    case 'ib_messages':
+      return `<td>${esc(r.msgstatus)}</td><td>${esc(r.descr)}</td><td>${esc(r.objectownerid)}</td>`;
     default:
       return '';
   }

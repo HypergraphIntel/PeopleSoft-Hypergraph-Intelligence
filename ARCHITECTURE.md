@@ -1,9 +1,9 @@
-# PeopleSoft Explorer
+# PeopleSoft Hypergraph Intelligence - PHI
 *Project Codename: DeathStar*
 
 # Vision
 
-PeopleSoft Explorer is an operational intelligence platform for Oracle PeopleSoft.
+PeopleSoft Hypergraph Intelligence is an operational intelligence platform for Oracle PeopleSoft.
 
 Rather than functioning as a collection of independent tools, the platform is built around a unified metadata and runtime model that enables engineers, administrators, and architects to understand every aspect of a PeopleSoft environment from a single interface.
 

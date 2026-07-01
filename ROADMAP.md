@@ -1,8 +1,8 @@
-# PeopleSoft Explorer Roadmap
+# PeopleSoft Hypergraph Intelligence Roadmap
 
 ## Vision
 
-PeopleSoft Explorer is evolving into a complete operational intelligence platform for PeopleSoft.
+PeopleSoft Hypergraph Intelligence is evolving into a complete operational intelligence platform for PeopleSoft.
 
 The long-term objective is to provide a unified interface for:
 
@@ -194,14 +194,26 @@ Marked `"stub": True` in OBJECT_REGISTRY. Table-name candidates in ptmetadata.py
 - Related Content — `PSRELCONDEFN` does not exist
 - Drop Zones — `PSPTDZDEFN` does not exist
 
-### Remaining Providers
+### ⛔ Deprioritized Providers
 
-- BI Publisher report definitions
-- WorkCenters
-- Dashboards
-- Homepage Tiles
-- Branding
-- Page Composer
+Investigated and deprioritized as of 2026-07-01. All are guarded by `has_table()` returns empty/stub results without crashing. Documented here for future re-evaluation on different environments or PeopleTools versions.
+
+| Provider | Tables | Reason deprioritized |
+|---|---|---|
+| IB Schema Definitions | PSIBSCMADATA / PSIBSCMADFN | PSIBSCMADATA stores raw XML as CLOB chunks — not browsable; PSIBSCMADFN visible in `all_objects` but no SELECT grant in HCM; PSMSGDEFN already covers message structure |
+| Navigation Collections | PTNC_COLLECTION | Does not exist in HCM; PSPTPNCOLL is Push Notification Collections (unrelated) |
+| Event Mappings | PSEFMAPPINGDEFN | Does not exist in HCM |
+| Related Content | PSRELCONDEFN | Does not exist in HCM |
+| Drop Zones | PSPTDZDEFN | Does not exist in HCM |
+| WorkCenters | — | No standalone definition header table; EOWC tables are runtime config keyed by portal object name |
+| Dashboards | PS_EOEN_DASHBRD | 0 rows in HCM |
+| BI Publisher / Branding / Page Composer | — | No backing definition tables in HCM SYSADM schema |
+| Fluid Homepage / Tile Definitions | PSPGEDEFN / PSFLPGCOLLECT / PSHPDEFN / PSTILEDEFN | All absent or 0 rows in HCM |
+| Activity Guide Collections | PS_AGC_TILE_TBL | 2 rows — too few to be useful |
+| File Reference Definitions | PSFILEREDEFN | 19,622 rows but mostly system graphics/script refs with no descriptions; marginal value |
+| Business Process Definitions | PSBUSPROCDEFN | 133 rows of legacy Workflow Navigator definitions from 2000–2002; deprecated framework |
+| IB Local Schema | PSLSDEFN | 319 rows of XML schema stored as compressed binary data; display impractical |
+| IB Service Setup | PSIBSVCSETUP | Single-row global IB gateway config; not a browsable catalog |
 
 ---
 
@@ -258,16 +270,31 @@ Every object should answer:
 
 - Knowledge Graph drift: compares current live graph against most-recent snapshot; surfaces new, removed, and changed nodes by type in the Graph Explorer DRIFT tab
 
+### ✅ Completed (2026-07-01)
+
+- Knowledge Graph drift: compares current live graph against most-recent snapshot; surfaces new, removed, and changed nodes by type in the Graph Explorer DRIFT tab
+- Menu comparison (`/api/envcompare/menus`) — diffs PSMENUDEFN (637 rows) including menutype, description, owner, timestamp
+- Tree comparison (`/api/envcompare/trees`) — diffs PSTREEDEFN (326 rows), latest effective row per tree; shows status, description, timestamp
+- IB Routing comparison (`/api/envcompare/ib_routings`) — diffs PSIBRTNGDEFN named routings (auto-generated excluded); shows type, operation, sender/receiver nodes
+- IB Message comparison (`/api/envcompare/ib_messages`) — diffs PSMSGDEFN (4272 rows); shows status, description, owner
+- Summary sidebar updated with Menus, Trees, IB Routings, IB Messages counts
+- Environment Compare UI updated with 4 new tabs (Menus, Trees, IB Routings, IB Messages)
+
 ### Remaining
 
 Automatically detect changes in:
 
-- PeopleCode (changed programs between environments)
-- SQL definitions
-- Security (changed permission lists, roles)
-- Menus
-- Trees
-- Integration Broker metadata
+- PeopleCode (changed programs between environments) — ✅ already done (`/api/envcompare/peoplecode` + deep source diff)
+- SQL definitions — ✅ already done (`/api/envcompare/sql_definitions`)
+- Security (changed permission lists, roles) — ✅ already done (`/api/envcompare/permissions`, `/api/envcompare/roles`)
+- Menus — ✅ added 2026-07-01
+- Trees — ✅ added 2026-07-01
+- Integration Broker metadata — ✅ added 2026-07-01 (routings + messages)
+
+**Remaining continuous drift work:**
+- Scheduled drift reports (run comparisons on a cron schedule, persist diffs to a store, surface alerts when drift exceeds thresholds)
+- AE program body comparison (currently we compare the catalog entry; full step/SQL body diff is not yet implemented)
+- Component interface comparison
 
 ---
 
@@ -407,57 +434,27 @@ Generate:
 
 # Long-Term Goals
 
-PeopleSoft Explorer should become the definitive engineering, observability, and operational intelligence platform for PeopleSoft environments.
+PeopleSoft Hypergraph Intelligence should become the definitive engineering, observability, and operational intelligence platform for PeopleSoft environments.
 
 ---
 
-# Next Slice
+# Current Focus
 
-## Session 2026-06-30 Completed
+## ✅ Phase 5 — Complete (as of 2026-07-01)
 
-All existing providers have been rewritten against the verified live SYSADM schema:
-- Approval Framework, XML Publisher, Search Definitions, Search Categories: fully rewritten and live-verified end-to-end
-- Navigation Collections, Event Mappings, Related Content, Drop Zones: confirmed as stubs (no backing tables in HCM); gracefully handled via `has_table()` guards; marked `"stub": True` in OBJECT_REGISTRY
+Phase 5 Knowledge Graph coverage is complete. 23 new providers were added across multiple sessions. All viable tables have been implemented; all unimplementable tables are documented in the Deprioritized Providers table above with reasons.
 
-## Phase 5 — Next Providers to Implement
+**IB Schema Definitions** (PSIBSCMADATA / PSIBSCMADFN) was the last candidate. Investigated 2026-07-01: no SELECT grant exists in HCM; PSIBSCMADATA stores raw XML as CLOB chunks — not browsable even with grants; PSIBSCMADFN header is redundant with existing PSMSGDEFN coverage. Deprioritized.
 
-New providers should follow the established verification methodology:
-1. Query `all_tables`/`all_tab_columns` to find the real table and column names
-2. Pull live sample rows to confirm usable keys (never assume PeopleTools naming conventions)
-3. Write psdb.py → ptmetadata.py → graphdb.py → uom.py → routers/peoplesoft.py → routers/admin/<group>.py in that order
+**Provider methodology for future sessions:**
+1. Query `all_tab_columns` to find the real table and column names — never assume PeopleTools naming
+2. Pull live sample rows to confirm usable keys and human-readable content
+3. Write psdb.py → ptmetadata.py → graphdb.py → uom.py → routers/peoplesoft.py → routers/admin/<group>.py in order
 4. Compile-check and smoke-test at each layer before proceeding
+5. Document deprioritization reasons when tables are unimplementable
 
-Completed in this session:
-- **PivotGrid Explorer** — implemented against verified `PSPGCORE` (154 rows); exposes data model columns, data source type (PS Query vs Component), query name, NUI options
-- **Connected Query Explorer** — implemented against verified `PSCONQRSDEFN` (97 rows); shows parent-child query composition and field join relationships
-- **Process Definition Explorer** — implemented against verified `PS_PRCSDEFN` (2873 rows); composite key PRCSTYPE~PRCSNAME; shows run control pages and process groups
-- **File Layout Explorer** — implemented against verified `PSFLDDEFN` (533 rows); shows segments (PSFLDSEGDEFN) and fields (PSFLDFIELDDEFN); supports Fixed Width/Delimited/XML formats
+## Phase 6 — Environment Intelligence (Active)
 
-Completed this session (2026-06-30 continued):
-- **IB Application Services** — implemented against verified `PSIBAPPLDEFN` (13 apps); exposes REST endpoint operations via PSIBAPPMETHOD/PSIBAPPURI with HTTP methods and URI templates
-- **Application Class Definitions** — implemented against verified `PSAPPCLASSDEFN` (12622 rows, 1860 packages); compound key PACKAGEROOT~QUALIFYPATH~APPCLASSID; shows full class path with sibling classes and sub-package tree
-- **Content Service Provider Definitions** — implemented against verified `PSPTCSSRVDEFN` (1016 rows); powers Related Actions, WorkCenter actions, Fluid navigation; shows parameters and where-used portal objects
-- **PeopleTools Test Framework (PTF) Tests** — implemented against verified `PSPTTSTDEFN` (161 rows); Script/Shell/Library types; shows test cases and up to 150 commands with page/field context
+Development focus has moved to Phase 6: continuous drift detection, environment history, and impact forecasting.
 
-Candidates for next session:
-Implemented in this session:
-- ADS Definitions, IB Service Groups, URL Definitions, Chatbot Skills, IB Routings, Style Sheets, Data Archive Objects
-
-Deprioritized (no backing tables or too few rows):
-- **WorkCenters** — no standalone definition header table; EOWC tables are runtime config keyed by portal object name
-- **Dashboards** — no definition tables (PS_EOEN_DASHBRD is 0 rows)
-- **BI Publisher / Branding / Page Composer** — no backing definition tables in HCM SYSADM schema
-- **Fluid Homepage / Tile Definitions** — all tile/homepage tables (PSPGEDEFN, PSFLPGCOLLECT, PSHPDEFN, PSTILEDEFN, PS_PTTILE_*) absent or 0 rows in HCM
-- **Activity Guide Collections** — PS_AGC_TILE_TBL (2 rows): too few
-- **File Reference Definitions** — PSFILEREDEFN (19622 rows): mostly system graphics/script refs, no descriptions, marginal value
-- **Business Process Definitions** — PSBUSPROCDEFN (133 rows): legacy Workflow Navigator definitions from 2000-2002; deprecated framework
-- **IB Local Schema** — PSLSDEFN (319 rows): XML schema stored as compressed binary data; display impractical
-- **IB Service Setup** — PSIBSVCSETUP (1 row): single-row global IB gateway configuration; not a browsable catalog
-
-Candidates for future sessions:
-- **IB Schema Definitions** — PSIBSCMADATA/PSIBSCMADFN (3680/3618 rows): IB XML schema metadata; investigate if human-readable name + type columns exist for browsing
-
-Completed (previous candidates now implemented):
-- **Timezone Definitions** — PSTIMEZONEDEFN (61 rows) + PSTIMEZONEIANA (592 rows)
-- **Locale Definitions** — PSLOCALEDEFN (191 rows) + PSLOCALEOPTNDFN (923 rows)
-- **Performance Monitor Metrics** — PSPMMETRICDEFN (206 rows) + PSPMTRANSDEFN (74 rows) + PSPMEVENTDEFN (32 rows): metric/transaction/event catalog; reverse lookup shows which transactions and events reference each metric
+**Starting with:** Continuous drift detection enhancements — automatically surface changes in PeopleCode, SQL definitions, security, menus, trees, and IB metadata between environments over time.

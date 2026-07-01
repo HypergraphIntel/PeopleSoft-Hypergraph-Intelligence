@@ -155,6 +155,50 @@ def compare_queries(
     return envcompare.compare_queries(env1, env2, q=q, limit=limit)
 
 
+@router.get("/menus")
+def compare_menus(
+    env1:  str = Query("HCM"),
+    env2:  str = Query("FSCM"),
+    q:     str = Query(""),
+    limit: int = Query(500),
+):
+    """Diff PSMENUDEFN (Menu definitions) between two environments."""
+    return envcompare.compare_menus(env1, env2, q=q, limit=limit)
+
+
+@router.get("/trees")
+def compare_trees(
+    env1:  str = Query("HCM"),
+    env2:  str = Query("FSCM"),
+    q:     str = Query(""),
+    limit: int = Query(500),
+):
+    """Diff PSTREEDEFN (Tree definitions) between two environments."""
+    return envcompare.compare_trees(env1, env2, q=q, limit=limit)
+
+
+@router.get("/ib_routings")
+def compare_ib_routings(
+    env1:  str = Query("HCM"),
+    env2:  str = Query("FSCM"),
+    q:     str = Query(""),
+    limit: int = Query(500),
+):
+    """Diff PSIBRTNGDEFN (IB Routing definitions) between two environments."""
+    return envcompare.compare_ib_routings(env1, env2, q=q, limit=limit)
+
+
+@router.get("/ib_messages")
+def compare_ib_messages(
+    env1:  str = Query("HCM"),
+    env2:  str = Query("FSCM"),
+    q:     str = Query(""),
+    limit: int = Query(500),
+):
+    """Diff PSMSGDEFN (IB Message definitions) between two environments."""
+    return envcompare.compare_ib_messages(env1, env2, q=q, limit=limit)
+
+
 @router.get("/graph")
 def compare_graph(
     env1: str = Query("HCM"),

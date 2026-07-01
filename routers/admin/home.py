@@ -9,7 +9,7 @@ def admin_home():
 <div class="pe-home">
   <div class="pe-hero">
     <p class="pe-kicker">DeathStar Platform</p>
-    <h1>PeopleSoft Explorer</h1>
+    <h1>PeopleSoft Hypergraph Intelligence</h1>
     <p>Unified diagnostic, development, security, and monitoring
     console for PeopleSoft environments.</p>
     <div class="pe-actions">

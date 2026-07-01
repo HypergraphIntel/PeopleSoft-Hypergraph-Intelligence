@@ -1,6 +1,6 @@
-# PeopleSoft Explorer
+# PeopleSoft Hypergraph Intelligence - PHI
 
-PeopleSoft Explorer is a read-only observability and exploration
+PeopleSoft Hypergraph Intelligence is a read-only observability and exploration
 platform for PeopleSoft environments.
 
 It is designed to help administrators and developers inspect PeopleSoft
@@ -15,7 +15,7 @@ possible.
 
 ## Goals
 
-PeopleSoft Explorer provides:
+PeopleSoft Hypergraph Intelligence provides:
 
 -   Environment-aware PeopleSoft inspection
 -   Oracle-backed metadata queries
@@ -34,7 +34,7 @@ PeopleSoft Explorer provides:
 ## Project Structure
 
 ```text
-PeopleSoft-Explorer/
+PeopleSoft-Hypergraph-Intelligence/
 ├── main.py                         # FastAPI app, router registration, static frontend mount
 ├── requirements.txt                # Python dependencies
 ├── LICENSE                         # Apache-2.0 license
@@ -212,8 +212,8 @@ http://localhost:8088/
 ```
 
 The root route redirects to `/static/index.html`, which loads the shared
-PeopleSoft Explorer frontend shell and sticky navigation banner. API
-documentation remains available at `/docs`.
+PeopleSoft Hypergraph Intelligence frontend shell and sticky navigation
+banner. API documentation remains available at `/docs`.
 
 ------------------------------------------------------------------------
 
@@ -459,5 +459,5 @@ Apache-2.0 for permissive use with explicit patent protections
 
 ## Disclaimer
 
-PeopleSoft Explorer is an independent administration and diagnostics
+PeopleSoft Hypergraph Intelligence is an independent administration and diagnostics
 platform and is not affiliated with Oracle.

@@ -468,6 +468,154 @@ def compare_queries(env1, env2, q="", limit=500):
     return diff
 
 
+def compare_menus(env1, env2, q="", limit=500):
+    """Diff PSMENUDEFN (Menu definitions) between two environments."""
+    pattern = f"%{q.upper()}%" if q else None
+    params = {"q": pattern}
+    warnings = []
+    all_rows = []
+
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSMENUDEFN")
+        descr_col = "DESCR" if "descr" in cols else "NULL AS DESCR"
+        descr_filter = "OR UPPER(DESCR) LIKE :q" if "descr" in cols else ""
+        owner_col = "OBJECTOWNERID" if "objectownerid" in cols else "NULL AS OBJECTOWNERID"
+        ts_col = "LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
+        menutype_col = "MENUTYPE" if "menutype" in cols else "NULL AS MENUTYPE"
+        sql = f"""
+            SELECT MENUNAME, {menutype_col}, {descr_col}, {owner_col}, {ts_col}
+              FROM SYSADM.PSMENUDEFN
+             WHERE (:q IS NULL OR UPPER(MENUNAME) LIKE :q {descr_filter})
+             ORDER BY MENUNAME
+             FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
+
+    rows1, rows2 = all_rows
+    diff = _compare(rows1, rows2, "menuname",
+                    ["menutype", "descr", "objectownerid", "lastupddttm"])
+    diff.update({"env1": env1, "env2": env2, "object_type": "menus",
+                 "query": q, "warnings": warnings})
+    return diff
+
+
+def compare_trees(env1, env2, q="", limit=500):
+    """Diff PSTREEDEFN (Tree definitions, latest effective row per tree) between two environments."""
+    pattern = f"%{q.upper()}%" if q else None
+    params = {"q": pattern}
+    warnings = []
+    all_rows = []
+
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSTREEDEFN")
+        eff_col = "t.EFF_STATUS" if "eff_status" in cols else "NULL AS EFF_STATUS"
+        descr_col = "t.DESCR" if "descr" in cols else "NULL AS DESCR"
+        ts_col = "t.LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
+        setid_col = "t.SETID" if "setid" in cols else "NULL AS SETID"
+        sql = f"""
+            SELECT t.TREE_NAME, {setid_col}, t.EFFDT,
+                   {eff_col}, {descr_col}, {ts_col}
+              FROM SYSADM.PSTREEDEFN t
+              INNER JOIN (
+                SELECT TREE_NAME, SETID, MAX(EFFDT) AS EFFDT
+                  FROM SYSADM.PSTREEDEFN
+                 GROUP BY TREE_NAME, SETID
+              ) latest ON t.TREE_NAME = latest.TREE_NAME
+                      AND t.SETID     = latest.SETID
+                      AND t.EFFDT     = latest.EFFDT
+             WHERE (:q IS NULL OR UPPER(t.TREE_NAME) LIKE :q)
+             ORDER BY t.TREE_NAME
+             FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
+
+    rows1, rows2 = all_rows
+    diff = _compare(rows1, rows2, "tree_name",
+                    ["eff_status", "descr", "lastupddttm"])
+    diff.update({"env1": env1, "env2": env2, "object_type": "trees",
+                 "query": q, "warnings": warnings})
+    return diff
+
+
+def compare_ib_routings(env1, env2, q="", limit=500):
+    """Diff PSIBRTNGDEFN (IB Routing definitions, named only) between two environments."""
+    pattern = f"%{q.upper()}%" if q else None
+    params = {"q": pattern}
+    warnings = []
+    all_rows = []
+
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSIBRTNGDEFN")
+        rtngtype_col = "RTNGTYPE" if "rtngtype" in cols else "NULL AS RTNGTYPE"
+        op_col = "IB_OPERATIONNAME" if "ib_operationname" in cols else "NULL AS IB_OPERATIONNAME"
+        sender_col = "SENDERNODENAME" if "sendernodename" in cols else "NULL AS SENDERNODENAME"
+        rcvr_col = "RECEIVERNODENAME" if "receivernodename" in cols else "NULL AS RECEIVERNODENAME"
+        status_col = "EFF_STATUS" if "eff_status" in cols else "NULL AS EFF_STATUS"
+        ts_col = "LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
+        sql = f"""
+            SELECT ROUTINGDEFNNAME, {rtngtype_col}, {op_col},
+                   {sender_col}, {rcvr_col}, {status_col}, {ts_col}
+              FROM SYSADM.PSIBRTNGDEFN
+             WHERE ROUTINGDEFNNAME NOT LIKE '~%'
+               AND (:q IS NULL OR UPPER(ROUTINGDEFNNAME) LIKE :q
+                    OR UPPER({op_col}) LIKE :q)
+             ORDER BY ROUTINGDEFNNAME
+             FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
+
+    rows1, rows2 = all_rows
+    diff = _compare(rows1, rows2, "routingdefnname",
+                    ["rtngtype", "ib_operationname", "sendernodename",
+                     "receivernodename", "eff_status", "lastupddttm"])
+    diff.update({"env1": env1, "env2": env2, "object_type": "ib_routings",
+                 "query": q, "warnings": warnings})
+    return diff
+
+
+def compare_ib_messages(env1, env2, q="", limit=500):
+    """Diff PSMSGDEFN (IB Message definitions) between two environments."""
+    pattern = f"%{q.upper()}%" if q else None
+    params = {"q": pattern}
+    warnings = []
+    all_rows = []
+
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSMSGDEFN")
+        descr_col = "DESCR" if "descr" in cols else "NULL AS DESCR"
+        descr_filter = "OR UPPER(DESCR) LIKE :q" if "descr" in cols else ""
+        status_col = "MSGSTATUS" if "msgstatus" in cols else "NULL AS MSGSTATUS"
+        owner_col = "OBJECTOWNERID" if "objectownerid" in cols else "NULL AS OBJECTOWNERID"
+        ts_col = "LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
+        sql = f"""
+            SELECT MSGNAME, {status_col}, {descr_col}, {owner_col}, {ts_col}
+              FROM SYSADM.PSMSGDEFN
+             WHERE (:q IS NULL OR UPPER(MSGNAME) LIKE :q {descr_filter})
+             ORDER BY MSGNAME
+             FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
+
+    rows1, rows2 = all_rows
+    diff = _compare(rows1, rows2, "msgname",
+                    ["msgstatus", "descr", "objectownerid", "lastupddttm"])
+    diff.update({"env1": env1, "env2": env2, "object_type": "ib_messages",
+                 "query": q, "warnings": warnings})
+    return diff
+
+
 def summary(env1, env2):
     """
     Quick catalog-count comparison across key object types.
@@ -485,6 +633,10 @@ def summary(env1, env2):
         ("SQL Definitions",  "SELECT COUNT(*) AS n FROM SYSADM.PSSQLDEFN"),
         ("Portal Entries",   "SELECT COUNT(*) AS n FROM SYSADM.PSPRSMDEFN"),
         ("PS Queries",       "SELECT COUNT(*) AS n FROM SYSADM.PSQRYDEFN WHERE OPRID = ' '"),
+        ("Menus",            "SELECT COUNT(*) AS n FROM SYSADM.PSMENUDEFN"),
+        ("Trees",            "SELECT COUNT(*) AS n FROM SYSADM.PSTREEDEFN"),
+        ("IB Routings",      "SELECT COUNT(*) AS n FROM SYSADM.PSIBRTNGDEFN WHERE ROUTINGDEFNNAME NOT LIKE '~%'"),
+        ("IB Messages",      "SELECT COUNT(*) AS n FROM SYSADM.PSMSGDEFN"),
     ]
     rows = []
     warnings = []
