@@ -57,7 +57,7 @@ The following major subsystems are production-ready:
 - Drop Zone Explorer
 - Version-aware metadata adapters
 - Shared frontend shell with global navigation and environment selector
-- Admin shell smoke test harness (22 pages)
+- Admin shell smoke test harness (22+ pages; 16 new providers added in Phase 5)
 - Scheduled graph snapshots with retention pruning
 
 Development focus now shifts from feature parity toward platform intelligence.
