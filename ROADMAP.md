@@ -296,8 +296,12 @@ Automatically detect changes in:
 - Component interface comparison (`/api/envcompare/ci`) — diffs PSBCDEFN; shows type, description, backing component — ✅ added 2026-07-01
 - AE program body comparison (`/api/envcompare/ae-body`) — step-level diff of PSAESTEPDEFN + SQL text from PSAESTMTDEFN/PSSQLTEXTDEFN; unified diff per changed step — ✅ added 2026-07-01
 
-**Remaining continuous drift work:**
-- Scheduled drift reports (run comparisons on a cron schedule, persist diffs to a store, surface alerts when drift exceeds thresholds)
+### ✅ Completed (2026-07-01)
+
+- Scheduled drift reports: `driftdb.py` SQLite store + scheduler daemon integration — runs envcompare summary after each graph snapshot cycle, persists point-in-time counts, auto-generates threshold alerts (|delta| ≥ 50) and growth-rate alerts (delta grows >10%), auto-resolves when drift subsides
+- `/api/drift/snapshot` (POST) — manual trigger
+- `/api/drift/latest`, `/api/drift/history`, `/api/drift/alerts` (GET)
+- `/admin/drift` — drift history UI with sparklines, alert table, and Snapshot Now button
 
 ---
 
@@ -311,11 +315,14 @@ Maintain historical snapshots.
 - Portal object deep comparison (definition diff, children diff, permissions diff)
 - Operator comparison (roles, permission lists, component access diff between two OPRIDs)
 
+### ✅ Completed (2026-07-01)
+
+- Point-in-time runtime snapshots: every drift cycle stores a full count snapshot in `drift.db` (16 object types per environment pair, timestamped)
+- Temporal history of security and metadata changes: drift history API returns per-type time series; Drift History admin page visualizes trends with delta sparklines
+
 ### Remaining
 
-- Promotion history tracking across environments (DEV → TEST → UAT → PROD)
-- Point-in-time runtime snapshots
-- Temporal history of security and metadata changes
+- Promotion history tracking across environments (DEV → TEST → UAT → PROD) — needs design; would require detecting when project objects appear in a target environment, or a manual promotion event record
 
 ---
 
@@ -328,10 +335,10 @@ Predict downstream impact before migration.
 - Knowledge Graph impact analysis (forward and reverse dependency traversal, upstream/downstream node enumeration by type)
 - AE restart eligibility analysis
 
-### Remaining
+### ✅ Completed (2026-07-01)
 
-- Pre-migration impact reports summarizing affected components, security, runtime behavior, and integrations
-- Deployment risk scoring
+- Pre-migration impact reports: `/admin/impact` — full project impact report with KG traversal, affected node breakdown by type, and per-object downstream count; warns when KG coverage is insufficient
+- Deployment risk scoring: `/api/impact/risk` — KG-independent risk assessment using drift snapshot data; weights object types by risk (security=5×, PeopleCode/IB=4×, AE/SQL=3×, others=1×); returns per-type drift level (Minor/Moderate/Significant/Major) and overall risk label (Low/Medium/High/Critical); auto-loads on `/admin/impact` page open
 
 ---
 
@@ -456,8 +463,16 @@ Phase 5 Knowledge Graph coverage is complete. 23 new providers were added across
 4. Compile-check and smoke-test at each layer before proceeding
 5. Document deprioritization reasons when tables are unimplementable
 
-## Phase 6 — Environment Intelligence (Active)
+## Phase 6 — Environment Intelligence (Substantially Complete as of 2026-07-01)
 
-Development focus has moved to Phase 6: continuous drift detection, environment history, and impact forecasting.
+Continuous drift detection, environment history, and impact forecasting are complete.
 
-**Starting with:** Continuous drift detection enhancements — automatically surface changes in PeopleCode, SQL definitions, security, menus, trees, and IB metadata between environments over time.
+**Remaining:** Promotion history tracking (DEV → TEST → UAT → PROD) — needs design before implementation.
+
+**What was delivered:**
+- 16-type envcompare coverage (records, fields, components, pages, permissions, roles, AE, PeopleCode, SQL defs, portals, queries, menus, trees, IB routings, IB messages, comp. interfaces)
+- AE step-level body comparison with unified SQL diff
+- Scheduled drift snapshots (SQLite) with threshold + growth alerts, history time series
+- KG-independent deployment risk scoring (weighted by object type) via `/api/impact/risk`
+- Project impact reports via KG reverse traversal via `/api/impact/project`
+- Admin pages: `/admin/drift`, `/admin/impact`

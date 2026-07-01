@@ -223,3 +223,210 @@ loadCatalog();
 </script>""")
 
 
+@router.get("/impact", response_class=HTMLResponse)
+def admin_impact():
+    return _shell("Impact Forecasting", "impact", noscroll=False, content="""\
+<style>
+*{box-sizing:border-box;}
+.ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
+select,input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
+input[type=text]{width:300px;}
+button{background:#00e5ff;border:none;padding:4px 14px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
+button:hover{background:#33eeff;}
+.section-head{font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#00e5ff;
+              margin:18px 0 8px;border-bottom:1px solid #00e5ff22;padding-bottom:4px;}
+table{border-collapse:collapse;width:100%;font-size:11px;}
+th{border-bottom:1px solid #00e5ff33;padding:4px 8px;text-align:left;color:#00e5ff;
+   font-size:10px;text-transform:uppercase;letter-spacing:1px;}
+td{border-bottom:1px solid #0e2030;padding:5px 8px;vertical-align:top;}
+tr:hover td{background:rgba(0,229,255,.04);}
+.mono{font-family:monospace;font-size:11px;}
+.empty{color:#445;font-style:italic;font-size:12px;padding:10px 0;}
+.warn-msg{color:#ffaa00;font-size:11px;padding:3px 8px;background:#1a1000;border-left:2px solid #ffaa00;margin:2px 0;}
+.err-msg{color:#ff6666;font-size:11px;padding:3px 8px;background:#1a0000;border-left:2px solid #ff4444;margin:2px 0;}
+.risk-low{color:#00cc66;font-weight:bold;}
+.risk-medium{color:#ffdd55;font-weight:bold;}
+.risk-high{color:#ff9900;font-weight:bold;}
+.risk-critical{color:#ff4444;font-weight:bold;}
+.stat-grid{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+.stat-box{border:1px solid #00e5ff22;padding:10px 16px;min-width:120px;text-align:center;background:rgba(0,20,30,.5);}
+.stat-num{font-size:22px;font-weight:bold;}
+.stat-lbl{font-size:10px;color:#445;text-transform:uppercase;letter-spacing:1px;}
+.bar-bg{background:#0a1a24;border-radius:2px;height:6px;width:120px;display:inline-block;vertical-align:middle;}
+.bar-fill{height:100%;background:#00e5ff;border-radius:2px;}
+.spinner{display:none;color:#00e5ff;font-size:11px;margin-left:8px;}
+.spinner.on{display:inline;}
+</style>
+<div style="padding:16px;">
+
+<!-- ── Environment Risk Assessment ─────────────────────────────────────── -->
+<div class="section-head" style="margin-top:0">Environment Risk Assessment</div>
+<div class="ctrl">
+  <label style="font-size:11px;color:#7faab2">Env 1</label>
+  <select id="riskEnv1"><option>HCM</option><option>FSCM</option></select>
+  <label style="font-size:11px;color:#7faab2">Env 2</label>
+  <select id="riskEnv2"><option value="FSCM">FSCM</option><option>HCM</option></select>
+  <button onclick="runRisk()">Assess Risk</button>
+  <span class="spinner" id="riskSpinner">&#9679;&#9679;&#9679;</span>
+</div>
+<div id="riskResult"></div>
+
+<!-- ── Project Impact Analysis ─────────────────────────────────────────── -->
+<div class="section-head">Project Impact Analysis (KG-based)</div>
+<div class="ctrl">
+  <label style="font-size:11px;color:#7faab2">Env</label>
+  <select id="impEnv"><option>HCM</option><option>FSCM</option></select>
+  <input id="impProject" type="text" placeholder="Project name (e.g. GPIT_HR92_OBJECTS)" onkeydown="if(event.key==='Enter')runImpact()">
+  <button onclick="runImpact()">Analyze Impact</button>
+  <span class="spinner" id="impSpinner">&#9679;&#9679;&#9679;</span>
+</div>
+<div id="impResult"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+function esc(s){return String(s==null?'—':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function riskCls(label){
+  const m={None:'risk-low',Low:'risk-low',Medium:'risk-medium',High:'risk-high',Critical:'risk-critical'};
+  return m[label]||'';
+}
+
+// ── Risk Assessment ────────────────────────────────────────────────────────
+async function runRisk(){
+  const e1=$('riskEnv1').value, e2=$('riskEnv2').value;
+  $('riskSpinner').classList.add('on');
+  $('riskResult').innerHTML='';
+  try{
+    const r=await fetch(`/api/impact/risk?env1=${e1}&env2=${e2}`);
+    const d=await r.json();
+    $('riskSpinner').classList.remove('on');
+    renderRisk(d);
+  }catch(e){
+    $('riskSpinner').classList.remove('on');
+    $('riskResult').innerHTML=`<div class="err-msg">${esc(String(e))}</div>`;
+  }
+}
+
+function renderRisk(d){
+  if(d.error){$('riskResult').innerHTML=`<div class="err-msg">${esc(d.error)}</div>`;return;}
+  const rc=riskCls(d.risk_label);
+  let h=`<div class="stat-grid">
+    <div class="stat-box"><div class="stat-num ${rc}">${esc(d.risk_label)}</div><div class="stat-lbl">Overall Risk</div></div>
+    <div class="stat-box"><div class="stat-num">${d.risk_score}</div><div class="stat-lbl">Risk Score</div></div>
+    <div class="stat-box"><div class="stat-num">${(d.type_risks||[]).filter(r=>r.contribution>0).length}</div><div class="stat-lbl">Drifted Types</div></div>
+    <div class="stat-box"><div class="stat-num" style="font-size:14px">${esc(d.data_source||'')}</div><div class="stat-lbl">Data Source</div></div>
+  </div>`;
+
+  const rows=(d.type_risks||[]).filter(r=>r.contribution>0);
+  if(rows.length){
+    const maxC=Math.max(...rows.map(r=>r.contribution),1);
+    h+='<table><tr><th>Object Type</th><th>Drift Level</th><th style="text-align:right">Delta</th><th style="text-align:right">Weight</th><th>Risk Contribution</th></tr>';
+    rows.forEach(r=>{
+      const pct=Math.round((r.contribution/maxC)*100);
+      const dc=r.drift_level==='Major'?'risk-critical':r.drift_level==='Significant'?'risk-high':r.drift_level==='Moderate'?'risk-medium':'';
+      const sign=r.delta>0?'+':'';
+      h+=`<tr>
+        <td>${esc(r.type)}</td>
+        <td><span class="${dc}">${esc(r.drift_level)}</span></td>
+        <td style="text-align:right;font-family:monospace">${sign}${r.delta.toLocaleString()}</td>
+        <td style="text-align:right">${r.weight}&times;</td>
+        <td><div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div> ${r.contribution}</td>
+      </tr>`;
+    });
+    h+='</table>';
+  } else {
+    h+='<div class="empty">No drift detected — environments are in sync.</div>';
+  }
+  $('riskResult').innerHTML=h;
+}
+
+// ── Project Impact ─────────────────────────────────────────────────────────
+async function runImpact(){
+  const env=$('impEnv').value;
+  const proj=($('impProject').value||'').trim().toUpperCase();
+  if(!proj)return;
+  $('impSpinner').classList.add('on');
+  $('impResult').innerHTML='';
+  try{
+    const r=await fetch(`/api/impact/project?env=${env}&project=${encodeURIComponent(proj)}`);
+    const d=await r.json();
+    $('impSpinner').classList.remove('on');
+    renderImpact(d);
+  }catch(e){
+    $('impSpinner').classList.remove('on');
+    $('impResult').innerHTML=`<div class="err-msg">${esc(String(e))}</div>`;
+  }
+}
+
+function renderImpact(d){
+  if(d.error){
+    $('impResult').innerHTML=`<div class="err-msg">${esc(d.error)}</div>`;return;
+  }
+  let h='';
+  (d.warnings||[]).forEach(w=>{h+=`<div class="warn-msg">&#9888; ${esc(w)}</div>`;});
+
+  const riskCl=riskCls(d.risk_label);
+  h+=`<div class="stat-grid">
+    <div class="stat-box"><div class="stat-num">${(d.total_items||0).toLocaleString()}</div><div class="stat-lbl">Project Items</div></div>
+    <div class="stat-box"><div class="stat-num">${(d.traversed_count||0).toLocaleString()}</div><div class="stat-lbl">KG Nodes Analyzed</div></div>
+    <div class="stat-box"><div class="stat-num">${(d.total_affected_nodes||0).toLocaleString()}</div><div class="stat-lbl">Downstream Affected</div></div>
+    <div class="stat-box"><div class="stat-num ${riskCl}">${esc(d.risk_label||'?')}</div><div class="stat-lbl">KG Risk Level</div></div>
+  </div>`;
+
+  if(d.graph_built_at){
+    h+=`<div style="font-size:10px;color:#445;margin-bottom:8px">Knowledge graph built: ${esc(d.graph_built_at.substring(0,19))}</div>`;
+  }
+
+  // Affected node types
+  const affected=d.affected_summary||[];
+  if(affected.length){
+    const maxCount=Math.max(...affected.map(a=>a.count),1);
+    h+='<div class="section-head">Downstream Impact by Type</div>';
+    h+='<table><tr><th>Node Type</th><th style="text-align:right">Affected</th><th>Distribution</th></tr>';
+    affected.forEach(a=>{
+      const pct=Math.round((a.count/maxCount)*100);
+      h+=`<tr>
+        <td>${esc(a.label||a.type)}</td>
+        <td style="text-align:right;font-family:monospace">${a.count.toLocaleString()}</td>
+        <td><div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div></td>
+      </tr>`;
+    });
+    h+='</table>';
+  } else {
+    h+='<div class="empty">No downstream KG impact found. The graph may not cover this project\'s objects yet — use the Tools page to rebuild the graph with higher coverage.</div>';
+  }
+
+  // Top impacted objects
+  const top=d.top_impacted_objects||[];
+  if(top.length){
+    h+='<div class="section-head">Most Impactful Project Objects</div>';
+    h+='<table><tr><th>Object</th><th>Type</th><th style="text-align:right">Downstream Nodes</th></tr>';
+    top.slice(0,30).forEach(o=>{
+      h+=`<tr>
+        <td class="mono">${esc(o.name)}</td>
+        <td>${esc(o.kg_type)}</td>
+        <td style="text-align:right">${o.affected_count.toLocaleString()}</td>
+      </tr>`;
+    });
+    h+='</table>';
+  }
+
+  // Project item breakdown
+  const breakdown=d.item_breakdown||[];
+  if(breakdown.length){
+    h+='<div class="section-head">Project Contents</div>';
+    h+='<table><tr><th>Object Type</th><th style="text-align:right">Count</th><th>KG Coverage</th></tr>';
+    breakdown.forEach(b=>{
+      const mapped=b.mapped_to_kg?'<span style="color:#00cc66">&#10003; mapped</span>':'<span style="color:#334">not mapped</span>';
+      h+=`<tr><td>${esc(b.label)}</td><td style="text-align:right">${(b.count||0).toLocaleString()}</td><td>${mapped}</td></tr>`;
+    });
+    h+='</table>';
+  }
+
+  $('impResult').innerHTML=h;
+}
+
+// Auto-load risk on page open
+runRisk();
+</script>""")
+

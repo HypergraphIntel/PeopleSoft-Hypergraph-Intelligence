@@ -2534,3 +2534,170 @@ async function loadJournal() {
 </script>""")
 
 
+@router.get("/drift", response_class=HTMLResponse)
+def admin_drift():
+    return _shell("Drift History", "drift", noscroll=False, env=False, content="""\
+<style>
+*{box-sizing:border-box;}
+.ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
+select,input{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
+button{background:#00e5ff;border:none;padding:4px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;}
+button:hover{background:#33eeff;}
+button.sec{background:transparent;border:1px solid #00e5ff44;color:#00e5ff;font-weight:normal;}
+button.sec:hover{background:#00e5ff11;}
+.section-head{font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#00e5ff;
+              margin:18px 0 8px;border-bottom:1px solid #00e5ff22;padding-bottom:4px;}
+table{border-collapse:collapse;width:100%;font-size:11px;}
+th{border-bottom:1px solid #00e5ff33;padding:4px 8px;text-align:left;color:#00e5ff;
+   font-size:10px;text-transform:uppercase;letter-spacing:1px;}
+td{border-bottom:1px solid #0e2030;padding:5px 8px;vertical-align:middle;}
+tr:hover td{background:rgba(0,229,255,.04);}
+.mono{font-family:monospace;font-size:11px;}
+.empty{color:#445;font-style:italic;font-size:12px;padding:10px 0;}
+.warn-msg{color:#ffaa00;font-size:11px;padding:3px 8px;background:#1a1000;border-left:2px solid #ffaa00;margin:2px 0;}
+.badge{display:inline-block;padding:1px 7px;border-radius:3px;font-size:10px;font-weight:bold;margin-right:4px;}
+.badge-warn{background:#1a1400;border:1px solid #ffdd55;color:#ffdd55;}
+.badge-crit{background:#200000;border:1px solid #ff4444;color:#ff6666;}
+.delta-pos{color:#ff9900;}
+.delta-neg{color:#55aaff;}
+.delta-zero{color:#00cc66;}
+.stat-grid{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+.stat-box{border:1px solid #00e5ff22;padding:8px 14px;min-width:110px;text-align:center;background:rgba(0,20,30,.5);}
+.stat-num{font-size:22px;font-weight:bold;}
+.stat-lbl{font-size:10px;color:#445;text-transform:uppercase;letter-spacing:1px;}
+</style>
+<div style="padding:16px;">
+<div class="ctrl">
+  <label style="font-size:11px;color:#7faab2">ENV1</label>
+  <select id="driftEnv1"><option>HCM</option><option>FSCM</option></select>
+  <label style="font-size:11px;color:#7faab2">ENV2</label>
+  <select id="driftEnv2"><option>FSCM</option><option>HCM</option></select>
+  <label style="font-size:11px;color:#7faab2">Days</label>
+  <select id="driftDays">
+    <option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option>
+  </select>
+  <button onclick="loadDrift()">Load</button>
+  <button class="sec" onclick="triggerSnapshot()">&#9654; Snapshot Now</button>
+  <span id="snapStatus" style="font-size:11px;color:#7faab2"></span>
+</div>
+<div id="alertsSection"></div>
+<div id="summarySection"></div>
+<div id="historySection"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+function esc(s){return String(s==null?'—':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+async function apiGet(url){try{const r=await fetch(url);return r.json();}catch{return {};}}
+function env1(){return $('driftEnv1').value;}
+function env2(){return $('driftEnv2').value;}
+function days(){return $('driftDays').value;}
+
+async function triggerSnapshot(){
+  $('snapStatus').textContent='Triggering…';
+  await fetch(`/api/drift/snapshot?env1=${env1()}&env2=${env2()}`,{method:'POST'});
+  $('snapStatus').textContent='Triggered — refresh in ~30s';
+  setTimeout(loadDrift,8000);
+}
+
+function deltaClass(d){if(d==null)return'';if(d===0)return'delta-zero';return d>0?'delta-pos':'delta-neg';}
+
+function sparkline(points,w=90,h=26){
+  if(!points||points.length<2)return'<span style="color:#333;font-size:10px">no data</span>';
+  const vals=points.map(p=>p.delta==null?0:Math.abs(p.delta));
+  const mx=Math.max(...vals,1),mn=Math.min(...vals);
+  const range=mx-mn||1;
+  const pts=vals.map((v,i)=>{
+    const x=(i/(vals.length-1))*w;
+    const y=h-((v-mn)/range)*(h-4)-2;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const last=vals[vals.length-1];
+  const col=last===0?'#00cc66':last>mx*0.6?'#ff4444':'#ffdd55';
+  return `<svg width="${w}" height="${h}" style="vertical-align:middle;overflow:visible"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" opacity=".9"/></svg>`;
+}
+
+async function loadDrift(){
+  const [latest,history,alerts]=await Promise.all([
+    apiGet(`/api/drift/latest?env1=${env1()}&env2=${env2()}`),
+    apiGet(`/api/drift/history?env1=${env1()}&env2=${env2()}&days=${days()}`),
+    apiGet(`/api/drift/alerts?env1=${env1()}&env2=${env2()}`),
+  ]);
+  renderAlerts(alerts);
+  renderSummary(latest,history);
+}
+
+function renderAlerts(d){
+  const alerts=d.alerts||[];
+  let h='<div class="section-head">Alerts</div>';
+  if(!alerts.length){
+    h+='<div class="empty">No active alerts — environments are within thresholds.</div>';
+  } else {
+    h+=`<table><tr><th>Type</th><th>Alert</th><th>Delta</th><th>Since</th></tr>`;
+    alerts.forEach(a=>{
+      const badge=a.alert_type==='threshold'
+        ?'<span class="badge badge-crit">THRESHOLD</span>'
+        :'<span class="badge badge-warn">DIVERGING</span>';
+      const d=a.delta,sign=d>0?'+':'';
+      h+=`<tr><td>${esc(a.object_type)}</td><td>${badge}${esc(a.message)}</td>
+          <td class="${deltaClass(d)}">${d!=null?sign+d:'—'}</td>
+          <td class="mono">${esc((a.first_seen||'').substring(0,16))}</td></tr>`;
+    });
+    h+='</table>';
+  }
+  $('alertsSection').innerHTML=h;
+}
+
+function renderSummary(latest,history){
+  const counts=latest.counts||[];
+  const series=(history&&history.series)||{};
+  const snapCount=latest.snapshot_count||0;
+  let h=`<div class="section-head">Current Drift — ${esc(latest.env1||'?')} vs ${esc(latest.env2||'?')} &nbsp;·&nbsp; <span style="color:#7faab2">${snapCount} snapshot${snapCount===1?'':'s'} stored</span></div>`;
+  if(!counts.length){
+    h+='<div class="empty">No snapshots yet. Click "Snapshot Now" or wait for the scheduled run (daily).</div>';
+    $('summarySection').innerHTML=h;$('historySection').innerHTML='';return;
+  }
+  const totalDelta=counts.reduce((s,c)=>s+Math.abs(c.delta||0),0);
+  const alertCount=counts.filter(c=>Math.abs(c.delta||0)>=50).length;
+  h+=`<div class="stat-grid">
+    <div class="stat-box"><div class="stat-num">${snapCount}</div><div class="stat-lbl">Snapshots</div></div>
+    <div class="stat-box"><div class="stat-num ${totalDelta>0?'delta-pos':'delta-zero'}">${totalDelta.toLocaleString()}</div><div class="stat-lbl">Total |Delta|</div></div>
+    <div class="stat-box"><div class="stat-num ${alertCount>0?'delta-pos':'delta-zero'}">${alertCount}</div><div class="stat-lbl">Above Threshold</div></div>
+  </div>`;
+  const e1=esc(latest.env1||'ENV1'),e2=esc(latest.env2||'ENV2');
+  h+=`<table><tr><th>Object Type</th><th style="text-align:right">${e1}</th><th style="text-align:right">${e2}</th><th style="text-align:right">Delta</th><th>Trend (|delta|)</th></tr>`;
+  counts.forEach(c=>{
+    const d=c.delta,cls=deltaClass(d),sign=d>0?'+':'';
+    h+=`<tr><td>${esc(c.type)}</td>
+      <td style="text-align:right;font-family:monospace">${c.env1_count!=null?c.env1_count.toLocaleString():'—'}</td>
+      <td style="text-align:right;font-family:monospace">${c.env2_count!=null?c.env2_count.toLocaleString():'—'}</td>
+      <td style="text-align:right" class="${cls}">${d!=null?sign+d:'—'}</td>
+      <td>${sparkline(series[c.type]||[])}</td></tr>`;
+  });
+  h+='</table>';
+  $('summarySection').innerHTML=h;
+
+  const snaps=(history&&history.snapshots)||[];
+  if(snaps.length>1){
+    let hh=`<div class="section-head">History — last ${days()} days (${snaps.length} snapshots)</div>`;
+    hh+=`<table><tr><th>Snapshot</th>`;
+    counts.forEach(c=>{hh+=`<th style="text-align:right">${esc(c.type)}</th>`;});
+    hh+='</tr>';
+    [...snaps].reverse().slice(0,30).forEach(s=>{
+      const cmap={};(s.counts||[]).forEach(c=>{cmap[c.type]=c.delta;});
+      hh+=`<tr><td class="mono">${esc((s.snapped_at||'').substring(0,16))}</td>`;
+      counts.forEach(c=>{
+        const d=cmap[c.type],cls=deltaClass(d),sign=d>0?'+':'';
+        hh+=`<td style="text-align:right" class="${cls}">${d!=null?sign+d:'—'}</td>`;
+      });
+      hh+='</tr>';
+    });
+    hh+='</table>';
+    $('historySection').innerHTML=hh;
+  } else {
+    $('historySection').innerHTML='';
+  }
+}
+
+loadDrift();
+</script>""")
+

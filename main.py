@@ -22,6 +22,8 @@ from routers import runtime
 from routers import sqlws
 from routers import ib
 from routers import envcompare
+from routers import drift
+from routers import impact_api
 from routers import tracing
 from routers import record
 from routers import field
@@ -105,6 +107,8 @@ app.include_router(runtime.router)
 app.include_router(sqlws.router)
 app.include_router(ib.router)
 app.include_router(envcompare.router)
+app.include_router(drift.router)
+app.include_router(impact_api.router)
 app.include_router(tracing.router)
 app.include_router(record.router)
 app.include_router(field.router)

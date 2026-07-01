@@ -16,6 +16,7 @@ _NAV_GROUPS = [
         ("infra",      "Infra",         "/admin/infra"),
         ("tracing",    "Tracing",       "/admin/tracing"),
         ("envcompare", "Env Compare",   "/admin/envcompare"),
+        ("drift",      "Drift History", "/admin/drift"),
     ]),
     ("Data", [
         ("sqlws",  "SQL Workspace",  "/admin/sqlws"),
@@ -70,8 +71,9 @@ _NAV_GROUPS = [
         ("pmevent",  "PM Events",       "/admin/pmevent"),
     ]),
     ("Tools", [
-        ("reports", "Reports", "/admin/reports"),
-        ("tools",   "Tools",   "/admin/tools"),
+        ("reports", "Reports",    "/admin/reports"),
+        ("tools",   "Tools",      "/admin/tools"),
+        ("impact",  "Impact",     "/admin/impact"),
         ("docs",    "Docs",    "/admin/docs"),
     ]),
     (None, [("users", "Users", "/admin/users")]),
