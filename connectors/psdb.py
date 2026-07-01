@@ -7247,3 +7247,117 @@ def get_pm_metric(env_name, metric_id):
         "events": [dict(e) for e in events],
         "warnings": warnings_out,
     }
+
+
+def search_pm_transactions(env_name, q="", limit=100):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPMTRANSDEFN"):
+        return []
+    where = ""
+    params: dict = {"lim": limit}
+    if q:
+        where = "WHERE UPPER(t.PM_TRANS_LABEL) LIKE :q OR UPPER(t.DESCR60) LIKE :q"
+        params["q"] = f"%{q.upper()}%"
+    rows = query(env_name, f"""
+        SELECT t.PM_TRANS_DEFN_ID, t.PM_TRANS_LABEL, t.DESCR60,
+               t.PM_FILTER_LEVEL, t.PM_SAMPLING_ENABLE
+          FROM SYSADM.PSPMTRANSDEFN t
+        {where}
+         ORDER BY t.PM_TRANS_LABEL
+         FETCH FIRST :lim ROWS ONLY
+    """, params)
+    return [dict(r) for r in (rows or [])]
+
+
+def get_pm_transaction(env_name, trans_id):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPMTRANSDEFN"):
+        return {"definition": {}, "warnings": ["PSPMTRANSDEFN not accessible"]}
+    try:
+        tid = int(trans_id)
+    except (ValueError, TypeError):
+        return {"definition": {}, "warnings": [f"Invalid transaction ID: {trans_id}"]}
+    rows = query(env_name, """
+        SELECT t.PM_TRANS_DEFN_ID, t.PM_TRANS_LABEL, t.DESCR60,
+               t.PM_FILTER_LEVEL, t.PM_SAMPLING_ENABLE,
+               t.PM_CONTEXTID_1, t.PM_CONTEXTID_2, t.PM_CONTEXTID_3,
+               t.PM_METRICID_1, t.PM_METRICID_2, t.PM_METRICID_3,
+               t.PM_METRICID_4, t.PM_METRICID_5, t.PM_METRICID_6, t.PM_METRICID_7,
+               c1.PM_CONTEXT_LABEL ctx1_label, c2.PM_CONTEXT_LABEL ctx2_label,
+               c3.PM_CONTEXT_LABEL ctx3_label,
+               m1.PM_METRICLABEL met1_label, m2.PM_METRICLABEL met2_label,
+               m3.PM_METRICLABEL met3_label, m4.PM_METRICLABEL met4_label,
+               m5.PM_METRICLABEL met5_label, m6.PM_METRICLABEL met6_label,
+               m7.PM_METRICLABEL met7_label
+          FROM SYSADM.PSPMTRANSDEFN t
+          LEFT JOIN SYSADM.PSPMCONTEXTDEFN c1 ON c1.PM_CONTEXTID = t.PM_CONTEXTID_1 AND t.PM_CONTEXTID_1 != 0
+          LEFT JOIN SYSADM.PSPMCONTEXTDEFN c2 ON c2.PM_CONTEXTID = t.PM_CONTEXTID_2 AND t.PM_CONTEXTID_2 != 0
+          LEFT JOIN SYSADM.PSPMCONTEXTDEFN c3 ON c3.PM_CONTEXTID = t.PM_CONTEXTID_3 AND t.PM_CONTEXTID_3 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m1 ON m1.PM_METRICID = t.PM_METRICID_1 AND t.PM_METRICID_1 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m2 ON m2.PM_METRICID = t.PM_METRICID_2 AND t.PM_METRICID_2 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m3 ON m3.PM_METRICID = t.PM_METRICID_3 AND t.PM_METRICID_3 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m4 ON m4.PM_METRICID = t.PM_METRICID_4 AND t.PM_METRICID_4 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m5 ON m5.PM_METRICID = t.PM_METRICID_5 AND t.PM_METRICID_5 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m6 ON m6.PM_METRICID = t.PM_METRICID_6 AND t.PM_METRICID_6 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m7 ON m7.PM_METRICID = t.PM_METRICID_7 AND t.PM_METRICID_7 != 0
+         WHERE t.PM_TRANS_DEFN_ID = :id
+    """, {"id": tid})
+    defn = rows[0] if rows else None
+    return {
+        "definition": dict(defn) if defn else {},
+        "warnings": [] if defn else [f"PM Transaction ID {tid} not found"],
+    }
+
+
+def search_pm_events(env_name, q="", limit=50):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPMEVENTDEFN"):
+        return []
+    where = ""
+    params: dict = {"lim": limit}
+    if q:
+        where = "WHERE UPPER(e.PM_EVENT_LABEL) LIKE :q OR UPPER(e.DESCR60) LIKE :q"
+        params["q"] = f"%{q.upper()}%"
+    rows = query(env_name, f"""
+        SELECT e.PM_EVENT_DEFN_ID, e.PM_EVENT_LABEL, e.DESCR60,
+               e.PM_FILTER_LEVEL, e.PM_SAMPLING_ENABLE
+          FROM SYSADM.PSPMEVENTDEFN e
+        {where}
+         ORDER BY e.PM_EVENT_LABEL
+         FETCH FIRST :lim ROWS ONLY
+    """, params)
+    return [dict(r) for r in (rows or [])]
+
+
+def get_pm_event(env_name, event_id):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPMEVENTDEFN"):
+        return {"definition": {}, "warnings": ["PSPMEVENTDEFN not accessible"]}
+    try:
+        eid = int(event_id)
+    except (ValueError, TypeError):
+        return {"definition": {}, "warnings": [f"Invalid event ID: {event_id}"]}
+    rows = query(env_name, """
+        SELECT e.PM_EVENT_DEFN_ID, e.PM_EVENT_LABEL, e.DESCR60,
+               e.PM_FILTER_LEVEL, e.PM_SAMPLING_ENABLE,
+               e.PM_METRICID_1, e.PM_METRICID_2, e.PM_METRICID_3,
+               e.PM_METRICID_4, e.PM_METRICID_5, e.PM_METRICID_6, e.PM_METRICID_7,
+               m1.PM_METRICLABEL met1_label, m2.PM_METRICLABEL met2_label,
+               m3.PM_METRICLABEL met3_label, m4.PM_METRICLABEL met4_label,
+               m5.PM_METRICLABEL met5_label, m6.PM_METRICLABEL met6_label,
+               m7.PM_METRICLABEL met7_label
+          FROM SYSADM.PSPMEVENTDEFN e
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m1 ON m1.PM_METRICID = e.PM_METRICID_1 AND e.PM_METRICID_1 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m2 ON m2.PM_METRICID = e.PM_METRICID_2 AND e.PM_METRICID_2 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m3 ON m3.PM_METRICID = e.PM_METRICID_3 AND e.PM_METRICID_3 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m4 ON m4.PM_METRICID = e.PM_METRICID_4 AND e.PM_METRICID_4 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m5 ON m5.PM_METRICID = e.PM_METRICID_5 AND e.PM_METRICID_5 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m6 ON m6.PM_METRICID = e.PM_METRICID_6 AND e.PM_METRICID_6 != 0
+          LEFT JOIN SYSADM.PSPMMETRICDEFN m7 ON m7.PM_METRICID = e.PM_METRICID_7 AND e.PM_METRICID_7 != 0
+         WHERE e.PM_EVENT_DEFN_ID = :id
+    """, {"id": eid})
+    defn = rows[0] if rows else None
+    return {
+        "definition": dict(defn) if defn else {},
+        "warnings": [] if defn else [f"PM Event ID {eid} not found"],
+    }

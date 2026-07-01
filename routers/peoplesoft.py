@@ -409,6 +409,10 @@ def object_payload(env, object_type, object_name):
         return uom.object_payload(uom.locale_object(env, object_name))
     if object_type == "pm_metric":
         return uom.object_payload(uom.pm_metric_object(env, object_name))
+    if object_type == "pm_transaction":
+        return uom.object_payload(uom.pm_transaction_object(env, object_name))
+    if object_type == "pm_event":
+        return uom.object_payload(uom.pm_event_object(env, object_name))
 
     raise HTTPException(status_code=400, detail="Unsupported object type")
 
@@ -1275,6 +1279,18 @@ def peoplesoft_locales(env: str = "HCM", q: str = "", limit: int = 200):
 def peoplesoft_pm_metrics(env: str = "HCM", q: str = "", limit: int = 200):
     """Search Performance Monitor metric definitions (PSPMMETRICDEFN)."""
     return psdb.search_pm_metrics(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/pm-transactions")
+def peoplesoft_pm_transactions(env: str = "HCM", q: str = "", limit: int = 100):
+    """Search Performance Monitor transaction definitions (PSPMTRANSDEFN)."""
+    return psdb.search_pm_transactions(env, q=q, limit=limit)
+
+
+@router.get("/api/peoplesoft/pm-events")
+def peoplesoft_pm_events(env: str = "HCM", q: str = "", limit: int = 50):
+    """Search Performance Monitor event definitions (PSPMEVENTDEFN)."""
+    return psdb.search_pm_events(env, q=q, limit=limit)
 
 
 @router.get("/api/peoplesoft/security/reports")

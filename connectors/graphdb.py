@@ -1073,6 +1073,40 @@ def build(env="HCM", limit=50, persist=True):
             add_node(graph, "pm_metric", str(mid), label, r)
         return len(rows)
 
+    def pm_transactions():
+        if not ptmetadata.has_table(env, "PSPMTRANSDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT t.PM_TRANS_DEFN_ID, t.PM_TRANS_LABEL, t.PM_FILTER_LEVEL
+              FROM SYSADM.PSPMTRANSDEFN t
+             WHERE ROWNUM <= {limit}
+             ORDER BY t.PM_TRANS_DEFN_ID
+        """) or []
+        for r in rows:
+            tid = r.get("pm_trans_defn_id")
+            if tid is None:
+                continue
+            label = (r.get("pm_trans_label") or "").strip() or str(tid)
+            add_node(graph, "pm_transaction", str(tid), label, r)
+        return len(rows)
+
+    def pm_events():
+        if not ptmetadata.has_table(env, "PSPMEVENTDEFN"):
+            return 0
+        rows = psdb.query(env, f"""
+            SELECT e.PM_EVENT_DEFN_ID, e.PM_EVENT_LABEL, e.PM_FILTER_LEVEL
+              FROM SYSADM.PSPMEVENTDEFN e
+             WHERE ROWNUM <= {limit}
+             ORDER BY e.PM_EVENT_DEFN_ID
+        """) or []
+        for r in rows:
+            eid = r.get("pm_event_defn_id")
+            if eid is None:
+                continue
+            label = (r.get("pm_event_label") or "").strip() or str(eid)
+            add_node(graph, "pm_event", str(eid), label, r)
+        return len(rows)
+
 
     def ib_routings():
         if not ptmetadata.has_table(env, "PSIBRTNGDEFN"):
@@ -1309,6 +1343,8 @@ def build(env="HCM", limit=50, persist=True):
         ("timezones", timezones),
         ("locales", locales),
         ("pm_metrics", pm_metrics),
+        ("pm_transactions", pm_transactions),
+        ("pm_events", pm_events),
     ):
         provider(graph, name, loader)
 

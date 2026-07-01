@@ -48,6 +48,8 @@ _NAV = [
     ("timezone",   "Timezones",     "/admin/timezone"),
     ("locale",     "Locales",       "/admin/locale"),
     ("pmmetric",   "PM Metrics",    "/admin/pmmetric"),
+    ("pmtrans",    "PM Transactions","/admin/pmtrans"),
+    ("pmevent",    "PM Events",     "/admin/pmevent"),
     ("reports",    "Reports",       "/admin/reports"),
     ("envcompare", "Env Compare",   "/admin/envcompare"),
     ("tools",      "Tools",         "/admin/tools"),
@@ -3091,6 +3093,8 @@ const TYPE_CHIP_CFG = {
     timezone:                {label:'Timezone',         bg:'#001828',border:'#0066cc44',color:'#4499ee'},
     locale:                  {label:'Locale',           bg:'#081808',border:'#22aa4444',color:'#55cc55'},
     pm_metric:               {label:'PM Metric',        bg:'#0d0d18',border:'#7766ee44',color:'#9988ff'},
+    pm_transaction:          {label:'PM Transaction',   bg:'#100d18',border:'#9966ff44',color:'#bb99ff'},
+    pm_event:                {label:'PM Event',         bg:'#0d0d18',border:'#6655dd44',color:'#8877ee'},
 };
 
 function typeChipHtml(type) {
@@ -15031,4 +15035,256 @@ async function selectMetric(idx) {
 
 doSearch();
 </script>""")
+
+
+@router.get("/pmtrans", response_class=HTMLResponse)
+def admin_pmtrans():
+    return _shell("PM Transactions Explorer", "pmtrans", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#bb99ff;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #bb99ff33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #bb99ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #bb99ff22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input{background:#100d1a;color:#d7faff;border:1px solid #bb99ff44;padding:5px 8px;font-size:12px}
+input:focus{outline:none;border-color:#bb99ff}
+button{background:#bb99ff;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#000;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(187,153,255,.07);border-left-color:#bb99ff55}
+.item.sel{background:rgba(187,153,255,.12);border-left-color:#bb99ff}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.muted{color:#556;font-style:italic}
+.badge{display:inline-block;padding:1px 5px;border-radius:2px;font-size:10px;font-family:monospace;
+       background:#1a0d2a;border:1px solid #bb99ff44;color:#bb99ff;margin-left:4px}
+</style>
+<div class="topbar">
+  <input id="q" type="text" placeholder="Search transaction label or description..." style="width:300px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>PM Transactions</h2>
+    <div id="list" class="muted">Search to load transactions.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Transaction</h2>
+    <div id="detail" class="muted">Select a transaction from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+let _rows = [];
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+const FILTER_LABELS = {'01':'Minimal','04':'Standard','05':'Detailed','06':'Diagnostic'};
+
+async function doSearch() {
+  const q = document.getElementById('q').value.trim();
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 100});
+  if (q) params.set('q', q);
+  const d = await api('/api/peoplesoft/pm-transactions?' + params);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  _rows = Array.isArray(d) ? d : (d.items || []);
+  document.getElementById('stats').textContent = _rows.length + ' result' + (_rows.length !== 1 ? 's' : '');
+  if (!_rows.length) { list.innerHTML = '<div class="muted">No transactions found.</div>'; return; }
+  list.innerHTML = _rows.map(function(r, i) {
+    const fl = FILTER_LABELS[String(r.pm_filter_level)] || r.pm_filter_level;
+    return '<div class="item" id="tr-' + i + '" data-idx="' + i + '">' +
+      '<div class="item-name">' + esc(r.pm_trans_label) +
+        '<span class="badge">' + esc(fl) + '</span></div>' +
+      '<div class="item-meta">ID ' + esc(String(r.pm_trans_defn_id)) +
+        (r.descr60 && r.descr60 !== r.pm_trans_label ? ' \u00b7 ' + esc((r.descr60||'').slice(0,50)) : '') + '</div>' +
+      '</div>';
+  }).join('');
+  list.querySelectorAll('.item').forEach(function(el) {
+    el.addEventListener('click', function() { selectTrans(+el.dataset.idx); });
+  });
+}
+
+async function selectTrans(idx) {
+  const r = _rows[idx];
+  if (!r) return;
+  document.querySelectorAll('.item').forEach(function(el) { el.classList.remove('sel'); });
+  const el = document.getElementById('tr-' + idx);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api('/api/peoplesoft/object/pm_transaction/' + encodeURIComponent(String(r.pm_trans_defn_id)) + '?env=' + ENV);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const sections = d.sections || [];
+  const ovSec   = sections.find(function(s) { return s.title && s.title.indexOf('Overview') >= 0; });
+  const ctxSec  = sections.find(function(s) { return s.title && s.title.indexOf('Context') >= 0; });
+  const metSec  = sections.find(function(s) { return s.title && s.title.indexOf('Metric') >= 0; });
+
+  function kvTable(sec) {
+    if (!sec || !sec.items || !sec.items.length) return '';
+    return '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px">' +
+      sec.items.map(function(item) {
+        return '<tr><td style="padding:4px 12px 4px 0;color:#778;white-space:nowrap">' + esc(item.label) + '</td>' +
+          '<td style="padding:4px 0;color:#c8d8e8;font-family:monospace">' + esc(String(item.value||'')) + '</td></tr>';
+      }).join('') + '</table>';
+  }
+
+  function slotList(sec) {
+    if (!sec || !sec.items || !sec.items.length) return '';
+    return '<div style="margin-bottom:16px">' +
+      sec.items.map(function(it) {
+        return '<div style="padding:4px 0;border-bottom:1px solid #1a0d2a;font-size:12px;display:flex;gap:8px">' +
+          '<span style="color:#776;min-width:24px;font-family:monospace">' + esc(it.label) + '</span>' +
+          '<span style="color:#c8d8e8">' + esc(it.value||'') + '</span>' +
+          (it.id ? '<span style="color:#445;font-size:10px">ID:' + esc(it.id) + '</span>' : '') +
+          '</div>';
+      }).join('') + '</div>';
+  }
+
+  const ov = d.overview || {};
+  let html = '<h2 style="font-family:monospace;color:#bb99ff;font-size:14px;margin:0 0 4px">' + esc(r.pm_trans_label) + '</h2>' +
+    '<div style="font-size:12px;color:#556;margin-bottom:16px">Transaction ID: ' + esc(String(r.pm_trans_defn_id)) +
+    (ov.filter_label ? ' \u00b7 ' + esc(ov.filter_label) : '') +
+    (ov.sampling ? ' \u00b7 Sampling' : '') + '</div>';
+  if (d.warnings && d.warnings.length) {
+    html += '<div style="color:#f90;font-size:11px;margin-bottom:12px">' + d.warnings.map(esc).join('<br>') + '</div>';
+  }
+  if (ovSec)  html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Overview</h3>' + kvTable(ovSec);
+  if (ctxSec) html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">' + esc(ctxSec.title) + '</h3>' + slotList(ctxSec);
+  if (metSec) html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">' + esc(metSec.title) + '</h3>' + slotList(metSec);
+  detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")
+
+
+@router.get("/pmevent", response_class=HTMLResponse)
+def admin_pmevent():
+    return _shell("PM Events Explorer", "pmevent", noscroll=True, content="""\
+<style>
+*{box-sizing:border-box}
+body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;height:100vh;display:flex;flex-direction:column}
+h2{color:#8877ee;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #8877ee33;padding-bottom:5px;margin:14px 0 8px}
+.topbar{padding:12px 16px;border-bottom:1px solid #8877ee22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;min-width:220px;border-right:1px solid #8877ee22;overflow-y:auto;padding:12px;flex-shrink:0}
+.content{flex:1;overflow:auto;padding:16px}
+input{background:#0d0d18;color:#d7faff;border:1px solid #8877ee44;padding:5px 8px;font-size:12px}
+input:focus{outline:none;border-color:#8877ee}
+button{background:#8877ee;border:none;padding:5px 12px;cursor:pointer;font-size:11px;color:#fff;font-weight:bold}
+.item{padding:7px 8px;cursor:pointer;border-radius:2px;border-left:2px solid transparent}
+.item:hover{background:rgba(136,119,238,.07);border-left-color:#8877ee55}
+.item.sel{background:rgba(136,119,238,.12);border-left-color:#8877ee}
+.item-name{font-family:monospace;font-size:12px;color:#d7faff}
+.item-meta{font-size:10px;color:#556;margin-top:2px}
+.muted{color:#556;font-style:italic}
+.badge{display:inline-block;padding:1px 5px;border-radius:2px;font-size:10px;font-family:monospace;
+       background:#0d0d1a;border:1px solid #8877ee44;color:#8877ee;margin-left:4px}
+</style>
+<div class="topbar">
+  <input id="q" type="text" placeholder="Search event label or description..." style="width:300px"
+         onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">Search</button>
+  <span id="stats" style="font-size:11px;color:#556;margin-left:8px"></span>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <h2>PM Events</h2>
+    <div id="list" class="muted">Search to load events.</div>
+  </div>
+  <div class="content">
+    <h2>Selected Event</h2>
+    <div id="detail" class="muted">Select an event from the list.</div>
+  </div>
+</div>
+<script>
+const ENV = window.dsGetEnv ? window.dsGetEnv() : (localStorage.getItem('ps_env') || 'HCM');
+let _rows = [];
+async function api(path) { const r = await fetch(path); return r.ok ? r.json() : null; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+const FILTER_LABELS = {'01':'Minimal','04':'Standard','05':'Detailed','06':'Diagnostic'};
+
+async function doSearch() {
+  const q = document.getElementById('q').value.trim();
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="muted">Loading...</div>';
+  const params = new URLSearchParams({env: ENV, limit: 50});
+  if (q) params.set('q', q);
+  const d = await api('/api/peoplesoft/pm-events?' + params);
+  if (!d) { list.innerHTML = '<div class="muted">Error loading data.</div>'; return; }
+  _rows = Array.isArray(d) ? d : (d.items || []);
+  document.getElementById('stats').textContent = _rows.length + ' result' + (_rows.length !== 1 ? 's' : '');
+  if (!_rows.length) { list.innerHTML = '<div class="muted">No events found.</div>'; return; }
+  list.innerHTML = _rows.map(function(r, i) {
+    const fl = FILTER_LABELS[String(r.pm_filter_level)] || r.pm_filter_level;
+    return '<div class="item" id="ev-' + i + '" data-idx="' + i + '">' +
+      '<div class="item-name">' + esc(r.pm_event_label) +
+        '<span class="badge">' + esc(fl) + '</span></div>' +
+      '<div class="item-meta">ID ' + esc(String(r.pm_event_defn_id)) +
+        (r.descr60 && r.descr60 !== r.pm_event_label ? ' \u00b7 ' + esc((r.descr60||'').slice(0,50)) : '') + '</div>' +
+      '</div>';
+  }).join('');
+  list.querySelectorAll('.item').forEach(function(el) {
+    el.addEventListener('click', function() { selectEvent(+el.dataset.idx); });
+  });
+}
+
+async function selectEvent(idx) {
+  const r = _rows[idx];
+  if (!r) return;
+  document.querySelectorAll('.item').forEach(function(el) { el.classList.remove('sel'); });
+  const el = document.getElementById('ev-' + idx);
+  if (el) el.classList.add('sel');
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading...</div>';
+
+  const d = await api('/api/peoplesoft/object/pm_event/' + encodeURIComponent(String(r.pm_event_defn_id)) + '?env=' + ENV);
+  if (!d) { detail.innerHTML = '<div class="muted">Error loading detail.</div>'; return; }
+
+  const sections = d.sections || [];
+  const ovSec  = sections.find(function(s) { return s.title && s.title.indexOf('Overview') >= 0; });
+  const metSec = sections.find(function(s) { return s.title && s.title.indexOf('Metric') >= 0; });
+
+  function kvTable(sec) {
+    if (!sec || !sec.items || !sec.items.length) return '';
+    return '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px">' +
+      sec.items.map(function(item) {
+        return '<tr><td style="padding:4px 12px 4px 0;color:#778;white-space:nowrap">' + esc(item.label) + '</td>' +
+          '<td style="padding:4px 0;color:#c8d8e8;font-family:monospace">' + esc(String(item.value||'')) + '</td></tr>';
+      }).join('') + '</table>';
+  }
+
+  function slotList(sec) {
+    if (!sec || !sec.items || !sec.items.length) return '';
+    return '<div style="margin-bottom:16px">' +
+      sec.items.map(function(it) {
+        return '<div style="padding:4px 0;border-bottom:1px solid #0d0d1a;font-size:12px;display:flex;gap:8px">' +
+          '<span style="color:#776;min-width:24px;font-family:monospace">' + esc(it.label) + '</span>' +
+          '<span style="color:#c8d8e8">' + esc(it.value||'') + '</span>' +
+          (it.id ? '<span style="color:#445;font-size:10px">ID:' + esc(it.id) + '</span>' : '') +
+          '</div>';
+      }).join('') + '</div>';
+  }
+
+  const ov = d.overview || {};
+  let html = '<h2 style="font-family:monospace;color:#8877ee;font-size:14px;margin:0 0 4px">' + esc(r.pm_event_label) + '</h2>' +
+    '<div style="font-size:12px;color:#556;margin-bottom:16px">Event ID: ' + esc(String(r.pm_event_defn_id)) +
+    (ov.filter_label ? ' \u00b7 ' + esc(ov.filter_label) : '') + '</div>';
+  if (d.warnings && d.warnings.length) {
+    html += '<div style="color:#f90;font-size:11px;margin-bottom:12px">' + d.warnings.map(esc).join('<br>') + '</div>';
+  }
+  if (ovSec)  html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:0 0 6px">Overview</h3>' + kvTable(ovSec);
+  if (metSec) html += '<h3 style="font-size:11px;color:#556;text-transform:uppercase;margin:12px 0 6px">' + esc(metSec.title) + '</h3>' + slotList(metSec);
+  detail.innerHTML = html;
+}
+
+doSearch();
+</script>""")
+
 

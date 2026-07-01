@@ -161,6 +161,8 @@ DEFAULT_PAGES = [
     ("/admin/timezone",   "#q",          True, True,  []),
     ("/admin/locale",     "#q",          True, True,  []),
     ("/admin/pmmetric",   "#q",          True, True,  []),
+    ("/admin/pmtrans",    "#q",          True, True,  []),
+    ("/admin/pmevent",    "#q",          True, True,  []),
 ]
 
 

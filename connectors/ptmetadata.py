@@ -886,6 +886,30 @@ OBJECT_REGISTRY.setdefault("pm_metric", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("pm_transaction", {
+    "display_title": "PM Transaction",
+    "icon": "activity",
+    "graph_node_type": "pm_transaction",
+    "object_page": "/admin/pmtrans",
+    "discovery": {"table": "PSPMTRANSDEFN", "name_column": "PM_TRANS_DEFN_ID"},
+    "search": {"table": "PSPMTRANSDEFN", "name_column": "PM_TRANS_DEFN_ID",
+               "description_columns": ["PM_TRANS_LABEL", "DESCR60"], "extra_search_columns": []},
+    "supported_versions": ["8.50", "8.51", "8.52", "8.53", "8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
+OBJECT_REGISTRY.setdefault("pm_event", {
+    "display_title": "PM Event",
+    "icon": "activity",
+    "graph_node_type": "pm_event",
+    "object_page": "/admin/pmevent",
+    "discovery": {"table": "PSPMEVENTDEFN", "name_column": "PM_EVENT_DEFN_ID"},
+    "search": {"table": "PSPMEVENTDEFN", "name_column": "PM_EVENT_DEFN_ID",
+               "description_columns": ["PM_EVENT_LABEL", "DESCR60"], "extra_search_columns": []},
+    "supported_versions": ["8.50", "8.51", "8.52", "8.53", "8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": [],
+})
+
 OBJECT_REGISTRY.setdefault("archive_object", {
     "display_title": "Archive Object",
     "icon": "archive",

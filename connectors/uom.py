@@ -5999,6 +5999,10 @@ def canonical_object(env, object_type, name):
         return locale_object(env, name)
     if object_type == "pm_metric":
         return pm_metric_object(env, name)
+    if object_type == "pm_transaction":
+        return pm_transaction_object(env, name)
+    if object_type == "pm_event":
+        return pm_event_object(env, name)
 
     resolved = ptmetadata.resolve_object(env, object_type, name)
     warnings = resolved.get("warnings", [])
@@ -7297,4 +7301,100 @@ def pm_metric_object(env, metric_id):
         overview={"metric_id": mid, "label": label, "metric_type": mtype,
                   "type_label": type_label, "is_integer": is_int},
         _metadata={"environment": env.upper(), "source_table": "PSPMMETRICDEFN"},
+    )
+
+
+_PM_FILTER_LEVELS = {
+    "01": "Minimal", "04": "Standard", "05": "Detailed", "06": "Diagnostic",
+}
+
+
+def pm_transaction_object(env, trans_id):
+    from connectors import psdb as _psdb
+    data = _psdb.get_pm_transaction(env, trans_id)
+    defn = data.get("definition") or {}
+    warnings = data.get("warnings") or []
+
+    tid = defn.get("pm_trans_defn_id", trans_id)
+    label = (defn.get("pm_trans_label") or "").strip()
+    descr = (defn.get("descr60") or "").strip()
+    flevel = str(defn.get("pm_filter_level") or "")
+    sampling = defn.get("pm_sampling_enable") == "Y"
+    display = f"{tid} \u2014 {label}" if label else str(tid)
+
+    kv_items = [
+        {"label": "Transaction ID",  "value": str(tid)},
+        {"label": "Label",           "value": label or "(none)"},
+        {"label": "Description",     "value": descr or "(none)"},
+        {"label": "Filter Level",    "value": f"{_PM_FILTER_LEVELS.get(flevel, flevel)} ({flevel})"},
+        {"label": "Sampling",        "value": "Enabled" if sampling else "Disabled"},
+    ]
+    sections = [{"title": "Transaction Overview", "type": "kv", "items": kv_items}]
+
+    ctx_items = []
+    for slot in range(1, 4):
+        cid = defn.get(f"pm_contextid_{slot}")
+        lbl = defn.get(f"ctx{slot}_label")
+        if cid and int(cid) != 0:
+            ctx_items.append({"label": f"C{slot}", "value": lbl or f"Context {cid}", "id": str(cid)})
+    if ctx_items:
+        sections.append({"title": f"Contexts Captured ({len(ctx_items)})", "type": "items", "items": ctx_items})
+
+    met_items = []
+    for slot in range(1, 8):
+        mid = defn.get(f"pm_metricid_{slot}")
+        lbl = defn.get(f"met{slot}_label")
+        if mid and int(mid) != 0:
+            met_items.append({"label": f"M{slot}", "value": lbl or f"Metric {mid}", "id": str(mid)})
+    if met_items:
+        sections.append({"title": f"Metrics Measured ({len(met_items)})", "type": "items", "items": met_items})
+
+    return canonical_base(
+        env, "pm_transaction", str(tid),
+        display_name=display, status="active", warnings=warnings,
+        sections=sections,
+        overview={"trans_id": tid, "label": label, "filter_level": flevel,
+                  "filter_label": _PM_FILTER_LEVELS.get(flevel, flevel), "sampling": sampling},
+        _metadata={"environment": env.upper(), "source_table": "PSPMTRANSDEFN"},
+    )
+
+
+def pm_event_object(env, event_id):
+    from connectors import psdb as _psdb
+    data = _psdb.get_pm_event(env, event_id)
+    defn = data.get("definition") or {}
+    warnings = data.get("warnings") or []
+
+    eid = defn.get("pm_event_defn_id", event_id)
+    label = (defn.get("pm_event_label") or "").strip()
+    descr = (defn.get("descr60") or "").strip()
+    flevel = str(defn.get("pm_filter_level") or "")
+    sampling = defn.get("pm_sampling_enable") == "Y"
+    display = f"{eid} \u2014 {label}" if label else str(eid)
+
+    kv_items = [
+        {"label": "Event ID",     "value": str(eid)},
+        {"label": "Label",        "value": label or "(none)"},
+        {"label": "Description",  "value": descr or "(none)"},
+        {"label": "Filter Level", "value": f"{_PM_FILTER_LEVELS.get(flevel, flevel)} ({flevel})"},
+        {"label": "Sampling",     "value": "Enabled" if sampling else "Disabled"},
+    ]
+    sections = [{"title": "Event Overview", "type": "kv", "items": kv_items}]
+
+    met_items = []
+    for slot in range(1, 8):
+        mid = defn.get(f"pm_metricid_{slot}")
+        lbl = defn.get(f"met{slot}_label")
+        if mid and int(mid) != 0:
+            met_items.append({"label": f"M{slot}", "value": lbl or f"Metric {mid}", "id": str(mid)})
+    if met_items:
+        sections.append({"title": f"Metrics Measured ({len(met_items)})", "type": "items", "items": met_items})
+
+    return canonical_base(
+        env, "pm_event", str(eid),
+        display_name=display, status="active", warnings=warnings,
+        sections=sections,
+        overview={"event_id": eid, "label": label, "filter_level": flevel,
+                  "filter_label": _PM_FILTER_LEVELS.get(flevel, flevel), "sampling": sampling},
+        _metadata={"environment": env.upper(), "source_table": "PSPMEVENTDEFN"},
     )
