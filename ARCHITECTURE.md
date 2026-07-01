@@ -51,9 +51,9 @@ Every subsystem should follow these principles.
 
 ---
 
-## What is DeathStar?
+## What is PeopleSoft Hypergraph Intelligence?
 
-**DeathStar is a PeopleSoft Digital Twin.**
+**PeopleSoft Hypergraph Intelligence is a PeopleSoft Digital Twin.**
 
 It mirrors every aspect of a live PeopleSoft enterprise in a structured, queryable, navigable
 form. It does not replicate PeopleTools or App Designer — it models the *enterprise* that runs
@@ -124,7 +124,7 @@ The platform serves every persona in a PeopleSoft organization:
 ### Layer Responsibilities
 
 **Data Layer** — Oracle databases (HCM, FSCM) and their PeopleSoft metadata tables.
-Nothing in DeathStar writes to this layer. Read-only by design.
+Nothing in PeopleSoft Hypergraph Intelligence writes to this layer. Read-only by design.
 
 **Connector Layer** — Grant-aware, version-adaptive SQL queries. Each connector module owns
 SQL for a domain. Returns structured Python dicts. Degrades gracefully when grants are missing.
@@ -340,7 +340,7 @@ Priority 7 — AI
 
 ## Design Constraints
 
-**Read-only by default.** DeathStar never writes to PeopleSoft or Oracle databases.
+**Read-only by default.** PeopleSoft Hypergraph Intelligence never writes to PeopleSoft or Oracle databases.
 Write operations (identity sync, future deployment center) are explicitly scoped and
 separately authorized.
 

@@ -1,4 +1,4 @@
-You are continuing development on the **DeathStar / PeopleSoft Explorer** project.
+You are continuing development on the **DeathStar / PeopleSoft Hypergraph Intelligence** project.
 
 Before changing code, read and reconcile:
 

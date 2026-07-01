@@ -385,7 +385,7 @@ connectors/ai.py          ← get_provider() factory + AIProvider ABC
 connectors/ai_claude.py   ← Anthropic SDK, native tool_use blocks
 connectors/ai_openai.py   ← OpenAI SDK, function calling
 connectors/ai_ollama.py   ← Ollama local REST API (no external key required)
-connectors/ai_tools.py    ← Tool definitions wrapping existing DeathStar connectors
+connectors/ai_tools.py    ← Tool definitions wrapping existing PeopleSoft Hypergraph Intelligence connectors
 ```
 
 **Design decision:** All three providers ship at launch. Ollama enables air-gap / lab use
@@ -410,7 +410,7 @@ take precedence over config.json values when both are present.
 **Design decision:** `config.json` is the primary source (consistent with DB credentials).
 Environment variable override is available for CI/container deployments.
 
-### Tools (AI-callable DeathStar capabilities)
+### Tools (AI-callable PeopleSoft Hypergraph Intelligence capabilities)
 
 Each tool is a thin adapter over an existing connector function — no new SQL.
 
@@ -553,7 +553,7 @@ log_errors  WHERE oprid='GUACUSER' → cross-ref with PS metadata
 
 1. **Surface**: `/admin/log_errors` — grouped by error_code + object_ref, top-N by count
 2. **Who**: which OPRIDs triggered the error, first/last seen
-3. **What object**: record/component/AE name extracted from error message → links to DeathStar pages
+3. **What object**: record/component/AE name extracted from error message → links to PeopleSoft Hypergraph Intelligence pages
 4. **Fix**: "Ask AI" pre-loads the assistant with the error context; AI uses existing tools
    (`peoplecode_search`, `record_usage`, `sql_lookup`) to diagnose and suggest a fix
 

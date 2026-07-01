@@ -665,7 +665,7 @@ Chat request body:
 Set `"stream": true` to receive a Server-Sent Events stream with `tool_start`,
 `tool_result`, `content`, and `done` events.
 
-The assistant has access to 14 tools backed by live DeathStar connectors:
+The assistant has access to 14 tools backed by live PeopleSoft Hypergraph Intelligence connectors:
 
 | Tool | Purpose |
 |------|---------|
