@@ -6,6 +6,55 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-06-30 — Locale Explorer Vertical Slice
+
+Date/time: 2026-06-30 (continued)
+
+Features implemented:
+- Full Locale Explorer slice from `psdb.py` through to the admin UI page.
+- `psdb.search_locales(env, q, limit)` — searches `PSLOCALEDEFN` by code or description; `FETCH FIRST :lim ROWS ONLY` pagination.
+- `psdb.get_locale(env, locale_cd)` — fetches definition + all format options from `PSLOCALEOPTNDFN`; returns `{definition, options, warnings}`.
+- `ptmetadata.py` — added `OBJECT_REGISTRY["locale"]` with discovery/search tables `PSLOCALEDEFN`/`LOCALECD`, icon `globe`.
+- `connectors/uom.py` — `locale_object(env, locale_cd)`: builds "Locale Overview" kv section and "Format Options" kv section; decodes `DFRMT` (M/D/Y → MDY/DMY/YMD) and `TFRMT` (C/M → 12-hour/24-hour clock); option labels: Decimal Separator, Thousands Separator, Date Separator, Date Format, Time Format, AM Designator, PM Designator.
+- `connectors/graphdb.py` — `locales()` provider with `has_table()` guard.
+- `routers/peoplesoft.py` — `GET /api/peoplesoft/locales` endpoint; object dispatch for `object_type == "locale"`.
+- `routers/admin.py` — NAV entry `("locale", "Locales", "/admin/locale")`; chip definition (green `#55cc55`); `GET /locale` route with search + detail UI.
+- `scripts/smoke_admin_shell.py` — added `("/admin/locale", "#q", True, True, [])` to `DEFAULT_PAGES`.
+
+Files modified:
+- `connectors/psdb.py`
+- `connectors/ptmetadata.py`
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `routers/peoplesoft.py`
+- `routers/admin.py`
+- `scripts/smoke_admin_shell.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- `PSLOCALEOPTNDFN` has 923 rows across 170 locales (191 defined); 21 locales have no options and show only the overview section.
+- `DFRMT` values decoded: `M` = MDY (month-first, US), `D` = DMY (day-first, European), `Y` = YMD (year-first, Asian/ISO).
+- `TFRMT` values decoded: `C` = 12-hour clock, `M` = 24-hour clock.
+- `MDES`/`ADES` are AM/PM designators (locale-specific strings, e.g., `r.n.`/`i.n.` for Irish Gaelic).
+- `PSLOCALEORDER` (parent-child fallback chains, 23 rows) and `PSLOCALELANG` (0 rows, empty) not surfaced in the UOM object — low information value.
+
+Verification:
+- `python -m py_compile connectors/psdb.py connectors/ptmetadata.py connectors/uom.py connectors/graphdb.py routers/peoplesoft.py routers/admin.py` — OK.
+- `psdb.search_locales('HCM', 'en', 5)` → 5 rows including `en`, `en-au`.
+- `uom.locale_object('HCM', 'en-us')` → display `en-us — English (United States)`, 7 format options.
+- `uom.locale_object('HCM', 'ja')` → 5 options, Date Format = `YMD (year-first)`, Time Format = `24-hour clock`.
+- `uom.locale_object('HCM', 'xx-yy')` → warnings `["Locale 'xx-yy' not found"]`.
+- `GET /api/peoplesoft/locales?env=HCM&q=ja&limit=3` — OK, returned 3 rows.
+- `GET /admin/locale` — 200 OK.
+- `python scripts/smoke_admin_shell.py` — `/admin/locale` passes; no regressions.
+
+Next recommended work:
+- Performance Monitor Metrics (`PSPMMETRICDEFN`/`PSPMTRANSDEFN`/`PSPMEVENTDEFN`)
+- IB Schema Definitions (`PSIBSCMADATA`/`PSIBSCMADFN`)
+
+------------------------------------------------------------------------
+
 ## 2026-06-30 — Timezone Explorer Vertical Slice
 
 Date/time: 2026-06-30 (resumed session)
