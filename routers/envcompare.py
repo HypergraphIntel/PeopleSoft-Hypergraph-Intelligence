@@ -177,6 +177,17 @@ def compare_trees(
     return envcompare.compare_trees(env1, env2, q=q, limit=limit)
 
 
+@router.get("/process_definitions")
+def compare_process_definitions(
+    env1:  str = Query("HCM"),
+    env2:  str = Query("FSCM"),
+    q:     str = Query(""),
+    limit: int = Query(500),
+):
+    """Diff PS_PRCSDEFN (Process Scheduler definitions) between two environments."""
+    return envcompare.compare_process_definitions(env1, env2, q=q, limit=limit)
+
+
 @router.get("/ib_routings")
 def compare_ib_routings(
     env1:  str = Query("HCM"),

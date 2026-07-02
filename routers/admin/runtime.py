@@ -1248,6 +1248,7 @@ a.obj-link:hover{text-decoration:underline;}
     <div class="tab"     onclick="switchTab('queries')">PS Queries</div>
     <div class="tab"     onclick="switchTab('menus')">Menus</div>
     <div class="tab"     onclick="switchTab('trees')">Trees</div>
+    <div class="tab"     onclick="switchTab('process_definitions')">Processes</div>
     <div class="tab"     onclick="switchTab('ib_routings')">IB Routings</div>
     <div class="tab"     onclick="switchTab('ib_messages')">IB Messages</div>
     <div class="tab"     onclick="switchTab('ci')">Comp. Interfaces</div>
@@ -1400,6 +1401,17 @@ a.obj-link:hover{text-decoration:underline;}
     <div id="res-trees"></div>
   </div>
 
+  <!-- Process Definitions tab -->
+  <div id="pane-process_definitions" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="prcsQ" type="text" placeholder="Search process name or type (e.g. SQR, Application Engine)&hellip;" style="width:340px;" onkeydown="if(event.key==='Enter')runCompare('process_definitions')">
+      <button onclick="runCompare('process_definitions')">Compare</button>
+      <span class="spinner" id="spin-process_definitions">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div class="warn-msg" style="margin-bottom:6px;">All process types compared &mdash; Application Engine, SQR, XML Publisher, COBOL, Data Mover, etc.</div>
+    <div id="res-process_definitions"></div>
+  </div>
+
   <!-- IB Routings tab -->
   <div id="pane-ib_routings" class="pane" style="display:none;">
     <div class="ctrl">
@@ -1447,7 +1459,7 @@ a.obj-link:hover{text-decoration:underline;}
 
 <script>
 const $ = id => document.getElementById(id);
-const TABS = ['records','fields','components','permissions','ae','roles','peoplecode','sql_definitions','portals','queries','menus','trees','ib_routings','ib_messages','ci','graph'];
+const TABS = ['records','fields','components','permissions','ae','roles','peoplecode','sql_definitions','portals','queries','menus','trees','process_definitions','ib_routings','ib_messages','ci','graph'];
 let currentTab = 'records';
 
 function env1() { return $('env1Sel').value || 'HCM'; }
@@ -1503,7 +1515,7 @@ async function loadSummary() {
 const Q_IDS = {
   records: 'recQ', components: 'compQ', permissions: 'permQ', ae: 'aeQ', roles: 'roleQ',
   peoplecode: 'pcQ', sql_definitions: 'sqlQ', portals: 'portalQ', queries: 'queryQ',
-  menus: 'menuQ', trees: 'treeQ', ib_routings: 'ibrtngQ', ib_messages: 'ibmsgQ', ci: 'ciQ',
+  menus: 'menuQ', trees: 'treeQ', process_definitions: 'prcsQ', ib_routings: 'ibrtngQ', ib_messages: 'ibmsgQ', ci: 'ciQ',
 };
 
 async function runCompare(type) {
@@ -2027,6 +2039,7 @@ function nameCol(type) {
     queries: 'qryname',
     menus: 'menuname',
     trees: 'tree_name',
+    process_definitions: '_key',
     ib_routings: 'routingdefnname',
     ib_messages: 'msgname',
     ci: 'bcname',
@@ -2045,6 +2058,7 @@ function metaHeaders(type) {
     queries:      ['Name', 'Type', 'Folder', 'Disabled', 'Valid'],
     menus:        ['Name', 'Type', 'Description', 'Owner'],
     trees:        ['Name', 'SetID', 'Status', 'Description'],
+    process_definitions: ['Type~Name (Key)', 'Type', 'Description'],
     ib_routings:  ['Name', 'Type', 'Operation', 'Sender', 'Receiver'],
     ib_messages:  ['Name', 'Status', 'Description', 'Owner'],
     ci:           ['Name', 'Type', 'Description', 'Component'],
@@ -2072,6 +2086,8 @@ function metaCells(r, type) {
       return `<td>${esc(r.menutype)}</td><td>${esc(r.descr)}</td><td>${esc(r.objectownerid)}</td>`;
     case 'trees':
       return `<td class="mono">${esc(r.setid)}</td><td>${esc(r.eff_status)}</td><td>${esc(r.descr)}</td>`;
+    case 'process_definitions':
+      return `<td>${esc(r.prcstype)}</td><td>${esc(r.descr)}</td>`;
     case 'ib_routings':
       return `<td>${esc(r.rtngtype)}</td><td class="mono">${esc(r.ib_operationname)}</td><td class="mono">${esc(r.sendernodename)}</td><td class="mono">${esc(r.receivernodename)}</td>`;
     case 'ib_messages':

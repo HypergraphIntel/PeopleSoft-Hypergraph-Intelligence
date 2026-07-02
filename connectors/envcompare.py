@@ -543,6 +543,45 @@ def compare_trees(env1, env2, q="", limit=500):
     return diff
 
 
+def compare_process_definitions(env1, env2, q="", limit=500):
+    """Diff PS_PRCSDEFN (Process Scheduler definitions) between two environments.
+
+    Compares across all process types: Application Engine, SQR Report,
+    SQR Process, XML Publisher, COBOL SQL, Data Mover, etc.
+    """
+    pattern = f"%{q.upper()}%" if q else None
+    params = {"q": pattern}
+    warnings = []
+    all_rows = []
+
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PS_PRCSDEFN")
+        descr_col = "DESCR" if "descr" in cols else "NULL AS DESCR"
+        ts_col = "LASTUPDDTTM" if "lastupddttm" in cols else "NULL AS LASTUPDDTTM"
+        sql = f"""
+            SELECT PRCSTYPE, PRCSNAME, {descr_col}, {ts_col}
+              FROM SYSADM.PS_PRCSDEFN
+             WHERE (:q IS NULL
+                    OR UPPER(PRCSNAME) LIKE :q
+                    OR UPPER(PRCSTYPE) LIKE :q)
+             ORDER BY PRCSTYPE, PRCSNAME
+             FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        # Composite key: type~name  (same convention as KG)
+        for r in rows:
+            r["_key"] = f"{r.get('prcstype', '')}~{r.get('prcsname', '')}".upper()
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
+
+    rows1, rows2 = all_rows
+    diff = _compare(rows1, rows2, "_key", ["descr", "lastupddttm"])
+    diff.update({"env1": env1, "env2": env2, "object_type": "process_definitions",
+                 "query": q, "warnings": warnings})
+    return diff
+
+
 def compare_ib_routings(env1, env2, q="", limit=500):
     """Diff PSIBRTNGDEFN (IB Routing definitions, named only) between two environments."""
     pattern = f"%{q.upper()}%" if q else None
