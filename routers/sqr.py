@@ -3,7 +3,8 @@ SQR Source Artifact Intelligence API.
 
 Endpoints:
   GET  /api/sqr/stats
-  GET  /api/sqr/programs?q=&type=sqr|sqc&page=1&per_page=50
+  GET  /api/sqr/sources?env=HCM          — list sqr_sources from config (env-filtered)
+  GET  /api/sqr/programs?q=&type=sqr|sqc&env=HCM&page=1&per_page=50
   GET  /api/sqr/program/{filename}
   GET  /api/sqr/table/{table_name}
   GET  /api/sqr/sqc/{sqc_name}/users
@@ -53,6 +54,27 @@ def sqr_stats():
     return sqrdb.stats()
 
 
+@router.get("/sources")
+def sqr_sources_list(env: Optional[str] = Query(None)):
+    """Return sqr_sources from config.json, optionally filtered by env.
+
+    Also returns the list of unique environment names so the UI can build
+    its env selector in one request.
+    """
+    import json
+    from pathlib import Path
+    cfg_path = Path(__file__).parent.parent / "config.json"
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+    all_sources = cfg.get("sqr_sources", [])
+    envs = sorted({s["env"] for s in all_sources if s.get("env")})
+    if env:
+        sources = [s for s in all_sources if s.get("env", "").upper() == env.upper()]
+    else:
+        sources = all_sources
+    return {"envs": envs, "sources": sources}
+
+
 @router.get("/analytics")
 def sqr_analytics():
     from connectors import sqrdb
@@ -64,14 +86,29 @@ def sqr_analytics():
 def sqr_programs(
     q:        Optional[str] = Query(None),
     type:     Optional[str] = Query(None, alias="type"),
+    env:      Optional[str] = Query(None),
     page:     int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
 ):
+    import json
+    from pathlib import Path
     from connectors import sqrdb
     sqrdb.init_db()
+
+    source_keys: list[str] | None = None
+    if env:
+        cfg_path = Path(__file__).parent.parent / "config.json"
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+        source_keys = list({
+            s["key"] for s in cfg.get("sqr_sources", [])
+            if s.get("env", "").upper() == env.upper()
+        })
+
     return sqrdb.search_programs(
         q=q or "",
         file_type=type or "",
+        source_keys=source_keys,
         page=page,
         per_page=per_page,
     )

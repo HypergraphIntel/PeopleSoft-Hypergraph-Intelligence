@@ -161,7 +161,7 @@ def stats() -> dict:
     }
 
 
-def search_programs(q: str = "", file_type: str = "", page: int = 1, per_page: int = 50) -> dict:
+def search_programs(q: str = "", file_type: str = "", source_keys: list[str] | None = None, page: int = 1, per_page: int = 50) -> dict:
     """Search programs by filename/description/program_name. Returns paginated results."""
     c = _conn()
     clauses = []
@@ -177,6 +177,11 @@ def search_programs(q: str = "", file_type: str = "", page: int = 1, per_page: i
     if file_type in ("sqr", "sqc"):
         clauses.append("file_type=?")
         params.append(file_type)
+
+    if source_keys:
+        placeholders = ",".join("?" for _ in source_keys)
+        clauses.append(f"source_key IN ({placeholders})")
+        params += list(source_keys)
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     total = c.execute(f"SELECT COUNT(*) FROM sqr_programs {where}", params).fetchone()[0]

@@ -207,6 +207,9 @@ def sqr_index():
 
 <div class="sqr-toolbar">
   <input class="sqr-search" id="searchBox" placeholder="Search programs, descriptions…" oninput="debounceSearch()">
+  <select class="sqr-filter" id="envFilter" onchange="onEnvChange()">
+    <option value="">All environments</option>
+  </select>
   <select class="sqr-filter" id="typeFilter" onchange="doSearch(1)">
     <option value="">All types</option>
     <option value="sqr">SQR only</option>
@@ -230,18 +233,42 @@ def sqr_index():
 """ + _ESC_JS + """
 let _page = 1, _debTimer = null;
 
+async function loadEnvs() {
+  try {
+    const r = await fetch('/api/sqr/sources');
+    const d = await r.json();
+    const sel = $('envFilter');
+    (d.envs || []).forEach(e => {
+      const opt = document.createElement('option');
+      opt.value = e;
+      opt.textContent = e;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+function onEnvChange() {
+  loadStats();
+  doSearch(1);
+}
+
 async function loadStats() {
   try {
+    const env = $('envFilter').value;
+    const envParam = env ? `&env=${encodeURIComponent(env)}` : '';
+    // global last-indexed timestamp always comes from /stats
     const r = await fetch('/api/sqr/stats');
     const d = await r.json();
-    $('sTot').textContent = d.programs ?? '—';
-    $('sTbl').textContent = d.distinct_ps_tables ?? '—';
-    $('sTs').textContent  = d.last_indexed ? d.last_indexed.replace('T',' ').replace('Z','') : 'Not indexed';
-    // count sqr vs sqc
-    const r2 = await fetch('/api/sqr/programs?type=sqr&per_page=1');
+    $('sTs').textContent = d.last_indexed ? d.last_indexed.replace('T',' ').replace('Z','') : 'Not indexed';
+    // counts are env-aware
+    const r2 = await fetch(`/api/sqr/programs?type=sqr&per_page=1${envParam}`);
     const d2 = await r2.json();
+    const r3 = await fetch(`/api/sqr/programs?type=sqc&per_page=1${envParam}`);
+    const d3 = await r3.json();
     $('sSqr').textContent = d2.total ?? '—';
-    $('sSqc').textContent = (d.programs - (d2.total||0)) || '—';
+    $('sSqc').textContent = d3.total ?? '—';
+    $('sTot').textContent = ((d2.total||0) + (d3.total||0)) || '—';
+    $('sTbl').textContent = d.distinct_ps_tables ?? '—';
   } catch(e) {}
 }
 
@@ -254,9 +281,11 @@ async function doSearch(page) {
   _page = page || 1;
   const q = $('searchBox').value.trim();
   const t = $('typeFilter').value;
+  const env = $('envFilter').value;
   let url = `/api/sqr/programs?page=${_page}&per_page=50`;
-  if (q) url += `&q=${encodeURIComponent(q)}`;
-  if (t) url += `&type=${t}`;
+  if (q)   url += `&q=${encodeURIComponent(q)}`;
+  if (t)   url += `&type=${t}`;
+  if (env) url += `&env=${encodeURIComponent(env)}`;
 
   $('resultsArea').innerHTML = '<div style="color:#7faab2;padding:16px">Loading…</div>';
   try {
@@ -342,6 +371,7 @@ async function pollIngest() {
   }
 }
 
+loadEnvs();
 loadStats();
 doSearch(1);
 </script>
