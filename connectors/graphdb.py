@@ -1142,7 +1142,7 @@ def build(env="HCM", limit=50, persist=True):
         if not ptmetadata.has_table(env, "PSXPRPTDEFN"):
             return 0
         rows = psdb.query(env, f"""
-            SELECT REPORT_DEFN_ID, DESCR, OBJECTOWNERID, DS_ID
+            SELECT REPORT_DEFN_ID, DESCR, OBJECTOWNERID, DS_ID, DS_TYPE
               FROM SYSADM.PSXPRPTDEFN
              WHERE ROWNUM <= {limit}
              ORDER BY REPORT_DEFN_ID
@@ -1152,6 +1152,14 @@ def build(env="HCM", limit=50, persist=True):
             if not rid:
                 continue
             add_node(graph, "xml_publisher_report", rid, r.get("descr") or rid, r)
+            ds_id = str(r.get("ds_id") or "").strip().upper()
+            ds_type = str(r.get("ds_type") or "").strip().upper()
+            if ds_id and ds_type == "QRY":
+                add_node(graph, "query", ds_id, ds_id, r)
+                add_edge(graph, "xml_publisher_report", rid, "query", ds_id, "USES", r)
+            elif ds_id and ds_type == "CQR":
+                add_node(graph, "connected_query", ds_id, ds_id, r)
+                add_edge(graph, "xml_publisher_report", rid, "connected_query", ds_id, "USES", r)
         return len(rows)
 
     def search_definitions():

@@ -247,6 +247,7 @@ Continue enriching graph relationships.
 - Standalone App Class UOM objects now expose package/PeopleCode relationships and compact graph previews with App Class → Package `BELONGS_TO` and App Class → PeopleCode `CONTAINS` edges
 - Content Service UOM objects now expose component/menu/app-class/query/portal usage relationships and compact graph previews; persisted Knowledge Graph ingestion emits Content Service → target `USES` edges
 - Connected Query UOM objects now expose component query and field-join relationships with compact graph previews; persisted Knowledge Graph ingestion emits Connected Query → PS Query `USES` and parent Query → child Query `CONTAINS` edges
+- XML Publisher Report UOM objects now expose datasource relationships and compact graph previews for PS Query / Connected Query data sources; persisted Knowledge Graph ingestion emits XML Publisher Report → PS Query / Connected Query `USES` edges where `DS_TYPE` is `QRY` or `CQR`
 - Tree → Record USES edges
 - Impact analysis (forward and reverse dependency traversal with depth control)
 

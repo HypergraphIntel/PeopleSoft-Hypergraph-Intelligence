@@ -6,6 +6,67 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — XML Publisher UOM and Knowledge Graph Relationships
+
+Date/time: 2026-07-01 23:39 CDT
+
+Features implemented:
+- XML Publisher Report UOM objects now expose `_relationships.datasources`
+  plus typed `_relationships.queries` or `_relationships.connected_queries`
+  when the report data source is backed by PS Query or Connected Query.
+- XML Publisher compact `_graph` previews now show Report → PS Query or
+  Report → Connected Query `USES` edges for `DS_TYPE` values `QRY` and `CQR`.
+- Persisted Knowledge Graph ingestion now reads `DS_TYPE` from PSXPRPTDEFN and
+  emits the same XML Publisher Report → Query / Connected Query `USES` edges.
+
+Files modified:
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept XML, XML Data, and REST data sources as report metadata only because
+  they do not map to an existing canonical Object Explorer type today.
+- Used existing canonical object types (`query`, `connected_query`) rather
+  than introducing a separate XML Publisher datasource graph node.
+- Preserved existing XML Publisher endpoint and payload fields while adding
+  `_relationships` and `_graph`.
+
+Bugs fixed:
+- XML Publisher Report object pages had data-source metadata but no canonical
+  relationship model or compact graph preview.
+- Persisted KG XML Publisher provider created report nodes without edges to
+  PS Query / Connected Query data sources.
+
+Technical debt:
+- XML/REST XML Publisher data sources may deserve first-class UOM objects once
+  their downstream metadata relationships are verified.
+- A full non-persisted KG build was interrupted after it spent more than 90s in
+  an unrelated PeopleCode capability probe; provider-specific behavior was
+  validated directly instead.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/graphdb.py` — OK.
+- Live HCM probe found XML Publisher reports with `QRY`, `CQR`, and `XML`
+  data source types.
+- `uom.xpub_report_payload('HCM', 'AFI_BC')` returned a PS Query relationship
+  and compact `USES` edge to `query:AFI_BC`.
+- `uom.xpub_report_payload('HCM', 'BREREG02')` returned a Connected Query
+  relationship and compact `USES` edge to `connected_query:BREREG02`.
+- `uom.xpub_report_payload('HCM', 'ACA95C15_EE')` preserved XML datasource
+  metadata without creating an unsupported graph edge.
+- `/api/peoplesoft/graph/xml_publisher_report/AFI_BC` route helper returned
+  `_source: uom`, `_vocabulary: compact_uom`, and a Report → Query `USES` edge.
+- Direct graphdb edge construction check confirmed QRY/CQR reports create
+  `USES` edges while XML reports remain metadata-only.
+
+Next recommended work:
+- Continue compact UOM graph alignment for PTF tests, Process Definitions, or
+  IB Message Definitions.
+- Investigate graph build performance/caching around repeated PeopleCode
+  capability probes.
+
 ## 2026-07-01 — Connected Query UOM and Knowledge Graph Relationships
 
 Date/time: 2026-07-01 23:24 CDT

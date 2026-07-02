@@ -4724,9 +4724,62 @@ _XPUB_STATUS_CHIP = {
 }
 
 
+def _xpub_datasource_relation(defn, datasrc=None):
+    ds_id = str((defn or {}).get("ds_id") or (datasrc or {}).get("ds_id") or "").strip().upper()
+    ds_type = str((defn or {}).get("ds_type") or (datasrc or {}).get("ds_type") or "").strip().upper()
+    if not ds_id:
+        return None
+
+    target_type = ""
+    if ds_type == "QRY":
+        target_type = "query"
+    elif ds_type == "CQR":
+        target_type = "connected_query"
+
+    row = {
+        "ds_id": ds_id,
+        "ds_type": ds_type,
+        "ds_type_label": (datasrc or {}).get("ds_type_label") or _XPUB_DATASRC_CHIP.get(ds_type, ("", ds_type))[1],
+        "descr": str((datasrc or {}).get("descr") or "").strip(),
+        "active_flag": (datasrc or {}).get("active_flag"),
+    }
+    if target_type:
+        row["target_type"] = target_type
+        row["target_name"] = ds_id
+        row["_links"] = {"admin": object_url(target_type, ds_id)}
+    return row
+
+
 def xpub_report_object(env, report_defn_id):
     data = psdb.get_xpub_report(env, report_defn_id.upper())
     defn = data.get("definition")
+    datasrc = data.get("datasource") or {}
+    ds_relation = _xpub_datasource_relation(defn or {}, datasrc)
+    relationships = {
+        "datasources": [ds_relation] if ds_relation else [],
+        "queries": [ds_relation] if ds_relation and ds_relation.get("target_type") == "query" else [],
+        "connected_queries": [ds_relation] if ds_relation and ds_relation.get("target_type") == "connected_query" else [],
+    }
+    graph = relationship_graph(
+        "xml_publisher_report",
+        report_defn_id.upper(),
+        limit_relationships(relationships, {"queries": 1, "connected_queries": 1}),
+        [
+            {
+                "relationship": "queries",
+                "node_type": "query",
+                "target_name": "target_name",
+                "default_edge": "USES",
+            },
+            {
+                "relationship": "connected_queries",
+                "node_type": "connected_query",
+                "target_name": "target_name",
+                "default_edge": "USES",
+            },
+        ],
+        root_data=defn or {},
+    )
     return {
         "environment": env.upper(),
         "type": "xml_publisher_report",
@@ -4737,6 +4790,8 @@ def xpub_report_object(env, report_defn_id):
         "data": data,
         "warnings": [{"code": w, "message": w} for w in data.get("warnings", [])],
         "_links": {"admin": object_url("xml_publisher_report", report_defn_id.upper())},
+        "_relationships": relationships,
+        "_graph": graph,
     }
 
 
@@ -4824,6 +4879,8 @@ def xpub_report_payload(env, report_defn_id):
         "sections": sections_for_xpub_report(obj),
         "warnings": obj.get("warnings", []),
         "_links": obj["_links"],
+        "_relationships": obj.get("_relationships", {}),
+        "_graph": obj.get("_graph", {}),
         "_uom": obj,
     }
 
