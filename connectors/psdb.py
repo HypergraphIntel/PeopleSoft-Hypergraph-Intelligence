@@ -4085,6 +4085,136 @@ def operator_roles_full(env_name, oprid_val):
         r["rolestatus_label"] = ROLESTATUS_LABELS.get(rs, rs)
     return rows
 
+def _iso(v):
+    """Format a datetime value as ISO string, or return as-is if already a string."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v
+    if hasattr(v, "isoformat"):
+        return v.isoformat()
+    return str(v)
+
+
+def operator_activity(env_name, oprid_val, hours: int = 24, limit: int = 100):
+    """Return recent page access activity for an operator from PSACCESSLOG."""
+    from connectors import ptmetadata
+    oprid = oprid_val.strip().upper()
+    hours = max(1, min(int(hours), 168))
+    limit = max(1, min(int(limit), 500))
+    result = {"oprid": oprid, "hours": hours, "items": []}
+
+    if not ptmetadata.has_table(env_name, "PSACCESSLOG"):
+        result["warning"] = "PSACCESSLOG not accessible"
+        return result
+
+    log_cols = table_columns(env_name, "PSACCESSLOG")
+    # Build SELECT only from columns that exist
+    _OPT = {
+        "pnlgrpname":  "component",
+        "pnlname":     "page",
+        "menuname":    "menu",
+        "accesstype":  "access_type",
+        "workstationid": "workstation",
+        "logipaddress": "ipaddress",
+        "pt_signon_type": "signon_type",
+        "pt_signout_reason": "signout_reason",
+    }
+    opt_sel = "".join(
+        f", a.{col.upper()} as {col}" for col in _OPT if col in log_cols
+    )
+
+    try:
+        rows = query(env_name, f"""
+            SELECT a.LOGINDTTM, a.LOGOUTDTTM{opt_sel}
+              FROM SYSADM.PSACCESSLOG a
+             WHERE UPPER(a.OPRID) = :oprid
+               AND a.LOGINDTTM >= SYSDATE - :h/24
+             ORDER BY a.LOGINDTTM DESC
+             FETCH FIRST :lim ROWS ONLY
+        """, {"oprid": oprid, "h": hours, "lim": limit})
+    except Exception as exc:
+        result["error"] = str(exc)
+        return result
+
+    items = []
+    for r in rows:
+        items.append({
+            "ts":           _iso(r.get("logindttm")),
+            "ts_out":       _iso(r.get("logoutdttm")),
+            "component":    (r.get("pnlgrpname") or "").strip(),
+            "page":         (r.get("pnlname") or "").strip(),
+            "menu":         (r.get("menuname") or "").strip(),
+            "access_type":  (r.get("accesstype") or "").strip(),
+            "workstation":  (r.get("workstationid") or "").strip(),
+            "ipaddress":    (r.get("logipaddress") or "").strip(),
+            "signon_type":  r.get("pt_signon_type"),
+        })
+    result["has_page_tracking"] = "pnlgrpname" in log_cols
+    result["items"] = items
+    result["count"] = len(items)
+    return result
+
+
+def operator_processes(env_name, oprid_val, days: int = 7, limit: int = 100):
+    """Return recent process scheduler submissions by an operator (PSPRCSRQST)."""
+    from connectors import ptmetadata
+    oprid = oprid_val.strip().upper()
+    days = max(1, min(int(days), 90))
+    limit = max(1, min(int(limit), 500))
+    result = {"oprid": oprid, "days": days, "items": []}
+
+    if not ptmetadata.has_table(env_name, "PSPRCSRQST"):
+        result["warning"] = "PSPRCSRQST not accessible"
+        return result
+
+    _RUNSTATUS_LABEL = {
+        "0": "NA", "1": "Queued", "2": "Initiated", "3": "Processing",
+        "4": "Success", "5": "Error", "6": "Cancel", "7": "Delete",
+        "8": "Resend", "9": "Posted", "10": "Not Posted",
+        "12": "Scheduled", "13": "Blocked", "14": "Restart",
+    }
+
+    prcs_cols = table_columns(env_name, "PSPRCSRQST")
+    has_enddttm = "enddttm" in prcs_cols
+    has_srvrun  = "servernamerun" in prcs_cols
+    has_srvrqst = "servernamerqst" in prcs_cols
+    end_sel = ", ENDDTTM" if has_enddttm else ""
+    srv_col = "SERVERNAMERUN" if has_srvrun else ("SERVERNAMERQST" if has_srvrqst else None)
+    srv_sel = f", {srv_col} as server_name" if srv_col else ""
+
+    try:
+        rows = query(env_name, f"""
+            SELECT PRCSINSTANCE, PRCSNAME, PRCSTYPE,
+                   RUNCNTLID, RUNDTTM, RUNSTATUS{end_sel}{srv_sel}
+              FROM SYSADM.PSPRCSRQST
+             WHERE UPPER(OPRID) = :oprid
+               AND RUNDTTM >= SYSDATE - :d
+             ORDER BY RUNDTTM DESC
+             FETCH FIRST :lim ROWS ONLY
+        """, {"oprid": oprid, "d": days, "lim": limit})
+    except Exception as exc:
+        result["error"] = str(exc)
+        return result
+
+    items = []
+    for r in rows:
+        status_code = str(r.get("runstatus") or "").strip()
+        items.append({
+            "instance":     r.get("prcsinstance"),
+            "prcsname":     (r.get("prcsname") or "").strip(),
+            "prcstype":     (r.get("prcstype") or "").strip(),
+            "runcntlid":    (r.get("runcntlid") or "").strip(),
+            "run_dt":       _iso(r.get("rundttm")),
+            "end_dt":       _iso(r.get("enddttm")) if has_enddttm else None,
+            "runstatus":    status_code,
+            "status_label": _RUNSTATUS_LABEL.get(status_code, status_code),
+            "server":       (r.get("server_name") or "").strip() if srv_col else "",
+        })
+    result["items"] = items
+    result["count"] = len(items)
+    return result
+
 
 # ── Role Explorer ────────────────────────────────────────────────────────────
 

@@ -1852,9 +1852,13 @@ a.obj-link:hover{text-decoration:underline;}
       <div class="tab-row">
         <div class="tab on" onclick="setTab('overview')">Overview</div>
         <div class="tab"    onclick="setTab('roles')">Roles</div>
+        <div class="tab"    onclick="setTab('activity')">Activity</div>
+        <div class="tab"    onclick="setTab('prcs')">Processes</div>
       </div>
       <div id="paneOverview" class="pane on"><div id="tblOverview"></div></div>
       <div id="paneRoles"    class="pane"><div id="tblRoles"></div></div>
+      <div id="paneActivity" class="pane"><div id="tblActivity"><span class="empty">Loading…</span></div></div>
+      <div id="panePrcs"     class="pane"><div id="tblPrcs"><span class="empty">Loading…</span></div></div>
     </div>
   </div>
 </div>
@@ -1912,8 +1916,12 @@ async function loadOp(oprid, el) {
   $('opName').textContent = '';
   $('opBadge').innerHTML = '';
   $('statGrid').innerHTML = '<div style="color:#445;font-size:11px;">Loading…</div>';
+  _actLoaded = false;
+  _prcsLoaded = false;
   $('tblOverview').innerHTML = '<div class="empty">Loading…</div>';
   $('tblRoles').innerHTML = '<div class="empty">Loading…</div>';
+  $('tblActivity').innerHTML = '<span class="empty">Loading…</span>';
+  $('tblPrcs').innerHTML = '<span class="empty">Loading…</span>';
   $('traceLink').href = `/admin/tracing?oprid=${encodeURIComponent(oprid)}&env=${env()}`;
   $('objLink').href   = `/admin/object/operator/${encodeURIComponent(oprid)}`;
   history.replaceState(null, '', `/admin/operator/${encodeURIComponent(oprid)}`);
@@ -1992,14 +2000,130 @@ function renderRoles(items, warns) {
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
 
+let _actLoaded = false, _prcsLoaded = false;
+
 function setTab(name) {
-  ['overview','roles'].forEach(n => {
-    const tab = document.querySelector(`.tab[onclick*="${n}"]`);
+  ['overview','roles','activity','prcs'].forEach(n => {
+    const tab = document.querySelector(`.tab[onclick*="'${n}'"]`);
     if (tab) tab.classList.toggle('on', n === name);
     const cap = n.charAt(0).toUpperCase()+n.slice(1);
     const p = $(`pane${cap}`);
     if (p) p.classList.toggle('on', n === name);
   });
+  if (name === 'activity' && !_actLoaded)  loadActivityTab();
+  if (name === 'prcs'     && !_prcsLoaded) loadPrcsTab();
+}
+
+async function loadActivityTab() {
+  _actLoaded = true;
+  if (!currentOp) return;
+  $('tblActivity').innerHTML = '<div class="empty">Loading activity…</div>';
+  try {
+    const d = await api(`/api/operator/${encodeURIComponent(currentOp)}/activity?env=${env()}&hours=48&limit=200`);
+    renderActivity(d);
+  } catch(e) {
+    $('tblActivity').innerHTML = `<div class="warn-msg">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function loadPrcsTab() {
+  _prcsLoaded = true;
+  if (!currentOp) return;
+  $('tblPrcs').innerHTML = '<div class="empty">Loading processes…</div>';
+  try {
+    const d = await api(`/api/operator/${encodeURIComponent(currentOp)}/processes?env=${env()}&days=30&limit=200`);
+    renderProcesses(d);
+  } catch(e) {
+    $('tblPrcs').innerHTML = `<div class="warn-msg">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderActivity(d) {
+  const items = d.items || [];
+  const warn  = d.warning || d.error || '';
+  if (warn && !items.length) {
+    $('tblActivity').innerHTML = `<div class="warn-msg">&#9888; ${esc(warn)}</div>`;
+    return;
+  }
+  if (!items.length) {
+    $('tblActivity').innerHTML = `<div class="empty">No access log entries found in the last 48 hours.</div>`;
+    return;
+  }
+  const hasPages = d.has_page_tracking;
+  let html = `<div style="font-size:10px;color:#445;margin-bottom:8px">${items.length} entries · last 48h
+    ${!hasPages ? '<span style="color:#334;margin-left:8px">· PSACCESSLOG in this environment does not capture page-level detail</span>' : ''}
+  </div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px">
+    <thead><tr style="color:#445;border-bottom:1px solid #0a2030">
+      <th style="text-align:left;padding:3px 6px">Login Time</th>
+      <th style="text-align:left;padding:3px 6px">Logout Time</th>
+      ${hasPages ? '<th style="text-align:left;padding:3px 6px">Component</th><th style="text-align:left;padding:3px 6px">Menu</th>' : ''}
+      <th style="text-align:left;padding:3px 6px">IP</th>
+      <th style="text-align:left;padding:3px 6px">Type</th>
+    </tr></thead><tbody>`;
+  items.forEach(it => {
+    const ts    = (it.ts||'').replace('T',' ').substring(0,19);
+    const tsOut = (it.ts_out||'').replace('T',' ').substring(0,19);
+    const compLink = it.component
+      ? `<a class="obj-link" href="/admin/compflow?component=${encodeURIComponent(it.component)}">${esc(it.component)}</a>`
+      : '—';
+    const stCol = it.signon_type === 1 ? '#00cc66' : it.signon_type === 0 ? '#445' : '#556';
+    const stLbl = it.signon_type === 1 ? 'SSO' : it.signon_type === 0 ? 'Svc' : (it.signon_type ?? '');
+    html += `<tr style="border-bottom:1px solid #08101a">
+      <td class="mono" style="padding:3px 6px;color:#334;font-size:10px;white-space:nowrap">${esc(ts)}</td>
+      <td class="mono" style="padding:3px 6px;color:#223;font-size:10px;white-space:nowrap">${esc(tsOut||'—')}</td>
+      ${hasPages ? `<td style="padding:3px 6px">${compLink}</td><td style="padding:3px 6px;color:#556;font-size:10px">${esc(it.menu||'—')}</td>` : ''}
+      <td style="padding:3px 6px;color:#445;font-size:10px">${esc(it.ipaddress||'—')}</td>
+      <td style="padding:3px 6px;color:${stCol};font-size:10px">${esc(String(stLbl))}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  $('tblActivity').innerHTML = html;
+}
+
+const _PRCS_STATUS_COLOR = {
+  'Success':'#00cc66','Error':'#ff4444','Processing':'#ffaa00',
+  'Queued':'#00e5ff','Cancel':'#ff8855','Scheduled':'#88aaff',
+  'Blocked':'#ff8800','Initiated':'#66ddff',
+};
+
+function renderProcesses(d) {
+  const items = d.items || [];
+  const warn  = d.warning || d.error || '';
+  if (warn && !items.length) {
+    $('tblPrcs').innerHTML = `<div class="warn-msg">&#9888; ${esc(warn)}</div>`;
+    return;
+  }
+  if (!items.length) {
+    $('tblPrcs').innerHTML = `<div class="empty">No process submissions in the last 30 days.</div>`;
+    return;
+  }
+  let html = `<div style="font-size:10px;color:#445;margin-bottom:8px">${items.length} submissions · last 30d</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px">
+    <thead><tr style="color:#445;border-bottom:1px solid #0a2030">
+      <th style="text-align:left;padding:3px 6px">Instance</th>
+      <th style="text-align:left;padding:3px 6px">Process</th>
+      <th style="text-align:left;padding:3px 6px">Type</th>
+      <th style="text-align:left;padding:3px 6px">Run Control</th>
+      <th style="text-align:left;padding:3px 6px">Run Time</th>
+      <th style="text-align:left;padding:3px 6px">Status</th>
+    </tr></thead><tbody>`;
+  items.forEach(it => {
+    const ts = (it.run_dt||'').replace('T',' ').substring(0,16);
+    const col = _PRCS_STATUS_COLOR[it.status_label] || '#778';
+    html += `<tr style="border-bottom:1px solid #08101a">
+      <td style="padding:3px 6px;font-size:10px;color:#445">${esc(String(it.instance||''))}</td>
+      <td style="padding:3px 6px">
+        <a class="obj-link" href="/admin/object/ae_program/${encodeURIComponent(it.prcsname)}" title="${esc(it.prcstype)}">${esc(it.prcsname)}</a>
+      </td>
+      <td style="padding:3px 6px;color:#556;font-size:10px">${esc(it.prcstype||'')}</td>
+      <td style="padding:3px 6px;color:#667;font-size:10px">${esc(it.runcntlid||'—')}</td>
+      <td class="mono" style="padding:3px 6px;color:#334;font-size:10px;white-space:nowrap">${esc(ts)}</td>
+      <td style="padding:3px 6px;color:${col};font-size:10px;font-weight:bold">${esc(it.status_label||it.runstatus||'—')}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  $('tblPrcs').innerHTML = html;
 }
 
 (async () => {
@@ -2010,7 +2134,7 @@ function setTab(name) {
 
   doSearch();
 
-  const pathMatch = window.location.pathname.match(/\\/admin\\/operator\\/(.+)$/);
+  const pathMatch = window.location.pathname.match(/\/admin\/operator\/(.+)$/);
   const opParam   = new URLSearchParams(window.location.search).get('oprid') || (pathMatch ? decodeURIComponent(pathMatch[1]) : null);
   if (opParam) {
     $('searchInput').value = opParam;
