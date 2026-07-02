@@ -1843,11 +1843,73 @@ def build(env="HCM", limit=50, persist=True):
              WHERE ROWNUM <= {limit}
              ORDER BY FLDDEFNNAME
         """) or []
+        layout_names = [str(r.get("flddefnname") or "").strip().upper() for r in rows if r.get("flddefnname")]
+        segments_by_layout = defaultdict(list)
+        fields_by_layout = defaultdict(list)
+        if layout_names and ptmetadata.has_table(env, "PSFLDSEGDEFN"):
+            for start_idx in range(0, len(layout_names), 900):
+                chunk = layout_names[start_idx:start_idx + 900]
+                quoted = ",".join("'" + name.replace("'", "''") + "'" for name in chunk)
+                seg_rows = psdb.query(env, f"""
+                    SELECT FLDDEFNNAME, FLDSEGNAME, FLDSEGID, FLDSEGPARENT,
+                           FLDSEQNO, FLDFIELDCOUNT, RECNAME_FILE
+                      FROM SYSADM.PSFLDSEGDEFN
+                     WHERE FLDDEFNNAME IN ({quoted})
+                     ORDER BY FLDDEFNNAME, FLDSEQNO, FLDSEGNAME
+                """) or []
+                for seg in seg_rows:
+                    layout = str(seg.get("flddefnname") or "").strip().upper()
+                    segment = str(seg.get("fldsegname") or "").strip().upper()
+                    recname_file = str(seg.get("recname_file") or "").strip().upper()
+                    record_name = recname_file or segment
+                    if layout and record_name:
+                        segments_by_layout[layout].append({**seg, "record_name": record_name})
+        if layout_names and ptmetadata.has_table(env, "PSFLDFIELDDEFN"):
+            for start_idx in range(0, len(layout_names), 900):
+                chunk = layout_names[start_idx:start_idx + 900]
+                quoted = ",".join("'" + name.replace("'", "''") + "'" for name in chunk)
+                field_rows = psdb.query(env, f"""
+                    SELECT FLDDEFNNAME, FLDSEGNAME, FLDFIELDNAME, FLDSEQNO,
+                           FLDSTART, FLDLENGTH, FLDFIELDTYPE, DESCR100, FLDTAG
+                      FROM SYSADM.PSFLDFIELDDEFN
+                     WHERE FLDDEFNNAME IN ({quoted})
+                     ORDER BY FLDDEFNNAME, FLDSEGNAME, FLDSEQNO
+                """) or []
+                for field in field_rows:
+                    layout = str(field.get("flddefnname") or "").strip().upper()
+                    segment = str(field.get("fldsegname") or "").strip().upper()
+                    field_name = str(field.get("fldfieldname") or "").strip().upper()
+                    if layout and segment and field_name:
+                        fields_by_layout[layout].append({
+                            **field,
+                            "record_name": segment,
+                            "field_ref": f"{segment}.{field_name}",
+                        })
         for r in rows:
             fid = r.get("flddefnname")
             if not fid:
                 continue
             add_node(graph, "file_layout", fid, r.get("descr") or fid, r)
+            layout = str(fid).strip().upper()
+            seen_records = set()
+            for seg in segments_by_layout.get(layout, []):
+                record_name = str(seg.get("record_name") or "").strip().upper()
+                if not record_name or record_name in seen_records:
+                    continue
+                seen_records.add(record_name)
+                add_node(graph, "record", record_name, record_name, seg)
+                add_edge(graph, "file_layout", fid, "record", record_name, "CONTAINS", seg)
+            seen_fields = set()
+            for field in fields_by_layout.get(layout, []):
+                record_name = str(field.get("record_name") or "").strip().upper()
+                field_ref = str(field.get("field_ref") or "").strip().upper()
+                if not record_name or not field_ref or field_ref in seen_fields:
+                    continue
+                seen_fields.add(field_ref)
+                add_node(graph, "record", record_name, record_name, field)
+                add_node(graph, "field", field_ref, field_ref, field)
+                add_edge(graph, "file_layout", fid, "field", field_ref, "CONTAINS", field)
+                add_edge(graph, "record", record_name, "field", field_ref, "CONTAINS", field)
         return len(rows)
 
     def process_definitions():

@@ -6132,6 +6132,72 @@ def file_layout_object(env, flddefnname):
         return None
     defn = data.get("definition", {})
     fmt_label = _FILE_FMT_LABEL.get(defn.get("fldformat"), "Unknown")
+    segment_rows = []
+    seen_segments = set()
+    for seg in data.get("segments", []) or []:
+        seg_name = str(seg.get("fldsegname") or "").strip().upper()
+        recname_file = str(seg.get("recname_file") or "").strip().upper()
+        record_name = recname_file or seg_name
+        if not record_name or record_name in seen_segments:
+            continue
+        seen_segments.add(record_name)
+        row = dict(seg)
+        row["name"] = record_name
+        row["segment_name"] = seg_name
+        row["_links"] = {"admin": object_url("record", record_name)}
+        segment_rows.append(row)
+
+    field_rows = []
+    seen_fields = set()
+    for field in data.get("fields", []) or []:
+        segment = str(field.get("fldsegname") or "").strip().upper()
+        field_name = str(field.get("fldfieldname") or "").strip().upper()
+        if not segment or not field_name:
+            continue
+        field_ref = f"{segment}.{field_name}"
+        if field_ref in seen_fields:
+            continue
+        seen_fields.add(field_ref)
+        row = dict(field)
+        row["name"] = field_ref
+        row["record_name"] = segment
+        row["field_name"] = field_name
+        row["_links"] = {"admin": object_url("field", field_ref)}
+        field_rows.append(row)
+
+    relationships = {
+        "segments": segment_rows,
+        "fields": field_rows,
+    }
+    graph = relationship_graph(
+        "file_layout",
+        flddefnname.upper(),
+        limit_relationships(relationships, {"segments": 50, "fields": 100}),
+        [
+            {
+                "relationship": "segments",
+                "node_type": "record",
+                "target_name": "name",
+                "default_edge": "CONTAINS",
+            },
+            {
+                "relationship": "fields",
+                "node_type": "field",
+                "target_name": "name",
+                "default_edge": "CONTAINS",
+                "extra_edges": [
+                    {
+                        "source_node_type": "record",
+                        "source_name": "record_name",
+                        "target_node_type": "field",
+                        "target_name": "name",
+                        "edge": "CONTAINS",
+                    }
+                ],
+            },
+        ],
+        root_data=defn,
+    )
     return {
         "type": "file_layout",
         "name": defn.get("flddefnname", flddefnname),
@@ -6147,6 +6213,8 @@ def file_layout_object(env, flddefnname):
         "counts": data.get("counts", {}),
         "_raw": data,
         "_links": {"admin": "/admin/filelayout"},
+        "_relationships": relationships,
+        "_graph": graph,
         "warnings": data.get("warnings", []),
     }
 
@@ -6250,6 +6318,8 @@ def file_layout_payload(env, flddefnname):
         "sections": sections_for_file_layout(obj),
         "warnings": obj.get("warnings", []),
         "_links": obj["_links"],
+        "_relationships": obj.get("_relationships", {}),
+        "_graph": obj.get("_graph", {}),
         "_uom": obj,
     }
 

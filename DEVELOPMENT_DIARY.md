@@ -6,6 +6,60 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-02 — File Layout UOM and Knowledge Graph Relationships
+
+Date/time: 2026-07-02 00:29 CDT
+
+Features implemented:
+- File Layout UOM objects now expose `_relationships.segments` and
+  `_relationships.fields` from PSFLDSEGDEFN / PSFLDFIELDDEFN metadata.
+- File Layout compact `_graph` previews now show File Layout → segment Record,
+  File Layout → layout Field, and segment Record → layout Field `CONTAINS`
+  edges.
+- Persisted Knowledge Graph ingestion now batch-loads segment and field rows
+  for sampled layouts and emits the same containment model.
+
+Files modified:
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Used `RECNAME_FILE` when populated, otherwise fell back to `FLDSEGNAME` as
+  the segment record anchor because live HCM data leaves `RECNAME_FILE` blank
+  for common layouts while `FLDSEGNAME` matches PeopleSoft record names.
+- Modeled field nodes as `SEGMENT.FIELD` so they can align with canonical
+  Field object IDs.
+- Preserved field position, length, type, tag, and description metadata on
+  relationship rows for later UI explanation.
+
+Bugs fixed:
+- File Layout object pages showed segments and fields but had no canonical
+  relationship model or compact graph preview.
+- Persisted KG File Layout provider created only layout nodes without edges to
+  the segment records or fields in the layout.
+
+Technical debt:
+- Some file layout segment names may be layout-only segment identifiers rather
+  than true PeopleSoft records; current model uses the best available live
+  metadata and records the assumption here.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/graphdb.py` — OK.
+- `uom.file_layout_payload('HCM', 'ACCOUNT_CHARTFIELD')` returned 1 segment,
+  44 fields, and a compact graph with 46 nodes / 89 edges.
+- `uom.file_layout_payload('HCM', 'ACTUAL_TIME_ADD')` returned 1 segment,
+  73 fields, and a compact graph with 75 nodes / 147 edges.
+- `/api/peoplesoft/graph/file_layout/ACCOUNT_CHARTFIELD` route helper returned
+  `_source: uom`, `_vocabulary: compact_uom`, and File Layout → Record/Field
+  plus Record → Field `CONTAINS` edges.
+
+Next recommended work:
+- Continue compact UOM graph alignment for ADS Definitions or Translate Values.
+- If a future schema probe finds a stronger segment-to-record mapping than
+  `FLDSEGNAME`, update File Layout relationships to use it.
+
 ## 2026-07-02 — IB Message UOM and Knowledge Graph Relationships
 
 Date/time: 2026-07-02 00:18 CDT
