@@ -27,12 +27,13 @@ EDGE_TYPES = {
     "GENERATES",
     "READS",
     "WRITES",
+    "DEPLOYS",
 }
 
 EDGE_TYPES.add("ROUTES")
 EDGE_TYPES.add("WRAPS")
 
-DEPENDENCY_EDGES = {"USES", "CONTAINS", "REFERENCES", "DEPENDS_ON", "CALLS", "READS", "WRITES", "SECURES", "EXPOSES", "ROUTES", "WRAPS"}
+DEPENDENCY_EDGES = {"USES", "CONTAINS", "REFERENCES", "DEPENDS_ON", "CALLS", "READS", "WRITES", "DEPLOYS", "SECURES", "EXPOSES", "ROUTES", "WRAPS"}
 
 _SQL_COMMENT_RE = re.compile(r"/\*.*?\*/|--[^\n\r]*", re.S)
 _SQL_STRING_RE = re.compile(r"'(?:''|[^'])*'")
@@ -1470,11 +1471,42 @@ def build(env="HCM", limit=50, persist=True):
              WHERE ROWNUM <= {limit}
              ORDER BY LASTUPDDTTM DESC
         """) or []
+        project_names = [str(r.get("projectname") or "").strip().upper() for r in rows if r.get("projectname")]
+        items_by_project = defaultdict(list)
+        if project_names and ptmetadata.has_table(env, "PSPROJECTITEM"):
+            for start in range(0, len(project_names), 900):
+                chunk = project_names[start:start + 900]
+                quoted = ",".join("'" + name.replace("'", "''") + "'" for name in chunk)
+                item_rows = psdb.query(env, f"""
+                    SELECT PROJECTNAME, OBJECTTYPE, OBJECTVALUE1, OBJECTVALUE2,
+                           OBJECTVALUE3, OBJECTVALUE4, SOURCESTATUS, TARGETSTATUS,
+                           UPGRADEACTION
+                      FROM SYSADM.PSPROJECTITEM
+                     WHERE PROJECTNAME IN ({quoted})
+                     ORDER BY PROJECTNAME, OBJECTTYPE, OBJECTVALUE1, OBJECTVALUE2
+                """) or []
+                for item in item_rows:
+                    project = str(item.get("projectname") or "").strip().upper()
+                    if project:
+                        items_by_project[project].append(item)
+
         for r in rows:
             pid = r.get("projectname")
             if not pid:
                 continue
             add_node(graph, "project", pid, r.get("projectdescr") or pid, r)
+            for item in items_by_project.get(str(pid).strip().upper(), []):
+                target = psdb.project_item_target(item)
+                if not target:
+                    continue
+                metadata = {
+                    **item,
+                    "projectname": str(pid).strip().upper(),
+                    "objecttype_label": target.get("label"),
+                    "source": "psprojectitem",
+                }
+                add_node(graph, target["type"], target["name"], target["name"], metadata)
+                add_edge(graph, "project", pid, target["type"], target["name"], "DEPLOYS", metadata)
         return len(rows)
 
     def xlat_fields():

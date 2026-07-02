@@ -6155,6 +6155,36 @@ _PRJOBJ_TYPE_LABEL = {
 
 # Types where OBJECTVALUE1 is NOT a human-readable name
 _PRJOBJ_ENCODED = {25, 30, 106}
+_PRJOBJ_UOM_TYPE = {
+    0: "record",
+    2: "page",
+    4: "component",
+    5: "ci",
+    6: "menu",
+    10: "query",
+    58: "tree",
+    74: "query",
+}
+
+
+def project_item_target(row):
+    """Map a PSPROJECTITEM row to a canonical UOM object when safe."""
+    try:
+        objecttype = int(row.get("objecttype"))
+    except (TypeError, ValueError):
+        return None
+
+    target_type = _PRJOBJ_UOM_TYPE.get(objecttype)
+    target_name = str(row.get("objectvalue1") or "").strip().upper()
+    if not target_type or not target_name or target_name == " ":
+        return None
+
+    return {
+        "type": target_type,
+        "name": target_name,
+        "objecttype": objecttype,
+        "label": _PRJOBJ_TYPE_LABEL.get(objecttype, f"Type {objecttype}"),
+    }
 
 
 def search_projects(env_name, q="", limit=200):
@@ -6245,7 +6275,9 @@ def get_project(env_name, projectname):
                 otype = r.get("objecttype", -1)
                 if otype not in items_by_type:
                     items_by_type[otype] = []
-                items_by_type[otype].append(dict(r))
+                item = dict(r)
+                item["uom_target"] = project_item_target(item)
+                items_by_type[otype].append(item)
         except Exception as exc:
             warnings.append(f"PSPROJECTITEM items: {exc}")
 

@@ -6,6 +6,66 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Project DEPLOYS Knowledge Graph Edges
+
+Date/time: 2026-07-01 22:39 CDT
+
+Features implemented:
+- Added `DEPLOYS` to the Knowledge Graph edge vocabulary and dependency edge
+  set.
+- Added `psdb.project_item_target()` to map safe PSPROJECTITEM rows to UOM
+  object targets.
+- Knowledge Graph Project ingestion now batch-loads PSPROJECTITEM rows for the
+  selected projects and emits Project → object `DEPLOYS` edges where the target
+  object type is safe to resolve.
+- Project UOM payloads now include `uom_target` on item rows where a canonical
+  target was resolved.
+
+Files modified:
+- `connectors/psdb.py`
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept the mapper conservative. It currently maps clear object families:
+  Records, Pages, Components, Component Interfaces, Menus, Queries, and Trees.
+- Skipped encoded and ambiguous PSPROJECTITEM types, including message catalog
+  sets, AE SQL steps, PeopleCode subobjects, and security/dimension-like rows
+  whose legacy labels were not reliable in live samples.
+- Batched PSPROJECTITEM lookup by project names to avoid per-project N+1 query
+  behavior during graph builds.
+
+Bugs fixed:
+- Project nodes existed in the Knowledge Graph but did not express the objects
+  a project deploys, limiting impact analysis from App Designer projects.
+
+Technical debt:
+- Additional PSPROJECTITEM object-type decoding can be added once each type is
+  verified against live metadata and UOM object identity rules.
+- A full high-limit graph build is still expensive because other providers
+  perform broad live metadata work before the Project provider runs.
+
+Verification:
+- `python -m py_compile connectors/psdb.py connectors/graphdb.py` — OK.
+- `psdb.get_project('HCM', 'GPIT_HR92_OBJECTS')` mapped 341 Record items and
+  159 Page item rows to canonical UOM targets.
+- Ambiguous PSPROJECTITEM types 26, 27, 33, and encoded type 106 returned no
+  target from `project_item_target()`.
+- Non-persisted `graphdb.build('HCM', limit=50, persist=False)` completed with
+  5131 nodes, 5833 edges, and `warning_count: 0`; the latest 50 projects had
+  no safely mappable project items, so no `DEPLOYS` edges were expected there.
+- Direct mini-graph validation for `GPIT_HR92_OBJECTS` produced 419 `DEPLOYS`
+  edges: 341 to Records and 78 to Pages after edge de-duplication.
+- Attempted `graphdb.build('HCM', limit=200, persist=False)` to reach more
+  project coverage, but interrupted it after it ran past two minutes in earlier
+  Integration Broker providers before reaching Project ingestion.
+
+Next recommended work:
+- Continue UOM/KG relationship alignment for project object pages so Project
+  details can expose the same DEPLOYS targets in object graph previews.
+- Add PSPROJECTITEM type mappings only after live table/key verification.
+
 ## 2026-07-01 — PeopleCode Literal SQL READS/WRITES Edges
 
 Date/time: 2026-07-01 22:29 CDT

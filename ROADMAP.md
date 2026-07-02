@@ -237,13 +237,13 @@ Continue enriching graph relationships.
 - Application Engine SQL step READS/WRITES edges in persisted Knowledge Graph ingestion, with AE section/step metadata
 - SQL Definition body READS/WRITES edges in persisted Knowledge Graph ingestion, using PSSQLTEXTDEFN text where grants allow
 - PeopleCode literal SQL READS/WRITES edges in persisted Knowledge Graph ingestion for direct `SQLExec("...")` and `CreateSQL("...")` calls
+- Project → object DEPLOYS edges in persisted Knowledge Graph ingestion for safely mapped PSPROJECTITEM object types
 - Tree → Record USES edges
 - Impact analysis (forward and reverse dependency traversal with depth control)
 
 ### Remaining
 
 - Align persisted Knowledge Graph ingestion with UOM `_relationships`, UOM `_graph`, and domain graph vocabulary metadata
-- DEPLOYS edge type
 - Broader READS/WRITES coverage for non-literal PeopleCode dynamic SQL
 
 ---
