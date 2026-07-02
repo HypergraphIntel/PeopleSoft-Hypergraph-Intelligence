@@ -63,6 +63,7 @@ _NAV_GROUPS = [
     ]),
     ("Platform", [
         ("prcsdefn",   "Processes",    "/admin/prcsdefn"),
+        ("ae",         "AE Programs",  "/admin/ae"),
         ("filelayout", "File Layouts", "/admin/filelayout"),
         ("xlat",       "Translate",    "/admin/xlat"),
         ("project",    "Projects",     "/admin/project"),

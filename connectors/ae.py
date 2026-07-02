@@ -421,7 +421,11 @@ def temp_tables(env, ae_applid):
             linked.append(item)
         return {"items": linked, "warnings": [err2] if err2 else []}
 
-    # Fallback: look for temp table steps in PSAESTEPDEFN
+    # Fallback: look for temp table steps in PSAESTEPDEFN (only if AE_ACTTYPE exists)
+    step_cols = psdb.table_columns(env, "PSAESTEPDEFN")
+    if "ae_acttype" not in step_cols:
+        return {"items": [], "warnings": [w for w in [err2] if w]}
+
     step_rows, step_err = safe_ae_query(
         env,
         "PSAESTEPDEFN",

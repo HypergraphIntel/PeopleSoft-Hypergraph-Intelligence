@@ -1180,3 +1180,295 @@ doSearch();
 </script>""")
 
 
+@router.get("/ae", response_class=HTMLResponse)
+def admin_ae(request: Request, env: str = "HCM"):
+    nav = _nav_html("ae", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>AE Programs</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+<style>
+*{{box-sizing:border-box}}
+body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
+.muted{{color:#446;font-style:italic;font-size:12px}}
+.list-item{{padding:6px 10px;border-radius:3px;cursor:pointer;margin-bottom:1px;border-bottom:1px solid #0d1520}}
+.list-item:hover{{background:rgba(0,229,255,.06)}}
+.list-item.sel{{background:rgba(0,229,255,.12);border-left:2px solid #00e5ff}}
+.tab-row{{display:flex;gap:2px;margin-bottom:14px;border-bottom:1px solid #1a2a3a;padding-bottom:0}}
+.tab{{padding:6px 14px;cursor:pointer;font-size:12px;color:#778;border-bottom:2px solid transparent;margin-bottom:-1px}}
+.tab:hover{{color:#acd}}
+.tab.on{{color:#00e5ff;border-bottom-color:#00e5ff}}
+.pane{{display:none}}.pane.on{{display:block}}
+.step-block{{margin-bottom:3px}}
+.step-hdr{{display:flex;align-items:center;gap:6px;padding:5px 8px;background:#0a1520;border-radius:3px;cursor:pointer;border-left:2px solid transparent}}
+.step-hdr:hover{{background:#0d1b2a;border-left-color:#00e5ff44}}
+.step-body{{padding:6px 8px 6px 28px;background:#070f18;border-left:1px solid #1a2a3a;margin-bottom:2px;display:none}}
+.step-body.open{{display:block}}
+.chip-act{{display:inline-block;padding:1px 5px;border-radius:2px;font-size:10px;font-weight:bold;font-family:monospace}}
+.sec-hdr{{font-size:12px;font-weight:bold;color:#00e5ff;padding:8px 0 4px;margin-top:8px;border-bottom:1px solid #1a2a3a;margin-bottom:4px;font-family:monospace}}
+.kv{{display:grid;grid-template-columns:160px 1fr;gap:2px 8px;font-size:12px;margin-bottom:12px}}
+.kv-lbl{{color:#556;padding:2px 0}}
+.kv-val{{color:#acd;font-family:monospace;word-break:break-all;padding:2px 0}}
+.warn-box{{background:#1a0a00;border:1px solid #ff6a00;color:#ffa;padding:6px 10px;border-radius:3px;font-size:11px;margin-bottom:10px}}
+pre.sql{{background:#030b14;border:1px solid #1a3a5a;padding:8px;border-radius:3px;font-size:11px;overflow-x:auto;color:#9bc;margin:6px 0 0;white-space:pre-wrap;word-break:break-all}}
+.pc-link{{display:inline-block;padding:2px 8px;background:#1a0a2a;border:1px solid #aa66ff55;border-radius:3px;font-size:11px;color:#aa66ff;text-decoration:none}}
+.pc-link:hover{{border-color:#aa66ff;color:#cc88ff}}
+.call-link{{color:#ffaa22;font-family:monospace;font-size:11px;text-decoration:none}}
+.call-link:hover{{color:#ffcc55;text-decoration:underline}}
+table.plain{{border-collapse:collapse;font-size:12px;width:100%}}
+table.plain th{{color:#445;font-weight:normal;text-align:left;padding:4px 12px 4px 0;border-bottom:1px solid #1a2a3a}}
+table.plain td{{padding:4px 12px 4px 0;color:#acd;vertical-align:top;font-family:monospace;font-size:11px}}
+table.plain tr:hover td{{background:#0a1520}}
+.stat{{display:inline-block;padding:4px 12px;border:1px solid #1a3a5a;background:#050f18;border-radius:3px;margin:2px 4px 2px 0;font-size:11px}}
+.stat b{{color:#00e5ff;font-size:15px;display:block}}
+</style>
+</head><body class="ds-body">
+{nav}
+<div style="display:grid;grid-template-columns:360px 1fr;gap:0;height:calc(100vh - 48px)">
+<div style="border-right:1px solid #1a2a3a;overflow-y:auto;padding:10px 8px;display:flex;flex-direction:column;gap:6px">
+  <input id="q" placeholder="Search AE program or description…" oninput="doSearch()"
+    style="background:#0a1520;border:1px solid #1a3a5a;color:#c8d8e8;padding:6px 10px;border-radius:4px;font-size:13px;width:100%">
+  <div id="list" style="font-size:12px;flex:1"><div class="muted">Type to search AE programs.</div></div>
+</div>
+<div id="detail" style="overflow-y:auto;padding:20px 24px">
+  <div class="muted">Select an Application Engine program.</div>
+</div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = {repr(env)};
+let _sel = null;
+
+const ACT_COLOR = {{
+  S:'#44aaff', P:'#aa66ff', C:'#ffaa22', L:'#667788', M:'#667788',
+  D:'#22cc88', W:'#22cc88', U:'#22cc88', H:'#22cc88', X:'#22cc88', T:'#22cc88',
+  A:'#99aacc', E:'#99aacc'
+}};
+const ACT_LABEL = {{
+  S:'SQL', P:'PeopleCode', C:'Call', L:'Log', M:'Msg',
+  D:'DoSel', W:'DoWhen', U:'DoUntil', H:'DoWhile', X:'DoSelX', T:'DoSelT',
+  A:'Assign', E:'Exec'
+}};
+
+let _searchTimer = null;
+function doSearch() {{
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(async () => {{
+    const q = document.getElementById('q').value.trim();
+    if (q.length < 2) {{ document.getElementById('list').innerHTML = '<div class="muted">Type 2+ chars to search.</div>'; return; }}
+    document.getElementById('list').innerHTML = '<div class="muted">Searching…</div>';
+    const data = await fetch(`/api/peoplesoft/ae?env=${{encodeURIComponent(ENV)}}&q=${{encodeURIComponent(q)}}&limit=200`)
+      .then(r=>r.json()).catch(()=>({{items:[]}}));
+    const items = data.items || [];
+    if (!items.length) {{ document.getElementById('list').innerHTML = '<div class="muted">No programs found.</div>'; return; }}
+    document.getElementById('list').innerHTML = items.map(r => {{
+      const id = r.ae_applid || '';
+      const desc = (r.descr || '').trim();
+      const restart = r.ae_disable_restart === 'Y' ? ' <span style="color:#f90;font-size:9px">NO-RESTART</span>' : '';
+      return `<div class="list-item${{_sel===id?' sel':''}}" onclick="loadProg(${{JSON.stringify(id)}})" data-id="${{esc(id)}}">
+        <div style="font-family:monospace;font-size:12px;color:#44ddff">${{esc(id)}}${{restart}}</div>
+        ${{desc?`<div style="font-size:10px;color:#445;margin-top:1px">${{esc(desc)}}</div>`:''}}
+      </div>`;
+    }}).join('');
+  }}, 220);
+}}
+
+async function loadProg(id) {{
+  _sel = id;
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('sel', el.dataset.id === id));
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '<div class="muted">Loading…</div>';
+  const data = await fetch(`/api/peoplesoft/ae/${{encodeURIComponent(id)}}?env=${{encodeURIComponent(ENV)}}`)
+    .then(r=>r.json()).catch(e=>({{error:String(e)}}));
+  if (data.error) {{ detail.innerHTML = `<div style="color:#f66">${{esc(data.error)}}</div>`; return; }}
+  detail.innerHTML = renderProg(id, data);
+  document.querySelectorAll('.step-hdr').forEach(h => h.addEventListener('click', function() {{
+    const body = this.nextElementSibling;
+    if (body && body.classList.contains('step-body')) body.classList.toggle('open');
+  }}));
+}}
+
+function renderProg(id, d) {{
+  const rel = d._relationships || d.relationships || {{}};
+  const steps = rel.steps || [];
+  const sections = rel.sections || [];
+  const stateRecs = rel.state_records || [];
+  const procDefs = rel.process_definitions || [];
+  const runs = rel.runtime_instances || [];
+  const pcItems = rel.peoplecode || [];
+  const warns = d.warnings || [];
+
+  const warn_html = warns.map(w => {{
+    const msg = typeof w === 'object' ? (w.detail || w.title || JSON.stringify(w)) : String(w);
+    return `<div class="warn-box">${{esc(msg)}}</div>`;
+  }}).join('');
+
+  const sqlSteps  = steps.filter(s => s.ae_acttype === 'S').length;
+  const pcSteps   = steps.filter(s => s.ae_acttype === 'P').length;
+  const callSteps = steps.filter(s => s.ae_acttype === 'C').length;
+  const statHtml = [['Sections',sections.length],['Steps',steps.length],['SQL',sqlSteps],
+    ['PC',pcSteps],['Calls',callSteps],['State Recs',stateRecs.length],['Processes',procDefs.length],['Recent Runs',runs.length]]
+    .map(([l,v]) => `<div class="stat"><b>${{v}}</b>${{l}}</div>`).join('');
+
+  const raw = (d._metadata && d._metadata.raw) || {{}};
+  const kvRows = [
+    ['Last Updated', (String(raw.lastupddttm||'')).replace('T',' ').slice(0,19) || '—'],
+    ['Updated By',   raw.lastupdoprid || '—'],
+    ['Version',      raw.version != null ? String(raw.version) : '—'],
+    ['Disable Restart', raw.ae_disable_restart==='Y' ? 'Yes' : 'No'],
+  ];
+  const kvHtml = `<div class="kv">${{kvRows.map(([k,v])=>`<div class="kv-lbl">${{esc(k)}}</div><div class="kv-val">${{esc(v)}}</div>`).join('')}}</div>`;
+  const overviewHtml = `<div style="margin-bottom:16px">${{statHtml}}</div>${{kvHtml}}`;
+
+  // Steps grouped by section
+  const bySec = {{}};
+  const secOrder = [];
+  for (const st of steps) {{
+    const sn = (st.ae_section||'').trim();
+    if (!bySec[sn]) {{ bySec[sn]=[]; secOrder.push(sn); }}
+    bySec[sn].push(st);
+  }}
+  const secMeta = {{}};
+  for (const s of sections) secMeta[(s.ae_section||'').trim()] = s;
+
+  let stepsHtml = '';
+  for (const sn of secOrder) {{
+    const si = secMeta[sn] || {{}};
+    const secDesc = (si.descr||'').trim();
+    const secType = si.section_type_label || '';
+    const disabled = si.ae_disable==='Y' ? ' <span style="color:#f90;font-size:10px">[DISABLED]</span>' : '';
+    stepsHtml += `<div class="sec-hdr">${{esc(sn)}}${{secType&&secType!=='Regular'
+      ?` <span style="color:#778;font-size:10px;font-weight:normal">${{esc(secType)}}</span>`:''}}${{disabled}}${{secDesc
+      ?` <span style="color:#445;font-size:10px;font-weight:normal"> — ${{esc(secDesc)}}</span>`:''}}\n</div>`;
+
+    for (const st of bySec[sn]) {{
+      const act = (st.ae_acttype||'').trim();
+      const lbl = ACT_LABEL[act] || (st.action_type_label||'Step').split(' ')[0];
+      const col = ACT_COLOR[act] || '#778';
+      const stepName = (st.ae_step||'').trim();
+      const desc = (st.descr||'').trim();
+      const inactive = !st.is_active ? ' <span style="color:#f90;font-size:9px">INACTIVE</span>' : '';
+      const commit = st.commits_after ? ' <span style="color:#22cc66;font-size:9px">COMMIT</span>' : '';
+
+      let bodyParts = '';
+      if (act === 'C') {{
+        const ta = (st.ae_do_appl_id||'').trim();
+        const ts = (st.ae_do_section||'').trim();
+        if (ta || ts) {{
+          const isSame = !ta || ta.toUpperCase()===id.toUpperCase();
+          const lnk = isSame
+            ? `<span class="call-link" style="cursor:pointer" onclick="event.stopPropagation();loadProg(${{JSON.stringify(isSame?id:ta)}})">${{esc(isSame?id:ta)}}.${{esc(ts)}}</span>`
+            : `<a class="call-link" href="/admin/ae?q=${{encodeURIComponent(ta)}}&env=${{ENV}}" onclick="event.stopPropagation()">${{esc(ta)}}.${{esc(ts)}}</a>`;
+          bodyParts += `<div style="margin-bottom:6px;color:#556;font-size:11px">→ ${{lnk}}</div>`;
+        }}
+      }}
+      if (st.has_sql && st.sql_statements) {{
+        for (const sql of st.sql_statements) {{
+          const stype = sql.stmt_type ? `<span style="color:#445;font-size:10px;margin-right:4px">${{esc(sql.stmt_type)}}</span>` : '';
+          bodyParts += `${{stype}}<pre class="sql">${{esc(sql.sql_text||'')}}</pre>`;
+        }}
+      }}
+      if (st.has_peoplecode && st._links && st._links.peoplecode) {{
+        bodyParts += `<a class="pc-link" href="${{esc(st._links.peoplecode)}}" onclick="event.stopPropagation()">View PeopleCode →</a>`;
+      }}
+      let meta = '';
+      if (st.on_norows_label && st.on_norows_label!=='Continue') meta += `<span style="color:#445;font-size:10px">No rows: ${{esc(st.on_norows_label)}}</span> `;
+      if (st.abend_action_label && st.abend_action_label!=='Abort') meta += `<span style="color:#445;font-size:10px">Abend: ${{esc(st.abend_action_label)}}</span>`;
+      if (meta) bodyParts += `<div style="margin-top:4px">${{meta}}</div>`;
+
+      const hasBody = !!bodyParts;
+      const arrow = hasBody ? `<span style="color:#334;font-size:10px;margin-left:auto">▼</span>` : '';
+
+      stepsHtml += `<div class="step-block">
+<div class="step-hdr" style="border-left-color:${{col}}33">
+  <span class="chip-act" style="background:${{col}}22;color:${{col}};border:1px solid ${{col}}44">${{lbl}}</span>
+  <span style="font-family:monospace;font-size:12px;color:#c8d8e8">${{esc(stepName)}}</span>
+  ${{inactive}}${{commit}}${{desc?`<span style="font-size:11px;color:#556">${{esc(desc)}}</span>`:''}}
+  ${{arrow}}
+</div>
+${{hasBody?`<div class="step-body">${{bodyParts}}</div>`:''}}
+</div>`;
+    }}
+  }}
+  if (!stepsHtml) stepsHtml = '<div class="muted">No steps found.</div>';
+
+  const stateHtml = stateRecs.length
+    ? `<table class="plain"><thead><tr><th>Record</th><th>Default</th></tr></thead><tbody>` +
+      stateRecs.map(r => {{
+        const rn = (r.recname||r.ae_state_recname||'').trim();
+        return `<tr><td><a href="/admin/record/${{encodeURIComponent(rn)}}?env=${{ENV}}" style="color:#44ddff">${{esc(rn)}}</a></td>
+          <td>${{r.is_default?'<span style="color:#22cc66">✓</span>':''}}</td></tr>`;
+      }}).join('') + '</tbody></table>'
+    : '<div class="muted">No state records defined.</div>';
+
+  const procsHtml = procDefs.length
+    ? `<table class="plain"><thead><tr><th>Process Name</th><th>Type</th><th>Description</th></tr></thead><tbody>` +
+      procDefs.map(p=>`<tr>
+        <td style="color:#44ddff">${{esc((p.prcsname||'').trim())}}</td>
+        <td style="color:#556">${{esc((p.prcstype||'').trim())}}</td>
+        <td style="color:#acd">${{esc((p.descr||'').trim())}}</td></tr>`).join('') + '</tbody></table>'
+    : '<div class="muted">No process definitions found.</div>';
+
+  const SC={{'7':'#22cc66','8':'#ff4444','9':'#ff4444','5':'#ffaa22','6':'#ffaa22','2':'#00e5ff','3':'#00e5ff','4':'#44aaff','1':'#778','0':'#334'}};
+  const SL={{'0':'New','1':'Pending','2':'Queued','3':'Initiated','4':'Processing','5':'Cancel','6':'Cancelled','7':'Success','8':'Error','9':'Sys Error','10':'Redirect','11':'Not Posted','12':'Blocked','13':'Hold','14':'Resend'}};
+  const runsHtml = runs.length
+    ? `<table class="plain"><thead><tr><th>Instance</th><th>Process</th><th>Requested</th><th>Ended</th><th>Status</th></tr></thead><tbody>` +
+      runs.map(r=>{{
+        const st=String(r.runstatus||'');
+        return `<tr>
+          <td style="color:#556">${{esc(String(r.prcsinstance||''))}}</td>
+          <td style="color:#44ddff">${{esc((r.prcsname||'').trim())}}</td>
+          <td style="color:#8ab">${{esc(String(r.rqstdttm||'')).replace('T',' ').slice(0,19)}}</td>
+          <td style="color:#8ab">${{esc(String(r.enddttm||'')).replace('T',' ').slice(0,19)}}</td>
+          <td><span style="color:${{SC[st]||'#778'}};font-weight:bold;font-size:11px">${{esc(SL[st]||st)}}</span></td></tr>`;
+      }}).join('') + '</tbody></table>'
+    : '<div class="muted">No recent runs found.</div>';
+
+  const pcHtml = pcItems.length
+    ? `<table class="plain"><thead><tr><th>Section</th><th>Step</th><th>Event</th><th>Updated</th><th></th></tr></thead><tbody>` +
+      pcItems.map(p=>{{
+        const lnk = p._links&&p._links.admin ? `<a class="pc-link" href="${{esc(p._links.admin)}}">View →</a>` : '';
+        return `<tr>
+          <td>${{esc((p.objectvalue2||'').trim())}}</td>
+          <td>${{esc((p.objectvalue6||'').trim())}}</td>
+          <td>${{esc((p.event_type||p.objectvalue7||'').trim())}}</td>
+          <td style="color:#445">${{esc(String(p.lastupddttm||'')).replace('T',' ').slice(0,19)}}</td>
+          <td>${{lnk}}</td></tr>`;
+      }}).join('') + '</tbody></table>'
+    : '<div class="muted">No PeopleCode programs found for this AE.</div>';
+
+  return `<h1 style="font-family:monospace;color:#44ddff;font-size:15px;margin:0 0 4px">${{esc(id)}}</h1>
+<div style="color:#445;font-size:12px;margin-bottom:12px">${{esc(d.description||'')}}</div>
+${{warn_html}}
+<div class="tab-row">
+  <div class="tab on" onclick="setTab('ov',this)">Overview</div>
+  <div class="tab" onclick="setTab('steps',this)">Steps (${{steps.length}})</div>
+  <div class="tab" onclick="setTab('state',this)">State Records (${{stateRecs.length}})</div>
+  <div class="tab" onclick="setTab('prcs',this)">Processes (${{procDefs.length}})</div>
+  <div class="tab" onclick="setTab('runs',this)">Runtime (${{runs.length}})</div>
+  <div class="tab" onclick="setTab('pc',this)">PeopleCode (${{pcItems.length}})</div>
+</div>
+<div id="pane-ov" class="pane on">${{overviewHtml}}</div>
+<div id="pane-steps" class="pane">${{stepsHtml}}</div>
+<div id="pane-state" class="pane">${{stateHtml}}</div>
+<div id="pane-prcs" class="pane">${{procsHtml}}</div>
+<div id="pane-runs" class="pane">${{runsHtml}}</div>
+<div id="pane-pc" class="pane">${{pcHtml}}</div>`;
+}}
+
+function setTab(name, el) {{
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('on'));
+  el.classList.add('on');
+  const pane = document.getElementById('pane-' + name);
+  if (pane) pane.classList.add('on');
+}}
+
+(function() {{
+  const params = new URLSearchParams(location.search);
+  const q = params.get('q');
+  if (q) {{ document.getElementById('q').value = q; doSearch(); }}
+}})();
+</script>
+</body></html>""")
+
