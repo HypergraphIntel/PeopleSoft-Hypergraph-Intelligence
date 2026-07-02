@@ -5613,6 +5613,40 @@ def project_object(env, projectname):
     if "error" in data:
         return None
     defn = data.get("definition", {})
+    deploys = []
+    for rows in (data.get("items_by_type") or {}).values():
+        for item in rows or []:
+            target = item.get("uom_target")
+            if not target:
+                continue
+            deploys.append({
+                **item,
+                "target_type": target.get("type"),
+                "target_name": target.get("name"),
+                "target_label": target.get("label"),
+            })
+    deploys = sorted(
+        deploys,
+        key=lambda row: (str(row.get("target_type") or ""), str(row.get("target_name") or "")),
+    )
+    relationships = {"deploys": deploys}
+    graph_deploys = []
+    seen_graph_targets = set()
+    for item in deploys:
+        key = (item.get("target_type"), item.get("target_name"))
+        if not key[0] or not key[1] or key in seen_graph_targets:
+            continue
+        seen_graph_targets.add(key)
+        graph_deploys.append(item)
+    graph = relationship_graph("project", projectname.upper(), {"deploys": graph_deploys[:80]}, [
+        {
+            "relationship": "deploys",
+            "node_type": "object",
+            "target_type": "target_type",
+            "target_name": "target_name",
+            "default_edge": "DEPLOYS",
+        },
+    ], root_data=defn)
     return {
         "type": "project",
         "name": defn.get("projectname", projectname),
@@ -5625,6 +5659,8 @@ def project_object(env, projectname):
         "counts": data.get("counts", {}),
         "_raw": data,
         "_links": {"admin": "/admin/project"},
+        "_relationships": relationships,
+        "_graph": graph,
         "warnings": data.get("warnings", []),
     }
 
@@ -5667,6 +5703,36 @@ def sections_for_project(obj):
             "type": "chips",
             "chips": chips,
         })
+
+    deploys = obj.get("_relationships", {}).get("deploys", [])
+    if deploys:
+        row_items = []
+        seen = set()
+        for item in deploys:
+            target_type = item.get("target_type")
+            target_name = item.get("target_name")
+            if not target_type or not target_name:
+                continue
+            key = (target_type, target_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            row_items.append({
+                "name": target_name,
+                "chips": [{
+                    "label": item.get("target_label") or target_type,
+                    "cls": _PRJOBJ_TYPE_CLS.get(item.get("objecttype"), "chip-muted"),
+                }],
+                "meta": target_type,
+                "_links": {"admin": object_url(target_type, target_name)},
+            })
+        if row_items:
+            sections.append({
+                "id": "deploys",
+                "title": f"Deploys ({len(row_items)})",
+                "type": "items",
+                "items": row_items[:100],
+            })
 
     # Items grouped by type
     items_by_type = obj.get("items_by_type", {})
@@ -5716,6 +5782,8 @@ def project_payload(env, projectname):
         "sections": sections_for_project(obj),
         "warnings": obj.get("warnings", []),
         "_links": obj["_links"],
+        "_relationships": obj.get("_relationships", {}),
+        "_graph": obj.get("_graph", {}),
         "_uom": obj,
     }
 

@@ -6,6 +6,54 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — Project UOM DEPLOYS Graph Alignment
+
+Date/time: 2026-07-01 22:43 CDT
+
+Features implemented:
+- Project UOM objects now expose a `deploys` relationship derived from safe
+  PSPROJECTITEM → UOM target mappings.
+- Project payloads now include `_relationships.deploys` and a compact `_graph`
+  with Project → object `DEPLOYS` edges.
+- Project object sections now include a de-duplicated `Deploys` section linking
+  deployed target objects.
+- Generic `/api/peoplesoft/graph/project/{name}` now returns the Project UOM
+  compact graph with `_source: uom`, `_vocabulary: compact_uom`, and `DEPLOYS`
+  edge type aliases.
+
+Files modified:
+- `connectors/uom.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Preserved raw PSPROJECTITEM-derived rows in `_relationships.deploys`, while
+  de-duplicating compact graph edges by target object to avoid repeated page
+  rows caused by market/action variants.
+- Capped compact graph deploy edges at 80, consistent with compact object
+  preview behavior.
+
+Bugs fixed:
+- Project object pages showed project items but did not expose the same
+  relationship model that the persisted Knowledge Graph now uses.
+
+Technical debt:
+- Project object pages still rely on the conservative PSPROJECTITEM mapper.
+  Additional project item types should be added only after live key validation.
+
+Verification:
+- `python -m py_compile connectors/uom.py` — OK.
+- `uom.project_payload('HCM', 'GPIT_HR92_OBJECTS')` returned 500 raw deploy
+  relationship rows and a `Deploys (419)` de-duplicated section.
+- `peoplesoft_graph('project', 'GPIT_HR92_OBJECTS', env='HCM')` returned
+  `_source: uom`, `_vocabulary: compact_uom`, 81 nodes, 80 unique `DEPLOYS`
+  edges, and no duplicate compact graph edges.
+- `python - <<'PY' import main ...` — OK.
+
+Next recommended work:
+- Continue UOM/KG relationship alignment for other older custom payloads.
+- Add safe PSPROJECTITEM mappings only after live metadata validation.
+
 ## 2026-07-01 — Project DEPLOYS Knowledge Graph Edges
 
 Date/time: 2026-07-01 22:39 CDT
