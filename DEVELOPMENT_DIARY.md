@@ -6,6 +6,53 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — /admin/reports JS Bug Fix — Smoke Test 57/57
+
+### Bug Fix — /admin/reports JavaScript Syntax Errors
+
+Two independent JavaScript bugs were causing `/admin/reports` to throw
+`SyntaxError` on every page load, making the reports catalog completely broken.
+
+**Bug 1 — onclick attribute syntax** (`routers/admin/tools.py` line ~200):
+
+Original Python source:
+```python
+onclick="runReport(\''+esc(r.key)+'\',\''+esc(r.title)+'\')"
+```
+In Python, `\'` inside a `"""..."""` triple-quoted string is an escaped single
+quote that evaluates to `'` — the backslash is consumed.  The rendered HTML
+therefore contained two adjacent JS string literals with no `+` operator:
+```javascript
+'" onclick="runReport(''+esc(r.key)+'',''+esc(r.title)+'')"'
+                       ^^ adjacent strings → SyntaxError: Unexpected string
+```
+**Fix**: use `data-key` / `data-title` HTML attributes and reference them via
+`this.dataset.key` / `this.dataset.title` in the onclick — no quoting needed.
+
+**Bug 2 — literal newline in Blob constructor** (`tools.py` line ~221):
+
+Original Python source: `lines.join('\n')` — in a triple-quoted string, `\n`
+is a newline escape, so the rendered JS contained a bare newline inside a
+single-quoted string literal, which is an invalid JS token.
+
+**Fix**: change `'\n'` → `'\\n'` so Python emits the two characters `\n` in the
+JS source, where `\n` is a valid escape sequence.
+
+**Bug 3 — catalog API returning flat string list** (`connectors/psdb.py`):
+
+`security_report(env, "__catalog__")` fell into the `spec is None` branch and
+returned `{"available_reports": list(REPORTS.keys())}` — a flat list of string
+keys.  The JS expected objects `{key, title, category}`.  Handled `__catalog__`
+as a special case before the `REPORTS.get()` lookup so it returns the full
+structured catalog.
+
+**Verified**: `python3 scripts/smoke_admin_shell.py` — **57/57 pages pass**
+(was 56/57 — the one pre-existing failure has been resolved).
+
+Commit: `a2ef226`
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — Comprehensive Object Cross-Reference Expansion
 
 ### Cross-Reference Sections — All Object Types
