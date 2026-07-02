@@ -403,13 +403,36 @@ def error_summary(env: str | None = None, limit: int = 50) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+_SYSTEM_LOG_SOURCES = ("weblogic", "stdout", "error")  # source_name substrings for system-level entries
+
+
 def session_chain(oprid: str, start: str, end: str) -> dict:
     """
-    Return web + app log rows for an OPRID in a time window.
-    Used for session chain correlation.
+    Return web + app log rows for an OPRID in a time window, plus system-level
+    entries (weblogic, web error, JVM stdout) that fall in the same window
+    regardless of OPRID — they provide environmental context.
     """
     web = query_web(oprid=oprid, start=start, end=end, limit=500)
     app = query_app(oprid=oprid, start=start, end=end, limit=500)
+
+    # Pull system-level entries (no OPRID filter) for environmental context.
+    # These are entries from weblogic / error / stdout sources in the window.
+    c = _conn()
+    sys_clauses = ["ts>=?", "ts<=?",
+                   "(" + " OR ".join(f"lower(source_name) LIKE ?" for _ in _SYSTEM_LOG_SOURCES) + ")"]
+    sys_params  = [start, end] + [f"%{kw}%" for kw in _SYSTEM_LOG_SOURCES]
+    sys_rows = c.execute(
+        f"SELECT * FROM app_entries WHERE {' AND '.join(sys_clauses)} ORDER BY ts ASC LIMIT 200",
+        sys_params,
+    ).fetchall()
+
+    # Merge: avoid duplicates with user-attributed rows (same id)
+    existing_ids = {r["id"] for r in app if "id" in r}
+    for row in sys_rows:
+        d = dict(row)
+        if d.get("id") not in existing_ids:
+            app.append(d)
+
     return {"oprid": oprid, "start": start, "end": end, "web": web, "app": app}
 
 
