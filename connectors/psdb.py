@@ -4318,6 +4318,17 @@ def security_report(env_name, report_type, limit=100):
     }
 
     spec = REPORTS.get(report_type)
+    if report_type == "__catalog__":
+        return {
+            "title": "Report Catalog",
+            "columns": [],
+            "rows": [],
+            "note": "Available reports",
+            "available_reports": [
+                {"key": k, "title": v["title"], "category": v.get("category", "security")}
+                for k, v in REPORTS.items()
+            ],
+        }
     if spec is None:
         return {
             "title": "Unknown Report",

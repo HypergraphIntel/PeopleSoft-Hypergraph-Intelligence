@@ -192,7 +192,7 @@ async function loadCatalog(){
   let h='';['security','objects','system'].forEach(c=>{
     if(!by[c]||!by[c].length)return;
     h+='<div class="cat-label">'+c+'</div>';
-    by[c].forEach(r=>{h+='<button class="report-btn" id="rb_'+esc(r.key)+'" onclick="runReport(\''+esc(r.key)+'\',\''+esc(r.title)+'\')" title="'+esc(r.title)+'"><div class="report-btn-title">'+esc(r.title)+'</div></button>';});
+    by[c].forEach(r=>{h+='<button class="report-btn" id="rb_'+esc(r.key)+'" data-key="'+esc(r.key)+'" data-title="'+esc(r.title)+'" onclick="runReport(this.dataset.key,this.dataset.title)" title="'+esc(r.title)+'"><div class="report-btn-title">'+esc(r.title)+'</div></button>';});
   });
   document.getElementById('catalog').innerHTML=h;
 }
@@ -218,7 +218,7 @@ function renderTable(rows){
   h+='</tbody></table>';document.getElementById('reportTable').innerHTML=h;
 }
 function filterRows(){const q=document.getElementById('rowFilter').value.toLowerCase();const f=q?_allRows.filter(r=>_cols.some(c=>String(r[c]||'').toLowerCase().includes(q))):_allRows;document.getElementById('rowCount').textContent=f.length+'/'+_allRows.length+' rows';renderTable(f);}
-function exportCsv(){if(!_allRows.length)return;const q=document.getElementById('rowFilter').value.toLowerCase();const rows=q?_allRows.filter(r=>_cols.some(c=>String(r[c]||'').toLowerCase().includes(q))):_allRows;const lines=[_cols.join(',')].concat(rows.map(r=>_cols.map(c=>JSON.stringify(r[c]??'')).join(',')));const blob=new Blob([lines.join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(_key||'report')+'_'+ENV+'.csv';a.click();}
+function exportCsv(){if(!_allRows.length)return;const q=document.getElementById('rowFilter').value.toLowerCase();const rows=q?_allRows.filter(r=>_cols.some(c=>String(r[c]||'').toLowerCase().includes(q))):_allRows;const lines=[_cols.join(',')].concat(rows.map(r=>_cols.map(c=>JSON.stringify(r[c]??'')).join(',')));const blob=new Blob([lines.join('\\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(_key||'report')+'_'+ENV+'.csv';a.click();}
 loadCatalog();
 </script>""")
 
