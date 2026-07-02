@@ -4072,11 +4072,11 @@ def app_package_object(env, package_name):
     if ptmetadata.has_table(env, "PSPCMPROG"):
         try:
             pc_rows = psdb.query(env, """
-                SELECT DISTINCT OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3,
-                       OBJECTVALUE4, OBJECTVALUE5
+                SELECT DISTINCT OBJECTID1, OBJECTVALUE1, OBJECTVALUE2,
+                       OBJECTVALUE3, OBJECTVALUE4, OBJECTVALUE5, PROGSEQ
                   FROM SYSADM.PSPCMPROG
                  WHERE OBJECTID1 = 104 AND OBJECTVALUE1 = :pkg
-                 ORDER BY OBJECTVALUE2, OBJECTVALUE3, OBJECTVALUE4
+                 ORDER BY OBJECTVALUE2, OBJECTVALUE3, OBJECTVALUE4, PROGSEQ
                  FETCH FIRST 500 ROWS ONLY
             """, {"pkg": package_name})
             peoplecode_items = [dict(r) for r in pc_rows]
@@ -4094,8 +4094,9 @@ def app_package_object(env, package_name):
             class_name = parts[-2]
             event = parts[-1]
             sub_path = ":".join(parts[:-2]) if len(parts) > 2 else ":"
+            reference = _pc.reference_from_row(row)
             row["app_class_key"] = f"{package_name}~{sub_path or ':'}~{class_name}"
-            row["encoded_reference"] = _pc.encode_reference(f"{package_name}.{'.'.join(parts)}.0")
+            row["encoded_reference"] = _pc.encode_reference(reference) if reference else ""
             row["event"] = event
             row["full_path"] = f"{package_name}:{':'.join(parts[:-1])}"
 

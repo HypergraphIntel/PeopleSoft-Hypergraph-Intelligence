@@ -1281,6 +1281,7 @@ def build(env="HCM", limit=50, persist=True):
         """) or []
         package_names = [str(r.get("packageroot") or "").strip().upper() for r in rows if r.get("packageroot")]
         classes_by_package = defaultdict(list)
+        peoplecode_by_package = defaultdict(list)
         if package_names and ptmetadata.has_table(env, "PSAPPCLASSDEFN"):
             for start in range(0, len(package_names), 900):
                 chunk = package_names[start:start + 900]
@@ -1295,6 +1296,23 @@ def build(env="HCM", limit=50, persist=True):
                     pkg = str(cls.get("packageroot") or "").strip().upper()
                     if pkg:
                         classes_by_package[pkg].append(cls)
+        if package_names and ptmetadata.has_table(env, "PSPCMPROG"):
+            for start in range(0, len(package_names), 900):
+                chunk = package_names[start:start + 900]
+                quoted = ",".join("'" + name.replace("'", "''") + "'" for name in chunk)
+                pc_rows = psdb.query(env, f"""
+                    SELECT OBJECTID1, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3,
+                           OBJECTVALUE4, OBJECTVALUE5, PROGSEQ
+                      FROM SYSADM.PSPCMPROG
+                     WHERE OBJECTID1 = 104
+                       AND OBJECTVALUE1 IN ({quoted})
+                     ORDER BY OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3,
+                              OBJECTVALUE4, PROGSEQ
+                """) or []
+                for pc in pc_rows:
+                    pkg = str(pc.get("objectvalue1") or "").strip().upper()
+                    if pkg:
+                        peoplecode_by_package[pkg].append(pc)
 
         for r in rows:
             pkg = str(r.get("packageroot") or "").strip().upper()
@@ -1311,6 +1329,24 @@ def build(env="HCM", limit=50, persist=True):
                 metadata = {**cls, "packageroot": pkg}
                 add_node(graph, "app_class", key, label, metadata)
                 add_edge(graph, "application_package", pkg, "app_class", key, "CONTAINS", metadata)
+            for pc in peoplecode_by_package.get(pkg, []):
+                parts = [
+                    str(pc.get(f"objectvalue{i}") or "").strip()
+                    for i in range(2, 6)
+                    if str(pc.get(f"objectvalue{i}") or "").strip()
+                ]
+                if len(parts) < 2:
+                    continue
+                class_name = parts[-2]
+                sub_path = ":".join(parts[:-2]) if len(parts) > 2 else ":"
+                class_key = f"{pkg}~{sub_path or ':'}~{class_name}"
+                reference = peoplecode.reference_from_row(pc)
+                if not reference:
+                    continue
+                pc_node_name = peoplecode.encode_reference(reference)
+                metadata = {**pc, "app_class_key": class_key, "peoplecode_reference": reference}
+                add_node(graph, "peoplecode", pc_node_name, reference, metadata)
+                add_edge(graph, "app_class", class_key, "peoplecode", pc_node_name, "CONTAINS", metadata)
         return len(rows)
 
     def app_classes():

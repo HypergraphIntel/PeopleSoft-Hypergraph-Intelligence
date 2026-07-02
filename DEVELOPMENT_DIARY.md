@@ -6,6 +6,62 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-01 — App Class to PeopleCode Knowledge Graph Edges
+
+Date/time: 2026-07-01 23:03 CDT
+
+Features implemented:
+- Application Package UOM PeopleCode relationships now include `PROGSEQ` and
+  use `peoplecode.reference_from_row()` / `encode_reference()` for canonical
+  PeopleCode node IDs.
+- Compact Application Package graphs now represent multiple PeopleCode program
+  rows per App Class when PSPCMPROG has multiple `PROGSEQ` values.
+- Persisted Knowledge Graph Application Package ingestion now emits
+  App Class → PeopleCode `CONTAINS` edges from PSPCMPROG object type 104.
+
+Files modified:
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept PeopleCode identity aligned with the PeopleCode provider by deriving
+  references from full PSPCMPROG rows, including `PROGSEQ`.
+- Scoped persisted edges to PSPCMPROG `OBJECTID1 = 104`, the verified
+  Application Package class PeopleCode shape.
+- Preserved compact graph caps while allowing full `_relationships.peoplecode`
+  to include distinct program sequence rows.
+
+Bugs fixed:
+- Compact Application Package graphs previously assumed `.0` PeopleCode
+  sequence identity and collapsed classes with multiple PSPCMPROG sequences.
+- Persisted KG ingestion had Package → App Class containment but no
+  App Class → PeopleCode containment path.
+
+Technical debt:
+- App Class standalone UOM objects still do not expose their own compact graph;
+  they rely on Application Package and PeopleCode providers for surrounding
+  graph context.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/graphdb.py routers/peoplesoft.py` — OK.
+- `python - <<'PY' import main ...` — OK.
+- `uom.app_package_payload('HCM', 'HRS_CANDIDATE_MANAGER')` returned 303 class
+  relationships, 399 PeopleCode rows, and a compact graph with 161 nodes and
+  160 edges, including 80 App Class → PeopleCode edges.
+- `/api/peoplesoft/graph/application_package/HRS_CANDIDATE_MANAGER` route
+  helper returned `_source: uom`, `_vocabulary: compact_uom`, and App Class →
+  PeopleCode `CONTAINS` edges with `type` aliases.
+- Non-persisted `graphdb.build('HCM', limit=10, persist=False)` completed with
+  `_source: knowledge_graph`, `_vocabulary: knowledge_graph`,
+  `warning_count: 0`, and 24 App Class → PeopleCode edges.
+
+Next recommended work:
+- Add standalone App Class UOM `_relationships` / `_graph` where useful.
+- Continue provider-specific KG/UOM relationship alignment for older object
+  families with section-only relationships.
+
 ## 2026-07-01 — Application Package UOM and Knowledge Graph Relationships
 
 Date/time: 2026-07-01 23:00 CDT
