@@ -58,6 +58,7 @@ def sqr_analytics():
 
 <script>
 """ + _ESC_JS + """
+const $ = id => document.getElementById(id);
 async function load() {
   const [statsRes, anRes] = await Promise.all([
     fetch('/api/sqr/stats'),
@@ -231,6 +232,7 @@ def sqr_index():
 
 <script>
 """ + _ESC_JS + """
+const $ = id => document.getElementById(id);
 let _page = 1, _debTimer = null;
 
 async function loadEnvs() {
@@ -420,6 +422,7 @@ def sqr_detail(filename: str):
 
 <script>
 """ + _ESC_JS + """
+const $ = id => document.getElementById(id);
 async function loadDetail() {
   try {
     const r = await fetch('/api/sqr/program/' + encodeURIComponent(""" + f'"{filename}"' + """));
