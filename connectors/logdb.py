@@ -435,7 +435,10 @@ def query_errors(env: str | None = None, error_code: str | None = None,
 
 
 def error_summary(env: str | None = None, limit: int = 50) -> list[dict]:
-    """Group errors by (error_code, object_ref) sorted by occurrence count desc."""
+    """Group errors by (error_code, object_ref) sorted by occurrence count desc.
+
+    Includes cnt_1h / cnt_24h for activity indicators and new_48h flag.
+    """
     c = _conn()
     clauses, params = [], []
     if env:
@@ -450,7 +453,10 @@ def error_summary(env: str | None = None, limit: int = 50) -> list[dict]:
             MIN(ts)   AS first_seen,
             MAX(ts)   AS last_seen,
             COUNT(DISTINCT oprid) AS unique_users,
-            GROUP_CONCAT(DISTINCT oprid) AS oprids_sample
+            GROUP_CONCAT(DISTINCT oprid) AS oprids_sample,
+            SUM(CASE WHEN ts >= datetime('now', '-1 hour')  THEN 1 ELSE 0 END) AS cnt_1h,
+            SUM(CASE WHEN ts >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) AS cnt_24h,
+            CASE WHEN MIN(ts) >= datetime('now', '-48 hours') THEN 1 ELSE 0 END AS new_48h
         FROM log_errors
         {where}
         GROUP BY error_code, object_ref, env

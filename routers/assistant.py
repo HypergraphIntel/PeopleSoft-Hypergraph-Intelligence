@@ -103,6 +103,16 @@ Guidelines:
   Interaction (FieldChange/RowInsert/RowDelete run during user edits), \
   Save (SaveEdit/SavePreChange/SavePostChange run during save). \
   Direct users to /admin/compflow to explore this visually.
+## Knowledge Graph — Processing Sequence Relationships
+- The Knowledge Graph now contains canonical PC event sequence nodes: `event_type` nodes (PreBuild, \
+  PostBuild, RowInit, FieldChange, SavePostChange, etc.) and `pc_phase` nodes (search/build/interaction/save). \
+  Edge types: PRECEDES (canonical next event), IN_PHASE (event → phase), HAS_HANDLER (component → event_type). \
+- For "which components implement PreBuild?": use graph_neighbors on event_type:PREBUILD with \
+  incoming HAS_HANDLER edges. For "what fires after FieldChange?": use graph_neighbors on \
+  event_type:FIELDCHANGE with PRECEDES edges. For "what phase is SavePreChange in?": navigate \
+  the IN_PHASE edge from event_type:SAVEPRECHANGE. \
+- graph_dependencies on a component will show its implemented event handlers via HAS_HANDLER edges. \
+  graph_impact on an event_type will show all components that implement that event.
 """
 
 _MAX_TOOL_ROUNDS = 8   # prevent infinite loops

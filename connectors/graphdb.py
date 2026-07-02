@@ -581,6 +581,81 @@ def build(env="HCM", limit=50, persist=True):
                     add_edge(graph, "component", component, "page", page.get("pnlname"), "CONTAINS", page)
         return len(rows)
 
+    def component_peoplecode():
+        """Static canonical PC event sequence + component HAS_HANDLER edges."""
+        from connectors.psdb import _COMP_EVENT_ORDER, _COMP_EVENT_PHASE
+
+        ordered = sorted(_COMP_EVENT_ORDER, key=lambda k: _COMP_EVENT_ORDER[k])
+        ev_set = set(ordered)
+
+        phase_seen: set = set()
+        for ev in ordered:
+            phase_key, phase_label = _COMP_EVENT_PHASE.get(ev, ("other", "Other"))
+            if phase_key not in phase_seen:
+                add_node(graph, "pc_phase", phase_key, phase_label,
+                         {"phase_key": phase_key})
+                phase_seen.add(phase_key)
+            add_node(graph, "event_type", ev, ev,
+                     {"phase": phase_key, "order": _COMP_EVENT_ORDER[ev]})
+            add_edge(graph, "event_type", ev, "pc_phase", phase_key, "IN_PHASE")
+
+        for i in range(len(ordered) - 1):
+            add_edge(graph, "event_type", ordered[i], "event_type", ordered[i + 1], "PRECEDES",
+                     {"from_order": _COMP_EVENT_ORDER[ordered[i]],
+                      "to_order": _COMP_EVENT_ORDER[ordered[i + 1]]})
+
+        count = len(ordered)
+
+        if not ptmetadata.has_table(env, "PSPCMPROG"):
+            return count
+
+        comp_names = sorted({
+            n["name"] for n in graph["nodes"].values()
+            if n.get("type") == "component" and n.get("name")
+        })[:200]
+
+        if not comp_names:
+            return count
+
+        for chunk_start in range(0, len(comp_names), 100):
+            chunk = comp_names[chunk_start:chunk_start + 100]
+            params = {f"c{i}": c.upper() for i, c in enumerate(chunk)}
+            placeholders = ",".join(f":c{i}" for i in range(len(chunk)))
+            try:
+                rows = psdb.query(env, f"""
+                    SELECT OBJECTID1, OBJECTVALUE1, OBJECTVALUE2,
+                           OBJECTVALUE3, OBJECTVALUE4, OBJECTVALUE5
+                      FROM SYSADM.PSPCMPROG
+                     WHERE OBJECTID1 IN (9, 10)
+                       AND UPPER(OBJECTVALUE1) IN ({placeholders})
+                """, params)
+            except Exception:
+                continue
+
+            for r in rows:
+                oid = r.get("objectid1")
+                comp = (r.get("objectvalue1") or "").strip().upper()
+                ov2 = (r.get("objectvalue2") or "").strip().upper()
+                ov3 = (r.get("objectvalue3") or "").strip().upper()
+                ov4 = (r.get("objectvalue4") or "").strip().upper()
+                ov5 = (r.get("objectvalue5") or "").strip().upper()
+
+                if oid == 9:
+                    ev = ov2
+                elif ov3 in ev_set:
+                    ev = ov3
+                elif not ov5:
+                    ev = ov4
+                else:
+                    ev = ov5
+
+                if ev in ev_set and comp:
+                    add_edge(graph, "component", comp, "event_type", ev, "HAS_HANDLER",
+                             {"component": comp, "event": ev})
+                    count += 1
+
+        return count
+
     def pages():
         rows = psdb.pages(env, "", limit)
         for row in rows:
@@ -2074,6 +2149,7 @@ def build(env="HCM", limit=50, persist=True):
         ("roles", roles),
         ("permissionlists", permissionlists),
         ("components", components),
+        ("component_peoplecode", component_peoplecode),
         ("pages", pages),
         ("fields", fields),
         ("peoplecode", peoplecode_programs),

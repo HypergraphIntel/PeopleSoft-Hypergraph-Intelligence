@@ -193,12 +193,30 @@ def log_errors_view(request: Request, env: Optional[str] = None):
             f'<a href="/admin/tracing?oprid={o}&env={env or ""}" style="color:#00e5ff;font-size:11px" target="_blank">{o}</a>'
             for o in oprids if o.strip()
         )
+
+        cnt_1h  = g.get("cnt_1h", 0) or 0
+        cnt_24h = g.get("cnt_24h", 0) or 0
+        new_48h = g.get("new_48h", 0) or 0
+
+        if cnt_1h > 0:
+            activity_dot = '<span title="Active in last hour" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#ff4444;box-shadow:0 0 5px #ff4444;margin-right:5px;vertical-align:middle"></span>'
+            activity_label = f'<span style="font-size:10px;color:#ff6b6b">{cnt_1h} /1h</span>'
+        elif cnt_24h > 0:
+            activity_dot = '<span title="Active in last 24h" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#ffaa00;box-shadow:0 0 4px #ffaa00;margin-right:5px;vertical-align:middle"></span>'
+            activity_label = f'<span style="font-size:10px;color:#ffaa00">{cnt_24h} /24h</span>'
+        else:
+            activity_dot = '<span title="No recent activity" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#334;margin-right:5px;vertical-align:middle"></span>'
+            activity_label = '<span style="font-size:10px;color:#334">historical</span>'
+
+        new_badge = ' <span style="font-size:9px;font-weight:700;color:#00e5ff;background:rgba(0,229,255,.15);border:1px solid rgba(0,229,255,.3);padding:0 4px;border-radius:3px;vertical-align:middle">NEW</span>' if new_48h else ''
+
         rows_html += f"""
         <tr>
-          <td style="color:#ff6b6b;font-weight:600">{ec}</td>
+          <td style="color:#ff6b6b;font-weight:600">{ec}{new_badge}</td>
           <td>{obj_link}</td>
           <td>{g['env']}</td>
           <td style="text-align:center;font-weight:700;color:#ffd700">{g['cnt']}</td>
+          <td style="text-align:center;white-space:nowrap">{activity_dot}{activity_label}</td>
           <td style="font-size:11px;color:#7faab2">{g['first_seen']}</td>
           <td style="font-size:11px;color:#7faab2">{g['last_seen']}</td>
           <td style="text-align:center">{g['unique_users']}</td>
@@ -212,7 +230,27 @@ def log_errors_view(request: Request, env: Optional[str] = None):
         </tr>"""
 
     if not groups:
-        rows_html = '<tr><td colspan="9" style="color:#555;text-align:center;padding:24px">No errors recorded yet. Configure log sources and wait for ingestion.</td></tr>'
+        rows_html = '<tr><td colspan="10" style="color:#555;text-align:center;padding:24px">No errors recorded yet. Configure log sources and wait for ingestion.</td></tr>'
+
+    active_1h  = sum(1 for g in groups if (g.get("cnt_1h")  or 0) > 0)
+    active_24h = sum(1 for g in groups if (g.get("cnt_24h") or 0) > 0)
+    new_count  = sum(1 for g in groups if (g.get("new_48h") or 0))
+    summary_chips = (
+        f'<span style="font-size:11px;padding:3px 10px;border-radius:10px;'
+        f'background:rgba(255,68,68,.12);border:1px solid rgba(255,68,68,.3);color:#ff6b6b;margin-right:8px">'
+        f'&#9679; {active_1h} active now</span>'
+        if active_1h else ""
+    ) + (
+        f'<span style="font-size:11px;padding:3px 10px;border-radius:10px;'
+        f'background:rgba(255,170,0,.1);border:1px solid rgba(255,170,0,.25);color:#ffaa00;margin-right:8px">'
+        f'&#9679; {active_24h} in 24h</span>'
+        if active_24h else ""
+    ) + (
+        f'<span style="font-size:11px;padding:3px 10px;border-radius:10px;'
+        f'background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.2);color:#00e5ff;margin-right:8px">'
+        f'&#9675; {new_count} new (48h)</span>'
+        if new_count else ""
+    )
 
     content = f"""
 <style>
@@ -233,15 +271,16 @@ def log_errors_view(request: Request, env: Optional[str] = None):
   <a class="ql-btn" href="/admin/logs" style="font-size:12px;padding:5px 12px">← Sources</a>
   <a class="ql-btn" href="/admin/log_viewer" style="font-size:12px;padding:5px 12px">Log Viewer</a>
 </div>
-<p style="color:#7faab2;font-size:12px;margin:0 0 14px 0">
+<p style="color:#7faab2;font-size:12px;margin:0 0 10px 0">
   Grouped by error code + object. Click <strong style="color:#00e5ff">Ask AI</strong> to send the error to the assistant for diagnosis.
 </p>
+{f'<div style="margin-bottom:12px">{summary_chips}</div>' if summary_chips else ''}
 
 <table class="log-table">
   <thead>
     <tr>
       <th>Error Code</th><th>Object</th><th>Env</th><th>Count</th>
-      <th>First Seen</th><th>Last Seen</th><th>Users</th><th>Sample Users</th><th>Actions</th>
+      <th>Activity</th><th>First Seen</th><th>Last Seen</th><th>Users</th><th>Sample Users</th><th>Actions</th>
     </tr>
   </thead>
   <tbody>{rows_html}</tbody>
