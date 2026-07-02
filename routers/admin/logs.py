@@ -6,6 +6,7 @@ Admin UI for Phase 8 Log Intelligence.
 /admin/log_viewer     — web / app log viewer with filters
 /admin/log_session    — session chain (web→app) for a specific OPRID
 /admin/igw            — Integration Gateway error analytics
+/admin/prcs-ae        — PRCS AE server log analytics
 """
 
 from fastapi import APIRouter, Request, Query
@@ -103,6 +104,7 @@ def logs_overview(request: Request):
 <div class="ql-nav">
   <a class="ql-btn" href="/admin/log_errors">Error Surface</a>
   <a class="ql-btn" href="/admin/igw" style="color:#ff9f43;border-color:rgba(255,159,67,.35)">IGW Errors</a>
+  <a class="ql-btn" href="/admin/prcs-ae" style="color:#00cc66;border-color:rgba(0,204,102,.35)">PRCS AE Logs</a>
   <a class="ql-btn" href="/admin/log_viewer">Log Viewer</a>
   <a class="ql-btn" href="/admin/log_session">Session Chain</a>
   <button class="ql-btn" onclick="triggerIngest()" id="ingest-btn">Trigger Ingest Now</button>
@@ -845,3 +847,210 @@ function applyEnv() {{
 </script>
 """
     return HTMLResponse(_shell("IGW Errors", "igw", content))
+
+
+# ---------------------------------------------------------------------------
+# /admin/prcs-ae  — PRCS AE server log analytics
+# ---------------------------------------------------------------------------
+
+@router.get("/prcs-ae", response_class=HTMLResponse)
+def prcs_ae_view(request: Request, env: Optional[str] = None):
+    db = _logdb()
+
+    import json
+    cfg_path = __import__("pathlib").Path(__file__).parent.parent.parent / "config.json"
+    try:
+        cfg = json.loads(cfg_path.read_text())
+        envs = [e["name"] for e in cfg.get("peoplesoft", {}).get("environments", [])]
+    except Exception:
+        envs = []
+
+    s = db.prcs_ae_summary(env=env)
+    total        = s["total"]
+    error_count  = s["error_count"]
+    by_program   = s["by_program"]
+    recent_errs  = s["recent_errors"]
+    first_s      = (s["first_seen"] or "")[:19]
+    last_s       = (s["last_seen"]  or "")[:19]
+
+    env_opts = "".join(
+        f'<option value="{e}" {"selected" if e == env else ""}>{e}</option>'
+        for e in envs
+    )
+
+    def stat(val, label, color="#00e5ff", border_color=None):
+        bc = border_color or "rgba(0,229,255,.2)"
+        return (
+            f'<div style="background:rgba(0,229,255,.05);border:1px solid {bc};'
+            f'border-radius:6px;padding:12px 20px;min-width:110px">'
+            f'<div style="font-size:24px;font-weight:700;color:{color}">{val}</div>'
+            f'<div style="font-size:11px;color:#7faab2;margin-top:2px">{label}</div></div>'
+        )
+
+    unique_programs = len(by_program)
+    failed_programs = sum(1 for p in by_program if p["error_count"] > 0)
+    stats_html = "".join([
+        stat(total,           "Total Entries",     "#00e5ff", "rgba(0,229,255,.2)"),
+        stat(unique_programs, "AE Programs",       "#00cc66", "rgba(0,204,102,.3)"),
+        stat(error_count,     "Errors",            "#ff6b6b", "rgba(255,107,107,.3)") if error_count else
+        stat(0,               "Errors",            "#00cc66", "rgba(0,204,102,.2)"),
+        stat(failed_programs, "Failed Programs",   "#ff9f43", "rgba(255,159,67,.3)") if failed_programs else "",
+    ])
+
+    # Program breakdown table
+    max_runs = max((p["run_count"] for p in by_program), default=1)
+    prog_rows = ""
+    for p in by_program:
+        ae = p["ae_applid"] or "—"
+        err_c = p["error_count"] or 0
+        run_c = p["run_count"]
+        pct = int(run_c / max_runs * 100)
+        err_pct = int(err_c / run_c * 100) if run_c else 0
+        ae_link = (
+            f'<a href="/admin/object/application_engine/{_esc(ae)}?env={_esc(env or "")}" '
+            f'style="color:#00e5ff;font-family:monospace" target="_blank">{_esc(ae)}</a>'
+            if ae != "—" else "—"
+        )
+        err_color = "#ff4444" if err_c > 0 else "#00cc66"
+        err_badge = (
+            f'<span style="color:{err_color};font-weight:700">{err_c}</span>'
+            f'<span style="color:#445;font-size:10px"> ({err_pct}%)</span>'
+        ) if err_c else '<span style="color:#00cc66">0</span>'
+        bar = (
+            f'<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;'
+            f'background:#0b2030;width:100%;max-width:120px">'
+            f'<div style="width:{pct - err_pct}%;background:rgba(0,204,102,.5)"></div>'
+            f'<div style="width:{err_pct}%;background:rgba(255,100,100,.7)"></div>'
+            f'</div>'
+        )
+        first = (p["first_seen"] or "")[:10]
+        last  = (p["last_seen"]  or "")[:10]
+        prog_rows += (
+            f'<tr>'
+            f'<td>{ae_link}</td>'
+            f'<td style="text-align:right;font-weight:700;color:#ffd700">{run_c}</td>'
+            f'<td style="text-align:right">{err_badge}</td>'
+            f'<td><div style="min-width:80px">{bar}</div></td>'
+            f'<td style="font-size:11px;color:#7faab2;white-space:nowrap">{first}</td>'
+            f'<td style="font-size:11px;color:#7faab2;white-space:nowrap">{last}</td>'
+            f'</tr>'
+        )
+    if not prog_rows:
+        prog_rows = '<tr><td colspan="6" style="color:#555;text-align:center;padding:16px">No PRCS AE entries found.</td></tr>'
+
+    # Recent errors table
+    err_rows = ""
+    for entry in recent_errs:
+        ts    = (entry["ts"] or "")[:19]
+        ae    = entry["ae_applid"] or None
+        msg   = (entry["message"] or "")[:100] + ("…" if len(entry["message"] or "") > 100 else "")
+        inst  = entry.get("process_instance")
+        ae_link = (
+            f'<a href="/admin/object/application_engine/{_esc(ae)}?env={_esc(env or "")}" '
+            f'style="color:#00e5ff;font-family:monospace;font-size:11px" target="_blank">{_esc(ae)}</a>'
+            if ae else '<span style="color:#445">—</span>'
+        )
+        inst_link = (
+            f'<a href="/admin/runtime?instance={inst}" style="color:#ffd700;font-family:monospace;font-size:11px">'
+            f'#{inst}</a>'
+            if inst else "—"
+        )
+        err_rows += (
+            f'<tr>'
+            f'<td style="font-size:11px;color:#7faab2;white-space:nowrap">{_esc(ts)}</td>'
+            f'<td>{ae_link}</td>'
+            f'<td style="font-size:11px;color:#ff9f43">{_esc(msg)}</td>'
+            f'<td>{inst_link}</td>'
+            f'</tr>'
+        )
+    if not err_rows:
+        err_rows = '<tr><td colspan="4" style="color:#555;text-align:center;padding:16px">No errors recorded.</td></tr>'
+
+    date_range_html = ""
+    if first_s and last_s:
+        date_range_html = f'<span style="color:#7faab2;font-size:12px">{first_s} → {last_s}</span>'
+
+    top_prog = by_program[0]["ae_applid"] if by_program else "unknown"
+    ai_q = (
+        f"Analyze PRCS AE server logs for {env or 'HCM'}: "
+        f"{total} total entries, {error_count} errors. "
+        f"Most active AE: {top_prog}. "
+        f"Failed programs: {failed_programs}. Explain what is failing and why."
+    )
+
+    content = f"""
+<style>
+.pa-table{{width:100%;border-collapse:collapse;font-size:13px}}
+.pa-table th{{text-align:left;padding:7px 10px;border-bottom:1px solid rgba(0,229,255,.2);
+  color:#7faab2;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}}
+.pa-table td{{padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle}}
+.pa-table tr:hover td{{background:rgba(0,229,255,.04)}}
+.pa-section{{background:rgba(0,0,0,.25);border:1px solid rgba(0,229,255,.15);
+  border-radius:6px;padding:16px 20px;margin-bottom:18px}}
+.pa-section h4{{color:#00e5ff;font-size:13px;margin:0 0 12px 0;letter-spacing:.3px}}
+.ql-btn{{padding:6px 12px;border-radius:4px;background:rgba(0,229,255,.08);
+  border:1px solid rgba(0,229,255,.25);color:#00e5ff;font-size:12px;
+  text-decoration:none;display:inline-block;cursor:pointer}}
+.ql-btn:hover{{background:rgba(0,229,255,.15)}}
+</style>
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+  <h3 style="color:#00e5ff;margin:0;font-size:15px">PRCS AE Log Analytics</h3>
+  <select id="env-sel" onchange="applyEnv()"
+    style="background:rgba(0,20,30,.88);border:1px solid rgba(0,229,255,.3);
+      color:#d7faff;font-size:12px;padding:4px 8px;border-radius:4px">
+    <option value="">All Envs</option>{env_opts}
+  </select>
+  {date_range_html}
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <a href="/admin/logs" class="ql-btn" style="font-size:12px">← Sources</a>
+    <a href="/admin/runtime" class="ql-btn" style="font-size:12px">Runtime Monitor</a>
+    <a href="/admin/assistant?q={_esc(ai_q)}" class="ql-btn"
+       style="font-size:12px;background:rgba(0,229,255,.1);border-color:rgba(0,229,255,.4)"
+       target="_blank">Ask AI</a>
+  </div>
+</div>
+
+<p style="color:#7faab2;font-size:12px;margin:0 0 14px 0">
+  Process Scheduler AE Server log entries — start, step execution, completion, and failure events
+  per Application Engine program. Click a process instance to open Runtime Monitor with the Exec Log tab.
+</p>
+
+<!-- Stat cards -->
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+  {stats_html}
+</div>
+
+<!-- Program breakdown -->
+<div class="pa-section">
+  <h4>By AE Program</h4>
+  <table class="pa-table">
+    <thead><tr>
+      <th>AE Program</th>
+      <th style="text-align:right">Entries</th>
+      <th style="text-align:right">Errors</th>
+      <th>Error Rate</th>
+      <th>First Seen</th>
+      <th>Last Seen</th>
+    </tr></thead>
+    <tbody>{prog_rows}</tbody>
+  </table>
+</div>
+
+<!-- Recent errors -->
+<div class="pa-section">
+  <h4>Recent Errors <span style="color:#7faab2;font-weight:400;font-size:11px">(last 20)</span></h4>
+  <table class="pa-table">
+    <thead><tr><th>Timestamp</th><th>AE Program</th><th>Message</th><th>Instance</th></tr></thead>
+    <tbody>{err_rows}</tbody>
+  </table>
+</div>
+
+<script>
+function applyEnv() {{
+  var e = document.getElementById('env-sel').value;
+  window.location = '/admin/prcs-ae' + (e ? '?env=' + e : '');
+}}
+</script>
+"""
+    return HTMLResponse(_shell("PRCS AE Logs", "prcs_ae", content))

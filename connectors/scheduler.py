@@ -41,6 +41,13 @@ _log_stop_event = threading.Event()
 _last_log_ingest: str = ""
 _last_log_error: str = ""
 
+# Runtime history thread
+RUNTIME_SNAPSHOT_INTERVAL_SECONDS: int = 300   # every 5 minutes
+_rt_thread: threading.Thread | None = None
+_rt_stop_event = threading.Event()
+_last_rt_run: str = ""
+_last_rt_error: str = ""
+
 
 def _run_for_env(env: str) -> None:
     try:
@@ -114,8 +121,65 @@ def _log_ingest_loop() -> None:
     logger.info("Log ingest scheduler stopped")
 
 
+def _run_runtime_snapshot(env: str) -> None:
+    """Capture a lightweight runtime metrics snapshot for history tracking."""
+    try:
+        from connectors import runtimedb
+        from connectors.execution import process_status_summary, ib_queue_summary, ae_running
+        from connectors import alerts as alerts_conn
+
+        ps  = process_status_summary(env)
+        tot = ps.get("totals", {})
+
+        ib  = ib_queue_summary(env)
+        ib_rows = ib.get("ib", {})
+        ib_pending = sum(
+            r.get("cnt", 0)
+            for rows in ib_rows.values()
+            for r in rows
+            if r.get("pubstatus", r.get("subconstatus", 4)) not in (4,)  # exclude Cancelled
+        )
+
+        ae = ae_running(env, limit=1)
+        ae_cnt = ae.get("count", 0) if isinstance(ae, dict) else 0
+
+        alrt = alerts_conn.evaluate_alerts(env, db_name=None)
+        alert_cnt = alrt.get("alert_count", 0)
+
+        data = {
+            "process_active": tot.get("active", 0),
+            "process_error":  tot.get("error",  0),
+            "process_total":  tot.get("total",  0),
+            "ae_running":     ae_cnt,
+            "ib_pending":     ib_pending,
+            "alert_count":    alert_cnt,
+        }
+        runtimedb.record(env, data)
+        runtimedb.prune(env)
+    except Exception as exc:
+        raise exc
+
+
+def _runtime_snapshot_loop() -> None:
+    global _last_rt_run, _last_rt_error
+    logger.info("Runtime snapshot scheduler started (interval=%ds)", RUNTIME_SNAPSHOT_INTERVAL_SECONDS)
+    while not _rt_stop_event.is_set():
+        for env in ENVS:
+            if _rt_stop_event.is_set():
+                break
+            try:
+                _run_runtime_snapshot(env)
+                _last_rt_run = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                _last_rt_error = ""
+            except Exception as exc:
+                _last_rt_error = str(exc)
+                logger.warning("Runtime snapshot error for %s: %s", env, exc)
+        _rt_stop_event.wait(RUNTIME_SNAPSHOT_INTERVAL_SECONDS)
+    logger.info("Runtime snapshot scheduler stopped")
+
+
 def start() -> None:
-    global _thread, _log_thread
+    global _thread, _log_thread, _rt_thread
     if _thread and _thread.is_alive():
         logger.debug("Scheduler already running")
     else:
@@ -132,14 +196,25 @@ def start() -> None:
         _log_thread.start()
         logger.info("Log ingest scheduler thread started")
 
+    if _rt_thread and _rt_thread.is_alive():
+        logger.debug("Runtime snapshot scheduler already running")
+    else:
+        _rt_stop_event.clear()
+        _rt_thread = threading.Thread(target=_runtime_snapshot_loop, name="runtime-snapshot", daemon=True)
+        _rt_thread.start()
+        logger.info("Runtime snapshot scheduler thread started")
+
 
 def stop() -> None:
     _stop_event.set()
     _log_stop_event.set()
+    _rt_stop_event.set()
     if _thread:
         _thread.join(timeout=5)
     if _log_thread:
         _log_thread.join(timeout=5)
+    if _rt_thread:
+        _rt_thread.join(timeout=5)
     logger.info("All scheduler threads stopped")
 
 
@@ -158,8 +233,11 @@ def status() -> dict:
         "last_error": _last_error,
         "last_drift_run": _last_drift_run,
         "last_drift_error": _last_drift_error,
-        "last_log_ingest": _last_log_ingest,
-        "last_log_error": _last_log_error,
+        "last_log_ingest":    _last_log_ingest,
+        "last_log_error":     _last_log_error,
+        "runtime_snapshot_running": bool(_rt_thread and _rt_thread.is_alive()),
+        "last_rt_run":        _last_rt_run,
+        "last_rt_error":      _last_rt_error,
     }
 
 

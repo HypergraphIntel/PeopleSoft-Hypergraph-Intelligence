@@ -35,8 +35,9 @@ EDGE_TYPES = {
 
 EDGE_TYPES.add("ROUTES")
 EDGE_TYPES.add("WRAPS")
+EDGE_TYPES.add("INCLUDES")
 
-DEPENDENCY_EDGES = {"USES", "CONTAINS", "REFERENCES", "DEPENDS_ON", "CALLS", "READS", "WRITES", "DEPLOYS", "SECURES", "EXPOSES", "ROUTES", "WRAPS"}
+DEPENDENCY_EDGES = {"USES", "CONTAINS", "REFERENCES", "DEPENDS_ON", "CALLS", "READS", "WRITES", "DEPLOYS", "SECURES", "EXPOSES", "ROUTES", "WRAPS", "INCLUDES"}
 
 _SQL_COMMENT_RE = re.compile(r"/\*.*?\*/|--[^\n\r]*", re.S)
 _SQL_STRING_RE = re.compile(r"'(?:''|[^'])*'")
@@ -1942,6 +1943,67 @@ def build(env="HCM", limit=50, persist=True):
                 add_edge(graph, "record", record_name, "field", field_ref, "CONTAINS", field)
         return len(rows)
 
+    def sqr_programs():
+        """Add SQR/SQC source artifact nodes with table-access and include edges."""
+        try:
+            from connectors import sqrdb as _sqrdb
+            _sqrdb.init_db()
+        except Exception:
+            return 0
+
+        added = 0
+        page = 1
+        per_page = 500
+        while True:
+            result = _sqrdb.search_programs(page=page, per_page=per_page)
+            rows = result.get("results", [])
+            if not rows:
+                break
+
+            for row in rows:
+                filename = row.get("filename")
+                if not filename:
+                    continue
+                node_name = filename.lower()
+                add_node(graph, "sqr_program", node_name,
+                         row.get("program_name") or node_name,
+                         {**row, "_links": {"admin": f"/admin/sqr/{filename}"}})
+                added += 1
+
+                # Fetch full detail for edges (tables + includes)
+                detail = _sqrdb.get_program(filename)
+                if not detail:
+                    continue
+
+                for tbl in detail.get("tables", []):
+                    tbl_name = (tbl.get("table_name") or "").strip().upper()
+                    if not tbl_name:
+                        continue
+                    ops = tbl.get("operations") or ""
+                    add_node(graph, "record", tbl_name, tbl_name,
+                             {"source": "sqr_program", "sqr_program": node_name})
+                    # Classify as read vs write based on operations
+                    if any(o in ops for o in ("UPDATE", "INSERT", "DELETE", "CREATE")):
+                        add_edge(graph, "sqr_program", node_name, "record", tbl_name, "WRITES",
+                                 {"operations": ops})
+                    else:
+                        add_edge(graph, "sqr_program", node_name, "record", tbl_name, "READS",
+                                 {"operations": ops})
+
+                for inc in detail.get("includes", []):
+                    inc_name = (inc or "").strip().lower()
+                    if not inc_name:
+                        continue
+                    add_node(graph, "sqr_program", inc_name, inc_name.upper(), {})
+                    add_edge(graph, "sqr_program", node_name, "sqr_program", inc_name, "INCLUDES",
+                             {"include_file": inc_name})
+
+            if len(rows) < per_page:
+                break
+            page += 1
+
+        return added
+
     def process_definitions():
         if not ptmetadata.has_table(env, "PS_PRCSDEFN"):
             return 0
@@ -1992,6 +2054,11 @@ def build(env="HCM", limit=50, persist=True):
             elif ptype_clean == "XML Publisher":
                 add_node(graph, "xml_publisher_report", pname_clean, pname_clean, r)
                 add_edge(graph, "prcs_defn", key, "xml_publisher_report", pname_clean, "WRAPS", r)
+            elif ptype_clean in ("SQR Report", "SQR Process"):
+                # Link to sqr_program node using lowercase filename convention
+                sqr_node = f"{pname_clean.lower()}.sqr"
+                add_node(graph, "sqr_program", sqr_node, pname_clean, r)
+                add_edge(graph, "prcs_defn", key, "sqr_program", sqr_node, "WRAPS", r)
             seen_components = set()
             for pnl in components_by_key.get((ptype_clean, pname_clean), []):
                 component = pnl.get("component")
@@ -2033,6 +2100,7 @@ def build(env="HCM", limit=50, persist=True):
         ("xlat_fields", xlat_fields),
         ("file_layouts", file_layouts),
         ("process_definitions", process_definitions),
+        ("sqr_programs", sqr_programs),
         ("ib_applications", ib_applications),
         ("app_packages", app_packages),
         ("app_classes", app_classes),

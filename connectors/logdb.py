@@ -529,6 +529,66 @@ def igw_summary(env: str | None = None) -> dict:
     }
 
 
+def prcs_ae_summary(env: str | None = None) -> dict:
+    """
+    Aggregate PRCS AE server log entries.
+
+    Returns totals, per-program breakdown, and the 20 most recent errors with
+    process instance numbers extracted from message bodies.
+    """
+    import re as _re
+    _INST_RE = _re.compile(r'Process Instance=(\d+)')
+
+    c = _conn()
+    clauses = ["lower(source_name) LIKE '%prcs%'"]
+    params: list = []
+    if env:
+        clauses.append("env=?")
+        params.append(env)
+    where = "WHERE " + " AND ".join(clauses)
+
+    totals = c.execute(
+        f"""SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN is_error THEN 1 ELSE 0 END) AS error_count,
+                   MIN(ts) AS first_seen,
+                   MAX(ts) AS last_seen
+            FROM app_entries {where}""",
+        params
+    ).fetchone()
+
+    by_program = [dict(r) for r in c.execute(
+        f"""SELECT object_ref AS ae_applid,
+                   COUNT(*) AS run_count,
+                   SUM(CASE WHEN is_error THEN 1 ELSE 0 END) AS error_count,
+                   MIN(ts) AS first_seen, MAX(ts) AS last_seen
+            FROM app_entries {where} AND object_ref IS NOT NULL
+            GROUP BY object_ref
+            ORDER BY error_count DESC, run_count DESC""",
+        params
+    ).fetchall()]
+
+    error_rows = [dict(r) for r in c.execute(
+        f"""SELECT ts, level, object_ref AS ae_applid, message, raw
+            FROM app_entries
+            {where} AND is_error=1
+            ORDER BY ts DESC LIMIT 20""",
+        params
+    ).fetchall()]
+
+    for err in error_rows:
+        m = _INST_RE.search(err.get("message") or "")
+        err["process_instance"] = int(m.group(1)) if m else None
+
+    return {
+        "total":        totals["total"]       or 0,
+        "error_count":  totals["error_count"] or 0,
+        "first_seen":   totals["first_seen"],
+        "last_seen":    totals["last_seen"],
+        "by_program":   by_program,
+        "recent_errors": error_rows,
+    }
+
+
 _SYSTEM_LOG_SOURCES = ("weblogic", "stdout", "error", "igw")  # source_name substrings for system-level entries
 
 

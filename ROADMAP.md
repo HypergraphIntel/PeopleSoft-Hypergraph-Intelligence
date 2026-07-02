@@ -88,6 +88,23 @@ Provide complete end-to-end session visibility.
 - Runtime graph API connecting sessions, processes, operators, AEs, Oracle SQL, and IB services
 - Runtime alerts for process errors, long processes, queue depth, blocking sessions, high wait, and domain health
 
+### ✅ Completed (2026-07-02) — Operational Dashboard
+
+- `/admin/` home page replaced with a live operational dashboard; auto-refreshes every 60s
+- **Active Alerts panel** — calls `GET /api/runtime/alerts`; shows all active alerts with severity badges and deep-links; green "All Clear" when 0 alerts
+- **Runtime Health panel** — calls `GET /api/runtime/status`; shows process total/active/error, AE running, IB pending with color-coded values
+- **Log Intelligence panel** — aggregates source count, source errors, PRCS AE error count, IGW error total; shows last ingest timestamp
+- **Environment & Trends panel** — drift alert count vs FSCM; 6h runtime metric sparklines (Active, Errors, IB, Alerts) from runtimedb history
+- **Quick Navigation** — 16 deep-links to every major platform section in one bar
+- Log-based alert checks added to `connectors/alerts.py`: `_check_igw_errors()` (IGW spike >20/h), `_check_log_error_spike()` (non-IGW errors >30/h), `_check_prcs_ae_failures()` (PRCS AE failures in last 24h), `_check_error_trend()` (runtimedb trend detection: process_error going from 0→N)
+
+### ✅ Completed (2026-07-02) — Runtime History Persistence
+
+- `connectors/runtimedb.py` — SQLite store at `data/runtime.db`; one row per 5-minute scheduler cycle per env; columns: process_active, process_error, process_total, ae_running, ib_pending, alert_count; `record()`, `get_history()`, `prune()` (30-day retention)
+- `connectors/scheduler.py` — `_runtime_snapshot_loop()` thread (5-minute interval); calls process_status_summary + ib_queue_summary + evaluate_alerts; records to runtimedb; integrated into `start()`/`stop()`/`status()`
+- `routers/runtime.py` — `GET /api/runtime/history?env&hours` time-series endpoint; `GET /api/runtime/history/snapshot` manual trigger
+- `routers/admin/runtime.py` — "Metrics History" card on Runtime Monitor: 1h/6h/24h/7d period selector; sparkline SVG charts for Active Processes, Process Errors, AE Running, IB Pending, Alerts; trend arrows (↑↓→) colored by whether the metric increasing is good or bad; `loadHistory()` called on every refresh cycle
+
 ### Remaining
 
 - Browser session tracking
@@ -701,6 +718,17 @@ Supported transport types:
 - 7+ active log sources ingesting live HCM data; error surface groups errors by code+object (HTTP_502, IB_PCODEWOL, WEBPROFILE_ERR, AUTH_FAIL, IB_EXT_APP)
 - Transaction Tracing timeline: sort toggle (ascending/descending), web log entries included via `_SYSTEM_LOG_SOURCES` correlation
 
+### ✅ Completed (2026-07-02) — PRCS AE server log pipeline
+
+- `connectors/logparser.py` — `parse_prcs_ae()` parser for PSAESRV Tuxedo log format; extracts AE applid → `object_ref`, process instance from message body, error detection on Status=Error / Java exceptions
+- `connectors/logingest.py` — `prcs_ae` added to `_APP_TYPES`; registered in standard ingest path
+- `connectors/logdb.py` — `prcs_ae_summary()` aggregates by program with run_count/error_count/date range, extracts process instance from recent error messages
+- `config.json` — `HCMDMO_PRCS_AE` source ingesting `AESRV_*.LOG*` files via SSH glob; 2,604 entries ingested from 11 historical files; 4 errors (PTSF_GENFEED × 2 June 22/23)
+- `routers/runtime.py` — `GET /api/runtime/process-log?env&instance` returns chronological AESRV entries for a process instance via `raw LIKE '%Process Instance=N%'`
+- `routers/admin/runtime.py` — "Exec Log" tab added to Process Instance detail panel; lazily loaded on tab click; links AE programs to AE Explorer
+- `routers/logs.py` — `GET /api/logs/prcs-ae-summary` endpoint
+- `routers/admin/logs.py` — `/admin/prcs-ae` analytics page: stat cards, program breakdown table with error rate bar, recent errors with process instance links to Runtime Monitor
+
 ### ✅ Completed (2026-07-02) — IGW errorLog.html pipeline
 
 - `connectors/logparser.py` — `parse_igw_error_log()` HTML block parser; 12 regex patterns extract timestamp, description, exception, error_level, stack trace, request XML, IB operation, requesting node, HTTP status, message codes; `_IGW_ERROR_LABELS` maps exception class names to error codes (IB_EXT_APP, IB_GFW, IB_HTTP_TC, IB_EXT_CONTACT, IB_LISTEN)
@@ -756,37 +784,55 @@ SQR, COBOL, COPYBOOK, and SQC files become first-class UOM objects that fully pa
 
 ## Source Discovery
 
+### Done (2026-07-02)
+
+- Configurable `sqr_sources` in config.json (alias, dir, label, key)
+- SSH-based filesystem discovery via existing `sshclient.py` pool
+- FSCM SQR library indexed: 507 SQR + 698 SQC = 1,205 files
+- 2,019 distinct PS_ tables, 5,183 table references, 9,142 #include references
+- Background re-index via `POST /api/sqr/ingest` with polling at `/api/sqr/ingest/status`
+- `connectors/sqrparser.py` — pure parser (description, release, revision, tables, includes, procedures)
+- `connectors/sqrdb.py` — SQLite at data/sqr.db (sqr_programs, sqr_tables, sqr_includes, sqr_procedures)
+- `connectors/sqringest.py` — SSH-based indexer
+
 ### Planned
 
-- Configurable delivered source roots
+- Incremental scanning (checksum-based change detection)
+- Custom override layer detection (custom dir vs delivered dir)
+- HCM-specific SQR directories
 - Configurable custom source roots
-- Multiple custom layers
-- Automatic filesystem discovery
-- Incremental filesystem scanning
-- File checksum tracking
-- Change detection
-- Snapshot support
 
 ---
 
 ## Source Explorer
 
+### Done (2026-07-02)
+
+- `/admin/sqr` — list view with search, type filter (SQR/SQC), pagination, stat cards, Re-index button
+- `/admin/sqr/{filename}` — program detail: metadata, PS_ tables with operation badges, #include tree, procedures list
+- `/admin/sqr/table/{PS_TABLE}` — which programs reference a given table and how (SELECT/UPDATE/INSERT/DELETE)
+- `GET /api/sqr/programs`, `GET /api/sqr/program/{filename}`, `GET /api/sqr/table/{name}`, `GET /api/sqr/sqc/{name}/users`
+- Nav entry under Platform → SQR Explorer
+
+### Done (2026-07-02)
+
+- Source preview tab in program detail (live SSH fetch, SQR syntax highlighting: comments, #include, begin/end sections, SQL keywords, SQR keywords)
+- `GET /api/sqr/program/{filename}/source` — live SSH source fetch (up to 512KB)
+
+### Done (2026-07-02 pass 2)
+
+- `/admin/sqr/analytics` — Top 30 PS_ tables by reference count, top 20 most complex SQR programs, top 20 most-included SQC files, release breakdown (1,200 FSCM92 + 5 others)
+- `GET /api/sqr/analytics` — analytics data endpoint
+- `sqr_program` added to OBJECT_REGISTRY — icon, display_title, graph_node_type; Object Explorer `/admin/object/sqr_program/{name}` → 302 redirect to `/admin/sqr/{name}.sqr`
+- Runtime process instance panel — SQR Report/Process type now shows "SQR Source" link next to program name, linking directly to `/admin/sqr/{prcsname}.sqr`
+- Analytics button added to SQR Explorer toolbar
+
 ### Planned
 
-- SQR Explorer
 - COBOL Explorer
 - COPYBOOK Explorer
-- SQC Explorer
-
-Each object includes:
-
-- metadata
-- source preview
-- dependency graph
-- callers
-- include hierarchy
-- override status
-- environment presence
+- Dependency graph (SQC include tree, visual)
+- Environment presence (HCM vs FSCM side-by-side)
 
 ---
 
@@ -829,20 +875,21 @@ Comparison modes
 
 ## Dependency Analysis
 
+### Done (2026-07-02)
+
+- SQC #include dependency extraction (sqrparser.py → sqrdb.sqr_includes)
+- PS_ table READS/WRITES edges in Knowledge Graph (sqr_program → record)
+- SQC INCLUDES edges in Knowledge Graph (sqr_program → sqr_program)
+- prcs_defn WRAPS sqr_program edge for "SQR Report"/"SQR Process" types
+- INCLUDES added to EDGE_TYPES and DEPENDENCY_EDGES — traversable via impact API
+- Impact analysis: `GET /api/graph/dependencies/sqr_program:AMAE1100.SQR` returns 20 nodes (4 records + 16 SQC includes)
+- setenv.sqc has 495 SQR programs as reverse-dependencies
+
 ### Planned
 
-Extract
-
-- SQC includes
-- COBOL COPY libraries
-- embedded SQL
-- record usage
-- table usage
-- Process Scheduler definitions
-- Application Engine launches
-- external executable references
-
-Publish all relationships into the Knowledge Graph.
+- COBOL COPY library dependencies
+- Application Engine launch references
+- External executable references
 
 ---
 
@@ -932,6 +979,136 @@ Correlate Process Scheduler executions with source artifacts to provide
 ## Status
 
 Planned.
+
+---
+
+# Phase — Processing Sequence Intelligence
+
+## Goal
+
+Teach PHI how PeopleSoft processing flows execute over time.
+
+PHI should understand event order, execution context, and sequence-sensitive behavior across PeopleCode, component processing, save processing, integration activity, and batch handoffs.
+
+## Completed
+
+- Unified Object Model foundation exists
+- Object Explorer exists
+- Graph Explorer exists
+- Knowledge Graph foundation exists
+- PeopleCode metadata extraction exists or is planned as part of metadata intelligence
+- Runtime Monitor and Oracle ASH integration provide a foundation for later runtime correlation
+
+## Remaining
+
+### Canonical PeopleCode Event Model
+
+Add a canonical event sequence model for PeopleSoft component processing.
+
+Initial event coverage:
+
+- SearchInit
+- SearchSave
+- RowSelect
+- PreBuild
+- FieldDefault
+- FieldFormula
+- RowInit
+- PostBuild
+- Activate
+- FieldEdit
+- FieldChange
+- PrePopup
+- ItemSelected
+- RowInsert
+- RowDelete
+- SaveEdit
+- SavePreChange
+- Workflow
+- SavePostChange
+
+### Event-Aware Metadata Indexing
+
+Index PeopleCode by execution context:
+
+- Component
+- Page
+- Record
+- Field
+- Component record
+- Component record field
+- Event name
+- Sequence phase
+- Save phase
+- Runtime interaction phase
+
+### Sequence-Aware Graph Relationships
+
+Extend the Knowledge Graph with ordered processing relationships:
+
+- `FIRES_BEFORE`
+- `FIRES_AFTER`
+- `PART_OF_SEQUENCE`
+- `CALLS_DURING_EVENT`
+- `VALIDATES_BEFORE_SAVE`
+- `MUTATES_BUFFER`
+- `MUTATES_DATABASE`
+- `BLOCKS_PROCESSING`
+- `TRIGGERS_RUNTIME_ACTION`
+
+### Processing Path Explorer
+
+Create a UI that shows ordered execution flow for:
+
+- Component
+- Page
+- Field
+- Record
+- Component Interface
+- Transaction path
+
+The explorer should show which PeopleCode, Application Packages, SQL, Message Catalog entries, integrations, and batch handoffs participate at each point in the sequence.
+
+### Delivered vs Custom Sequence Comparison
+
+Add comparison tools that show how custom logic changes delivered processing behavior.
+
+Capabilities:
+
+- Detect custom PeopleCode additions
+- Detect delivered PeopleCode changes
+- Compare delivered vs custom source
+- Show custom logic in sequence position
+- Highlight risky event placements
+- Flag upgrade impact where delivered sequence behavior changed
+
+### Runtime Trace Correlation
+
+Correlate static processing paths with runtime evidence.
+
+Target inputs:
+
+- PeopleCode trace
+- SQL trace
+- PIA access/session activity
+- Oracle ASH
+- Integration Broker monitor data
+- Process Scheduler logs
+- Application Engine/SQR/COBOL execution logs
+
+### AI-Assisted Sequence Explanation
+
+Add AI-assisted explanations for selected processing paths.
+
+Example questions PHI should answer:
+
+- What happens when this component opens?
+- What happens when this field changes?
+- What validates before save?
+- What can prevent this transaction from saving?
+- What runs after save?
+- Where is this custom logic inserted into delivered processing?
+- What downstream integrations or batch processes can be triggered?
 
 ---
 

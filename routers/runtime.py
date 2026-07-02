@@ -133,6 +133,51 @@ def runtime_domains(env: str = "HCM"):
     return psdb.app_server_domains(env)
 
 
+@router.get("/process-log")
+def process_log(env: str = "HCM", instance: int = 0, limit: int = 200):
+    """
+    Return PRCS AE server log entries for a specific process instance.
+    Queries app_entries for sources of type prcs_ae where raw contains the instance number.
+    """
+    if not instance:
+        return {"items": [], "instance": instance, "warnings": ["No instance provided"]}
+    from connectors import logdb
+    logdb.init_db()
+    from connectors.logdb import _conn
+    c = _conn()
+    pattern = f"%Process Instance={instance}%"
+    rows = c.execute(
+        """SELECT ts, level, object_ref AS ae_applid, message, raw
+           FROM app_entries
+           WHERE lower(source_name) LIKE '%prcs%'
+             AND raw LIKE ?
+           ORDER BY ts ASC
+           LIMIT ?""",
+        (pattern, limit)
+    ).fetchall()
+    return {
+        "instance": instance,
+        "env":      env,
+        "items":    [dict(r) for r in rows],
+    }
+
+
+@router.get("/history")
+def runtime_history(env: str = "HCM", hours: int = 24):
+    """Return time-series runtime metric snapshots for trend charts."""
+    from connectors import runtimedb
+    runtimedb.init_db()
+    return {"env": env, "hours": hours, "snapshots": runtimedb.get_history(env, hours=hours)}
+
+
+@router.get("/history/snapshot")
+def runtime_snapshot_now(env: str = "HCM"):
+    """Trigger an immediate runtime snapshot (blocking)."""
+    from connectors.scheduler import _run_runtime_snapshot
+    _run_runtime_snapshot(env)
+    return {"status": "ok", "env": env}
+
+
 @router.get("/graph")
 def runtime_graph(env: str = "HCM", db: str = None, process_limit: int = 30, session_limit: int = 30):
     """Return a best-effort graph of active runtime relationships."""

@@ -307,6 +307,138 @@ Before a migration or deployment, evaluate risk:
 
 ---
 
+## Processing Sequence Intelligence
+
+PHI must understand not only what PeopleSoft objects exist, but also the order in which PeopleSoft evaluates and executes them.
+
+PeopleSoft logic is sequence-sensitive. Component behavior is shaped by event order across search processing, component buffer construction, page activation, field interaction, row operations, and save processing. PHI will model this as first-class platform knowledge so analysis can answer questions like:
+
+- What runs before this page is displayed?
+- What logic fires when this field changes?
+- What validation can block save?
+- What code executes after a successful save?
+- Which custom PeopleCode, Application Packages, SQRs, COBOLs, Integration Broker handlers, or Application Engine programs participate in the same processing path?
+- Where does delivered logic differ from custom override behavior?
+
+### PeopleCode Event Sequence Model
+
+PHI will maintain a canonical PeopleCode event sequence model for component processing.
+
+Initial sequence coverage includes:
+
+- Menu/component entry
+- SearchInit
+- SearchSave
+- RowSelect
+- PreBuild
+- FieldDefault
+- FieldFormula
+- RowInit
+- PostBuild
+- Activate
+- FieldEdit
+- FieldChange
+- PrePopup
+- ItemSelected
+- RowInsert
+- RowDelete
+- SaveEdit
+- SavePreChange
+- Workflow
+- SavePostChange
+
+This model is based on standard PeopleSoft component processing behavior, where events fire in a defined order as users search, load a component buffer, interact with fields and rows, and save data. :contentReference[oaicite:0]{index=0}
+
+### Sequence-Aware Object Graph
+
+The Unified Object Model will be extended with processing-sequence relationships.
+
+New relationship types should include:
+
+- `FIRES_BEFORE`
+- `FIRES_AFTER`
+- `PART_OF_SEQUENCE`
+- `VALIDATES_BEFORE_SAVE`
+- `MUTATES_BUFFER`
+- `MUTATES_DATABASE`
+- `CALLS_DURING_EVENT`
+- `BLOCKS_PROCESSING`
+- `TRIGGERS_RUNTIME_ACTION`
+
+PeopleCode definitions should no longer be treated only as isolated code artifacts. They should be attached to their execution context:
+
+- Component
+- Page
+- Record
+- Field
+- Component record
+- Component record field
+- Menu/component entry point
+- Event name
+- Event sequence phase
+- Save phase
+- Runtime interaction phase
+
+### Processing Path Explorer
+
+PHI should provide a Processing Path Explorer that can display the expected execution flow for a component, page, field, or transaction.
+
+For a selected component, PHI should show:
+
+- Component entry path
+- Search events
+- Buffer build events
+- Page activation events
+- Field interaction events
+- Row insert/delete events
+- Save validation events
+- Post-save events
+- PeopleCode attached at each point
+- Application Package calls made from each event
+- SQL executed or referenced by event logic
+- Message Catalog references
+- Component Interface participation
+- Integration Broker calls
+- Application Engine, SQR, or COBOL handoffs when detectable
+
+The goal is to make PHI capable of explaining PeopleSoft behavior in terms of ordered execution, not just static dependencies.
+
+### Delivered vs Custom Sequence Behavior
+
+For delivered PeopleCode, SQRs, COBOLs, Application Engine programs, and Application Packages, PHI should identify whether custom logic overrides, extends, or changes the delivered processing path.
+
+The platform should be able to show:
+
+- Delivered event logic
+- Custom event logic
+- Custom overrides
+- Custom additions
+- Sequence position of custom logic
+- Differences between delivered and custom source
+- Risk introduced by custom logic based on where it executes
+- Upgrade impact when delivered sequence behavior changes
+
+This is especially important for events such as `SearchSave`, `FieldEdit`, `FieldChange`, `SaveEdit`, and `SavePostChange`, where misplaced or modified logic can alter validation, persistence, integration behavior, or downstream processing.
+
+### Runtime Correlation
+
+Processing-sequence intelligence should eventually correlate static metadata with runtime evidence.
+
+Where possible, PHI should connect:
+
+- PIA request/session activity
+- Component access
+- PeopleCode trace output
+- SQL trace output
+- Oracle ASH samples
+- Integration Broker activity
+- Process Scheduler execution
+- Application Engine/SQR/COBOL execution
+
+This allows PHI to answer not only “what should run?” but also “what actually ran?”.
+
+---
+
 # Source Artifact Intelligence
 
 ## Philosophy

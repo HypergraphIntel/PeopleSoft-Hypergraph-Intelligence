@@ -1971,6 +1971,12 @@ def admin_object_search():
 
 @router.get("/object/{object_type}/{object_name}", response_class=HTMLResponse)
 def admin_object(object_type: str, object_name: str):
+    if object_type == "sqr_program":
+        from fastapi.responses import RedirectResponse
+        filename = object_name.lower()
+        if not (filename.endswith(".sqr") or filename.endswith(".sqc")):
+            filename += ".sqr"
+        return RedirectResponse(f"/admin/sqr/{filename}", status_code=302)
     return object_explorer_page(object_type, object_name)
 
 

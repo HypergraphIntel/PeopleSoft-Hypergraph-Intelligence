@@ -514,6 +514,86 @@ def parse_appsrv(line: str) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Process Scheduler AE Server  (AESRV_MMDD.LOG.N in PRCS domain LOGS/)
+# Format: PSAESRV.PID (req) [TIMESTAMP] - - - (level) message
+# No OPRID in the timestamp bracket — extract from message body.
+# ---------------------------------------------------------------------------
+
+_PRCS_AE_RE = re.compile(
+    r'(?P<proc>PS[A-Z]+\.\d+)\s+\((?P<reqno>\d+)\)\s+'
+    r'\[(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+)\]\s+'
+    r'[-\s]+\((?P<level>\d+)\)\s+(?P<msg>.+)',
+    re.DOTALL
+)
+
+_PRCS_AE_APPLID_RE   = re.compile(r'Application ID=([A-Z0-9_]+)',    re.IGNORECASE)
+_PRCS_AE_INSTANCE_RE = re.compile(r'Process Instance=(\d+)')
+_PRCS_AE_RUNCNTL_RE  = re.compile(r'Run Control ID=([A-Z0-9_]+)',    re.IGNORECASE)
+_PRCS_AE_STEP_RE     = re.compile(r'Current Step=([A-Z0-9_.]+)',     re.IGNORECASE)
+_PRCS_AE_STATUS_RE   = re.compile(r'\bStatus=(\w+)')
+
+_PRCS_AE_LEVEL_MAP = {
+    "0": "INFO",
+    "1": "WARN",
+    "2": "WARN",
+    "3": "INFO",
+    "4": "DEBUG",
+}
+
+
+def parse_prcs_ae(line: str) -> Optional[dict]:
+    """Parse PeopleSoft Process Scheduler AESRV log lines."""
+    line = line.rstrip()
+    if not line:
+        return None
+
+    m = _PRCS_AE_RE.match(line)
+    if not m:
+        return None
+
+    ts_str  = m.group("ts")
+    level_n = m.group("level")
+    msg     = m.group("msg").strip()
+
+    try:
+        ts = datetime.strptime(ts_str[:26], _APPSRV_DT_FMT)   # same format
+    except ValueError:
+        return None
+
+    level = _PRCS_AE_LEVEL_MAP.get(level_n, "INFO")
+
+    # Extract structured fields from message body
+    applid   = (_PRCS_AE_APPLID_RE.search(msg)   or type("", (), {"group": lambda *_: None})()).group(1)
+    step     = (_PRCS_AE_STEP_RE.search(msg)      or type("", (), {"group": lambda *_: None})()).group(1)
+    status   = (_PRCS_AE_STATUS_RE.search(msg)    or type("", (), {"group": lambda *_: None})()).group(1)
+
+    # Detect errors: explicit failure, error keywords, or error status
+    is_error = (
+        "error" in msg.lower()
+        or "failed" in msg.lower()
+        or "exception" in msg.lower()
+        or status in ("Error", "Failed")
+    )
+    if is_error:
+        level = "ERROR"
+
+    error_codes = _extract_error_codes(msg) if is_error else []
+
+    return {
+        "log_type":    "prcs_ae",
+        "ts":          ts,
+        "process":     m.group("proc"),
+        "oprid":       None,        # no user context in AESRV logs
+        "level":       level,
+        "message":     msg[:2000],
+        "error_codes": error_codes,
+        "object_ref":  applid,      # AE program name for cross-reference
+        "is_error":    is_error,
+        "raw":         line,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Tuxedo ULOG  (TUXLOG.MMDDYY)
 # Format: HH:MM:SS.mmm hostname!proc.pid.grp.seq: Mon DD HH:MM:SS message
 # ---------------------------------------------------------------------------
@@ -786,6 +866,7 @@ _PARSERS = {
     "pia_weblogic":  parse_pia_weblogic,
     "pia_stdout":    parse_pia_stdout,
     "appsrv":        parse_appsrv,
+    "prcs_ae":       parse_prcs_ae,
     "tuxedo":        parse_tuxedo,
     "apache_access": parse_apache_access,
     "apache_error":  parse_apache_error,

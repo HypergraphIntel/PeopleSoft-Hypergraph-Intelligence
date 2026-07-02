@@ -1996,3 +1996,24 @@ def debug_connection(env: str = "HCM"):
         FROM dual
     """
     return psdb.query(env, sql)
+
+
+@router.get("/api/peoplesoft/{env}/component/{name}/events")
+def component_peoplecode_events(env: str, name: str):
+    return psdb.get_component_peoplecode_events(env, name)
+
+
+@router.get("/api/peoplesoft/{env}/component/search")
+def component_search(env: str, q: str = "", limit: int = 30):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env, "PSPNLGRPDEFN"):
+        return {"results": [], "warnings": ["PSPNLGRPDEFN not accessible"]}
+    rows = psdb.query(env, """
+        SELECT PNLGRPNAME, DESCR, MARKET
+          FROM SYSADM.PSPNLGRPDEFN
+         WHERE UPPER(PNLGRPNAME) LIKE :q
+           AND MARKET = 'GBL'
+         ORDER BY PNLGRPNAME
+         FETCH FIRST :lim ROWS ONLY
+    """, {"q": f"%{q.upper()}%", "lim": limit})
+    return {"results": [dict(r) for r in rows]}

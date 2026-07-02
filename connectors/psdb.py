@@ -7780,3 +7780,94 @@ def get_ib_operation(env_name, op_name):
         "routings": [dict(r) for r in routings],
         "warnings": warnings_out,
     }
+
+
+# ── Processing Sequence: Component Event Flow ─────────────────────────────
+_COMP_EVENT_PHASE = {
+    "SEARCHINIT":     ("search",      "Search Phase"),
+    "SEARCHDEFAULT":  ("search",      "Search Phase"),
+    "SEARCHSAVE":     ("search",      "Search Phase"),
+    "PREBUILD":       ("build",       "Component Build"),
+    "ROWINIT":        ("build",       "Component Build"),
+    "POSTBUILD":      ("build",       "Component Build"),
+    "ACTIVATE":       ("build",       "Component Build"),
+    "ROWSELECT":      ("interaction", "User Interaction"),
+    "FIELDDEFAULT":   ("interaction", "User Interaction"),
+    "FIELDFORMULA":   ("interaction", "User Interaction"),
+    "ROWINSERT":      ("interaction", "User Interaction"),
+    "FIELDEDIT":      ("interaction", "User Interaction"),
+    "FIELDCHANGE":    ("interaction", "User Interaction"),
+    "ITEMSELECTED":   ("interaction", "User Interaction"),
+    "ROWDELETE":      ("interaction", "User Interaction"),
+    "SAVEEDIT":       ("save",        "Save Phase"),
+    "SAVEPRECHANGE":  ("save",        "Save Phase"),
+    "WORKFLOW":       ("save",        "Save Phase"),
+    "SAVEPOSTCHANGE": ("save",        "Save Phase"),
+}
+
+_COMP_EVENT_ORDER = {k: i for i, k in enumerate([
+    "SEARCHINIT", "SEARCHDEFAULT", "SEARCHSAVE",
+    "PREBUILD", "ROWINIT", "POSTBUILD", "ACTIVATE",
+    "ROWSELECT", "FIELDDEFAULT", "FIELDFORMULA",
+    "ROWINSERT", "FIELDEDIT", "FIELDCHANGE", "ITEMSELECTED", "ROWDELETE",
+    "SAVEEDIT", "SAVEPRECHANGE", "WORKFLOW", "SAVEPOSTCHANGE",
+])}
+
+
+def get_component_peoplecode_events(env_name, component):
+    from connectors import ptmetadata
+    if not ptmetadata.has_table(env_name, "PSPCMPROG"):
+        return {"component": component.upper(), "events": [], "warnings": ["PSPCMPROG not accessible"]}
+
+    rows = query(env_name, """
+        SELECT OBJECTID1, OBJECTVALUE1, OBJECTVALUE2,
+               OBJECTVALUE3, OBJECTVALUE4, OBJECTVALUE5
+          FROM SYSADM.PSPCMPROG
+         WHERE OBJECTID1 IN (9, 10)
+           AND UPPER(OBJECTVALUE1) = :comp
+         ORDER BY OBJECTID1, OBJECTVALUE3, OBJECTVALUE4, OBJECTVALUE5
+    """, {"comp": component.upper()})
+
+    events = []
+    seen = set()
+    for r in rows:
+        oid = r["objectid1"]
+        ov2 = (r.get("objectvalue2") or "").strip()
+        ov3 = (r.get("objectvalue3") or "").strip()
+        ov4 = (r.get("objectvalue4") or "").strip()
+        ov5 = (r.get("objectvalue5") or "").strip()
+
+        if oid == 9:
+            scope, record, field, event, market = "component", "", "", ov2, ""
+        elif ov3.upper() in _COMP_EVENT_ORDER:
+            scope, record, field, event, market = "component", "", "", ov3, ov2
+        elif not ov5:
+            scope, record, field, event, market = "record", ov3, "", ov4, ov2
+        else:
+            scope, record, field, event, market = "field", ov3, ov4, ov5, ov2
+
+        key = (scope, record, field, event.upper())
+        if key in seen:
+            continue
+        seen.add(key)
+
+        ekey = event.upper()
+        phase_key, phase_label = _COMP_EVENT_PHASE.get(ekey, ("other", "Other"))
+        events.append({
+            "scope": scope,
+            "record": record,
+            "field": field,
+            "event": event,
+            "market": market,
+            "phase": phase_key,
+            "phase_label": phase_label,
+            "order": _COMP_EVENT_ORDER.get(ekey, 999),
+        })
+
+    events.sort(key=lambda e: (e["order"], e["scope"], e["record"], e["field"]))
+
+    return {
+        "component": component.upper(),
+        "events": events,
+        "warnings": [] if rows else [f"No PeopleCode found for component '{component.upper()}'"],
+    }

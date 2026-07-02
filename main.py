@@ -32,7 +32,10 @@ from routers import field
 from routers import role
 from routers import operator
 from routers import logs as logs_api
+from routers import sqr as sqr_api
 from routers.admin import logs as admin_logs
+from routers.admin import sqr_view as admin_sqr
+from routers.admin import compflow as admin_compflow
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -126,4 +129,7 @@ app.include_router(field.router)
 app.include_router(role.router)
 app.include_router(operator.router)
 app.include_router(logs_api.router)
+app.include_router(sqr_api.router)
 app.include_router(admin_logs.router)
+app.include_router(admin_sqr.router)
+app.include_router(admin_compflow.router)

@@ -124,6 +124,13 @@ def igw_summary(env: Optional[str] = Query(None)):
     return db.igw_summary(env=env)
 
 
+@router.get("/prcs-ae-summary")
+def prcs_ae_summary(env: Optional[str] = Query(None)):
+    """Aggregate PRCS AE server log data: by program, with recent error detail."""
+    db = _db()
+    return db.prcs_ae_summary(env=env)
+
+
 @router.post("/search")
 def search_logs(
     q:     str           = Query(..., description="Text to search in messages/URLs"),

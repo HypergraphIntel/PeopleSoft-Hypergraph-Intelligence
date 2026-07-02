@@ -1013,6 +1013,17 @@ OBJECT_REGISTRY.setdefault("ads_definition", {
     "relationships": [],
 })
 
+OBJECT_REGISTRY.setdefault("sqr_program", {
+    "display_title": "SQR Program",
+    "icon": "file-text",
+    "graph_node_type": "sqr_program",
+    "object_page": "/admin/sqr",
+    "discovery": None,
+    "search": None,
+    "supported_versions": ["8.54", "8.55", "8.56", "8.57", "8.58", "8.59", "8.60", "8.61", "8.62"],
+    "relationships": ["READS", "WRITES", "INCLUDES"],
+})
+
 for object_type in [
     "content_reference",
     "section",

@@ -20,7 +20,7 @@ from typing import Optional
 log = logging.getLogger("logingest")
 
 _WEB_TYPES   = {"pia_access", "apache_access", "f5_access"}
-_APP_TYPES   = {"appsrv", "tuxedo", "pia_error", "pia_servlet", "pia_weblogic", "pia_stdout", "apache_error"}
+_APP_TYPES   = {"appsrv", "prcs_ae", "tuxedo", "pia_error", "pia_servlet", "pia_weblogic", "pia_stdout", "apache_error"}
 _BLOCK_TYPES = {"igw_error_log"}   # multi-line HTML block parsers — not line-by-line
 
 

@@ -329,6 +329,61 @@ TOOLS = [
             "required": ["oprid"],
         },
     },
+    {
+        "name": "sqr_program",
+        "description": (
+            "Look up a PeopleSoft SQR batch report or SQC library file. "
+            "Returns the program's metadata (description, release, revision), the database tables it reads and writes, "
+            "and the SQC include files it depends on. "
+            "Use this for questions about what a batch report does, which tables it touches, "
+            "which programs include a given SQC library, or impact analysis on SQR programs. "
+            "Examples: 'What does AMAE1100.SQR do?', 'What tables does PAYCHECK.SQR write to?', "
+            "'Which SQR programs include SETENV.SQC?'"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "SQR/SQC filename (e.g. 'AMAE1100.SQR', 'SETENV.SQC'). "
+                                   "Can also be a partial name to search.",
+                },
+                "lookup_type": {
+                    "type": "string",
+                    "enum": ["program", "table_users", "sqc_users", "search"],
+                    "description": "program=look up a specific file; table_users=which SQRs use this table; "
+                                   "sqc_users=which SQRs include this SQC; search=keyword search across programs.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Search term (used with lookup_type=search or table_users or sqc_users)",
+                },
+            },
+            "required": ["lookup_type"],
+        },
+    },
+    {
+        "name": "component_events",
+        "description": (
+            "Return the PeopleCode event flow for a PeopleSoft component. "
+            "Shows all PeopleCode events defined for the component, grouped by processing phase "
+            "(Search Phase → Component Build → User Interaction → Save Phase), "
+            "along with which record and field each event fires on. "
+            "Use this to understand the processing sequence, debug event-driven behavior, "
+            "or identify where business logic runs. "
+            "Examples: 'What PeopleCode events fire on JOB_DATA?', "
+            "'When does RowInit run for the job data component?', "
+            "'What save-phase logic exists on HR_JOBDATA_ADD_FL?'"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "component": {"type": "string", "description": "Component name (e.g. JOB_DATA, HR_JOBDATA_ADD_FL)"},
+            },
+            "required": ["env", "component"],
+        },
+    },
 ]
 
 # Tool name → schema lookup
@@ -881,6 +936,48 @@ def _project_impact(env: str, project: str) -> dict:
     return result
 
 
+def _sqr_program(lookup_type: str, filename: str = None, query: str = None) -> dict:
+    from connectors import sqrdb
+    sqrdb.init_db()
+    if lookup_type == "program":
+        name = (filename or "").strip()
+        if not name:
+            return {"error": "filename required for lookup_type=program"}
+        detail = sqrdb.get_program(name)
+        if not detail:
+            # Try search fallback
+            results = sqrdb.search_programs(q=name, per_page=5)
+            return {"found": False, "suggestions": results.get("results", [])}
+        return {"found": True, "program": detail}
+    elif lookup_type == "table_users":
+        tbl = (filename or query or "").strip().upper()
+        if not tbl:
+            return {"error": "provide filename or query with table name"}
+        return sqrdb.get_programs_for_table(tbl)
+    elif lookup_type == "sqc_users":
+        sqc = (filename or query or "").strip().lower()
+        if not sqc:
+            return {"error": "provide filename or query with SQC name"}
+        return sqrdb.get_includes_for_sqc(sqc)
+    elif lookup_type == "search":
+        q = (query or filename or "").strip()
+        results = sqrdb.search_programs(q=q, per_page=20)
+        return results
+    return {"error": f"Unknown lookup_type: {lookup_type}"}
+
+
+def _component_events(env: str, component: str) -> dict:
+    result = psdb.get_component_peoplecode_events(env.upper(), component.upper())
+    events = result.get("events", [])
+    summary = {}
+    for e in events:
+        ph = e.get("phase", "other")
+        summary[ph] = summary.get(ph, 0) + 1
+    result["phase_summary"] = summary
+    result["total"] = len(events)
+    return result
+
+
 _HANDLERS = {
     "search_objects":     _search_objects,
     "peoplecode_search":  _peoplecode_search,
@@ -899,4 +996,6 @@ _HANDLERS = {
     "environment_health":      _environment_health,
     "ib_diagnostics":          _ib_diagnostics,
     "process_scheduler_health": _process_scheduler_health,
+    "sqr_program":             _sqr_program,
+    "component_events":        _component_events,
 }

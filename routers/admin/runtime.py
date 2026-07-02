@@ -82,6 +82,14 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
 .overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;
   background:rgba(0,0,0,.5);z-index:999;}
 .overlay.open{display:block;}
+/* ── metrics history ── */
+.hist-metric{background:rgba(0,229,255,.04);border:1px solid rgba(0,229,255,.15);
+  border-radius:6px;padding:10px 14px;min-width:150px;}
+.hist-label{font-size:10px;color:#445;text-transform:uppercase;letter-spacing:.6px;}
+.hist-val{font-size:22px;font-weight:700;}
+.hist-period{background:transparent;border:1px solid #1e3040;color:#556;
+  font-size:10px;padding:2px 7px;cursor:pointer;border-radius:2px;margin-left:3px;}
+.hist-period.on{border-color:#00e5ff55;color:#00e5ff;}
 </style>
 <div class="overlay" id="overlay" onclick="closeProc()"></div>
 <div id="procPanel">
@@ -103,6 +111,22 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
 <div class="card" id="alertsCard">
   <h2>Active Alerts <span id="alertBadge"></span></h2>
   <div id="alertsArea"><span class="muted" style="font-size:12px">Loading…</span></div>
+</div>
+
+<!-- ── Metrics History ── -->
+<div class="card" id="histCard">
+  <h2>Metrics History
+    <span>
+      <button class="hist-period on"  data-h="1"   onclick="setHistPeriod(1)">1h</button>
+      <button class="hist-period"     data-h="6"   onclick="setHistPeriod(6)">6h</button>
+      <button class="hist-period"     data-h="24"  onclick="setHistPeriod(24)">24h</button>
+      <button class="hist-period"     data-h="168" onclick="setHistPeriod(168)">7d</button>
+    </span>
+    <span id="histTs" class="ts" style="float:right"></span>
+  </h2>
+  <div id="histArea" style="display:flex;gap:12px;flex-wrap:wrap">
+    <span class="muted" style="font-size:12px">Loading…</span>
+  </div>
 </div>
 
 <!-- ── App Server Domains ── -->
@@ -187,6 +211,7 @@ const RS = {
   '8':'s-err','9':'s-ok'
 };
 let autoR = true, arTimer = null;
+let _curProcInst = 0;
 const INTERVAL = 30000;
 
 const $ = id => document.getElementById(id);
@@ -720,6 +745,7 @@ function _timelineBar(row) {
 }
 
 async function showProc(instance) {
+  _curProcInst = instance;
   const env = $('envSel').value;
   $('procPanelBody').innerHTML = '<div style="color:#445;padding:20px 0">Loading&#8230;</div>';
   $('procPanel').classList.add('open');
@@ -734,6 +760,9 @@ async function showProc(instance) {
     const warns = (data.warnings||[]).map(w => `<div class="warn-msg">&#9888; ${esc(w.message)}</div>`).join('');
     const aeLink = d.prcstype && d.prcstype.includes('Engine')
       ? `<a href="/admin/object/application_engine/${esc(d.prcsname)}" target="_blank">&#8599; AE Explorer</a>`
+      : '';
+    const sqrLink = d.prcstype && (d.prcstype.includes('SQR'))
+      ? `<a href="/admin/sqr/${esc((d.prcsname||'').toLowerCase())}.sqr" target="_blank">&#8599; SQR Source</a>`
       : '';
     const traceLink = d.oprid
       ? `<a href="/admin/tracing?oprid=${esc(d.oprid)}&env=${esc(env)}" target="_blank">&#8599; Trace ${esc(d.oprid)}</a>`
@@ -751,7 +780,7 @@ ${warns}
 ${_timelineBar(d)}
 <h2>Identity</h2>
 <div class="p-field"><span class="p-label">Process Type</span><span class="p-value">${esc(d.prcstype||'—')}</span></div>
-<div class="p-field"><span class="p-label">Program</span><span class="p-value">${esc(d.prcsname||'—')} ${aeLink}</span></div>
+<div class="p-field"><span class="p-label">Program</span><span class="p-value">${esc(d.prcsname||'—')} ${aeLink}${sqrLink}</span></div>
 <div class="p-field"><span class="p-label">Operator</span><span class="p-value">${esc(d.oprid||'—')} ${traceLink}</span></div>
 <div class="p-field"><span class="p-label">Run Control</span><span class="p-value">${esc(d.runcntlid||'—')}</span></div>
 <div class="p-field"><span class="p-label">Server</span><span class="p-value">${esc(d.serverbatch||'—')}</span></div>
@@ -767,7 +796,12 @@ ${d.jobinstance > 0 ? `<div class="p-field"><span class="p-label">Job Instance</
 ${d.jobname ? `<div class="p-field"><span class="p-label">Job Name</span><span class="p-value">${esc(d.jobname)}</span></div>` : ''}
 ${d.sessionidnum ? `<div class="p-field"><span class="p-label">Session ID</span><span class="p-value">${esc(String(d.sessionidnum))}</span></div>` : ''}
 ${d.prcsservername ? `<div class="p-field"><span class="p-label">Process Server</span><span class="p-value">${esc(d.prcsservername)}</span></div>` : ''}
-<div id="procAshSection"><div style="color:#334;font-size:11px;margin-top:16px">Loading Oracle activity…</div></div>
+<div class="tab-row" id="procDetailTabs" style="margin-top:16px">
+  <div class="tab on" onclick="switchProcTab('ash')">Oracle ASH</div>
+  <div class="tab" onclick="switchProcTab('execlog')">Exec Log</div>
+</div>
+<div id="procAshSection"><div style="color:#334;font-size:11px;margin-top:8px">Loading Oracle activity…</div></div>
+<div id="procExecSection" style="display:none"></div>
 `;
     // Async ASH enrichment — only for processes with a start time
     if (d.begindttm) {
@@ -828,9 +862,135 @@ async function loadProcAsh(instance, db, env, prcstype) {
   }
 }
 
+function switchProcTab(tab) {
+  document.querySelectorAll('#procDetailTabs .tab').forEach(b => {
+    b.classList.toggle('on', b.getAttribute('onclick').includes(`'${tab}'`));
+  });
+  $('procAshSection').style.display = tab === 'ash' ? '' : 'none';
+  $('procExecSection').style.display = tab === 'execlog' ? '' : 'none';
+  if (tab === 'execlog' && !$('procExecSection').dataset.loaded) {
+    $('procExecSection').dataset.loaded = '1';
+    loadProcExecLog(_curProcInst);
+  }
+}
+
+async function loadProcExecLog(instance) {
+  const env = $('envSel').value;
+  const el = $('procExecSection');
+  el.innerHTML = '<div style="color:#334;font-size:11px;margin-top:8px">Loading AESRV log entries…</div>';
+  try {
+    const r = await api(`/api/runtime/process-log?env=${encodeURIComponent(env)}&instance=${instance}`);
+    const items = r.items || [];
+    if (!items.length) {
+      el.innerHTML = `<div style="color:#334;font-size:11px;margin-top:8px">No AESRV log entries found for instance ${instance}.<br><span style="color:#223;font-size:10px">PRCS AE logs must be ingested (source: HCMDMO_PRCS_AE).</span></div>`;
+      return;
+    }
+    const _LC = {INFO:'#00cc66',WARN:'#ffaa00',ERROR:'#ff4444',DEBUG:'#445'};
+    let html = `<div style="margin-top:8px;font-size:10px;color:#445">${items.length} entries for instance ${instance}</div>`;
+    html += `<table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px">
+      <thead><tr style="color:#445;border-bottom:1px solid #0a2030">
+        <th style="text-align:left;padding:3px 4px;min-width:110px">Timestamp</th>
+        <th style="text-align:left;padding:3px 4px;width:36px">Lvl</th>
+        <th style="text-align:left;padding:3px 4px;min-width:80px">AE Program</th>
+        <th style="text-align:left;padding:3px 4px">Message</th>
+      </tr></thead><tbody>`;
+    items.forEach(item => {
+      const col = _LC[item.level] || '#556';
+      const ts = (item.ts||'').replace('T',' ').substring(0,19);
+      const ae = item.ae_applid
+        ? `<a href="/admin/object/application_engine/${esc(item.ae_applid)}" target="_blank" style="color:#00e5ff;text-decoration:none">${esc(item.ae_applid)}</a>`
+        : '—';
+      html += `<tr style="border-bottom:1px solid #08101a">
+        <td class="mono" style="padding:3px 4px;color:#334;font-size:10px;white-space:nowrap">${esc(ts)}</td>
+        <td style="padding:3px 4px;color:${col};font-weight:bold;font-size:10px">${esc(item.level||'—')}</td>
+        <td style="padding:3px 4px;font-size:10px">${ae}</td>
+        <td style="padding:3px 4px;color:#8ab;font-size:10px;word-break:break-word">${esc(item.message||'')}</td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = `<div style="color:#334;font-size:11px;margin-top:8px">Exec log unavailable: ${esc(e.message)}</div>`;
+  }
+}
+
+// ── Metrics History ─────────────────────────────────────────────────────────
+
+let _histHours = 24;
+
+function setHistPeriod(h) {
+  _histHours = h;
+  document.querySelectorAll('.hist-period').forEach(b => b.classList.toggle('on', +b.dataset.h === h));
+  loadHistory();
+}
+
+function _sparkline(vals, color, w=120, h=32) {
+  if (!vals.length) return `<svg width="${w}" height="${h}"></svg>`;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals, min + 1);
+  const range = max - min || 1;
+  const pts = vals.map((v, i) => {
+    const x = ((i / Math.max(vals.length - 1, 1)) * (w - 4) + 2).toFixed(1);
+    const y = (h - 2 - ((v - min) / range) * (h - 6)).toFixed(1);
+    return `${x},${y}`;
+  }).join(' ');
+  const lastPt = pts.split(' ').at(-1).split(',');
+  return `<svg width="${w}" height="${h}" style="display:block;overflow:visible">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" opacity=".9"/>
+    <circle cx="${lastPt[0]}" cy="${lastPt[1]}" r="2.5" fill="${color}"/>
+  </svg>`;
+}
+
+async function loadHistory() {
+  const env = $('envSel').value;
+  try {
+    const r = await api(`/api/runtime/history?env=${encodeURIComponent(env)}&hours=${_histHours}`);
+    const snaps = r.snapshots || [];
+    if (!snaps.length) {
+      $('histArea').innerHTML = '<span class="muted" style="font-size:12px">No history yet — snapshots are recorded every 5 minutes.</span>';
+      $('histTs').textContent = '';
+      return;
+    }
+    const metrics = [
+      {key:'process_active', label:'Active Procs',   color:'#00e5ff',  errorDir:false},
+      {key:'process_error',  label:'Process Errors', color:'#ff4444',  errorDir:true},
+      {key:'ae_running',     label:'AE Running',     color:'#ff9f43',  errorDir:false},
+      {key:'ib_pending',     label:'IB Pending',     color:'#ffdd55',  errorDir:false},
+      {key:'alert_count',    label:'Alerts',         color:'#ff6b6b',  errorDir:true},
+    ];
+    let html = '';
+    metrics.forEach(m => {
+      const vals = snaps.map(s => s[m.key] ?? 0);
+      const cur  = vals.at(-1) ?? 0;
+      const ref  = vals.length > 3 ? vals.slice(0, 3).reduce((a,b) => a+b, 0) / 3 : (vals[0] ?? 0);
+      const up   = cur > ref * 1.1;
+      const down = cur < ref * 0.9;
+      const arrow = up ? '↑' : down ? '↓' : '→';
+      const arrowCol = m.errorDir
+        ? (up ? '#ff4444' : down ? '#00cc66' : '#334')
+        : (up ? '#00cc66' : down ? '#ff9f43' : '#334');
+      const maxV = Math.max(...vals);
+      html += `<div class="hist-metric">
+        <div class="hist-label">${m.label}</div>
+        <div style="display:flex;align-items:baseline;gap:5px;margin:4px 0 6px">
+          <span class="hist-val" style="color:${m.color}">${cur}</span>
+          <span style="color:${arrowCol};font-size:13px;font-weight:700">${arrow}</span>
+          <span style="color:#334;font-size:10px">max ${maxV}</span>
+        </div>
+        ${_sparkline(vals, m.color)}
+      </div>`;
+    });
+    $('histArea').innerHTML = html;
+    const label = _histHours < 48 ? `${_histHours}h` : `${Math.round(_histHours/24)}d`;
+    $('histTs').textContent = `${snaps.length} pts · ${label}`;
+  } catch(e) {
+    $('histArea').innerHTML = `<span style="color:#334;font-size:12px">History unavailable: ${esc(e.message)}</span>`;
+  }
+}
+
 async function refresh() {
   $('lastTs').textContent = 'Refreshing…';
-  await Promise.allSettled([loadAlerts(), loadStatus(), loadDomains(), loadServers(), loadProcesses(), loadOracle(), loadAsh()]);
+  await Promise.allSettled([loadAlerts(), loadStatus(), loadDomains(), loadServers(), loadProcesses(), loadOracle(), loadAsh(), loadHistory()]);
   $('lastTs').textContent = 'Last: ' + new Date().toLocaleTimeString();
   if (autoR) {
     clearTimeout(arTimer);
