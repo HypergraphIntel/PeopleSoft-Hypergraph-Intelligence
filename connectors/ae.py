@@ -144,6 +144,28 @@ def sections(env, ae_applid):
     return {"items": enriched, "warnings": [err] if err else []}
 
 
+AE_ABEND_ACTIONS = {
+    # Numeric codes (classic schema)
+    "0": "Ignore",
+    "1": "Skip Section",
+    "2": "Abort",
+    # Letter codes (PeopleTools 8.5x)
+    "I": "Ignore",
+    "S": "Skip Section",
+    "A": "Abort",
+}
+
+AE_ON_NOROWS = {
+    "0": "Continue",
+    "1": "Skip Section",
+    "2": "Abort",
+    "I": "Ignore",
+    "S": "Skip Section",
+    "A": "Abort",
+    "C": "Continue",
+}
+
+
 def steps(env, ae_applid, ae_section=None):
     """Get steps for an AE program, optionally filtered by section."""
     ae_applid = ae_applid.upper()
@@ -158,19 +180,58 @@ def steps(env, ae_applid, ae_section=None):
     rows, err = safe_ae_query(
         env,
         "PSAESTEPDEFN",
-        ["AE_APPLID", "AE_SECTION", "AE_STEP", "DESCR", "AE_ACTTYPE",
-         "AE_STEP_ONABEND", "AE_ONABEND_SECTION", "LASTUPDDTTM", "LASTUPDOPRID"],
+        # Request all useful columns; safe_ae_query silently drops unavailable ones
+        ["AE_APPLID", "AE_SECTION", "AE_STEP", "AE_SEQ_NUM", "DESCR", "DESCRLONG",
+         "AE_ACTTYPE",           # Classic schema column (may not exist)
+         "AE_STEP_ONABEND",      # Classic schema (may not exist)
+         "AE_ONABEND_SECTION",   # Classic schema (may not exist)
+         "AE_ABEND_ACTION",      # 8.5x schema: 0=Ignore, 1=Skip, 2=Abort
+         "AE_ACTIVE_STATUS",     # Y/N active flag
+         "AE_COMMIT_AFTER",      # Y/N commit after this step
+         "AE_COMMIT_FREQ",       # Commit frequency for loops
+         "AE_DO_APPL_ID",        # Called AE program (Call Section)
+         "AE_DO_SECTION",        # Called section
+         "AE_ON_NOROWS",         # 0=Continue, 1=Skip, 2=Abort on no rows
+         "AE_PC_ON_FALSE",       # 0=Continue, 1=Skip, 2=Abort when PC returns false
+         "AE_DYNAMIC_DO",        # Dynamic call flag
+         "LASTUPDDTTM", "LASTUPDOPRID"],
         where,
         params,
         required_cols=["AE_APPLID", "AE_SECTION", "AE_STEP"],
-        order_by="ae_section, ae_step",
+        order_by="ae_section, ae_seq_num, ae_step",
     )
 
     enriched = []
     for row in rows:
         item = dict(row)
+        # Determine action type from AE_ACTTYPE (if present) or infer from structure
         act = str(item.get("ae_acttype") or "").strip()
-        item["action_type_label"] = AE_ACTION_TYPES.get(act, f"Type '{act}'")
+        do_appl = str(item.get("ae_do_appl_id") or "").strip()
+        if act:
+            item["action_type_label"] = AE_ACTION_TYPES.get(act, f"Type '{act}'")
+        elif do_appl:
+            item["action_type_label"] = "Call Section"
+            act = "C"
+        else:
+            item["action_type_label"] = "Step"
+            act = ""
+        item["ae_acttype"] = act  # ensure ae_acttype is always set for downstream use
+
+        # Decode abend action (8.5x: ae_abend_action; classic: ae_step_onabend)
+        abend_raw = str(item.get("ae_abend_action") or item.get("ae_step_onabend") or "0").strip()
+        item["abend_action_label"] = AE_ABEND_ACTIONS.get(abend_raw, f"Code {abend_raw}")
+
+        # Decode on-no-rows behavior
+        norows_raw = str(item.get("ae_on_norows") or "0").strip()
+        item["on_norows_label"] = AE_ON_NOROWS.get(norows_raw, f"Code {norows_raw}")
+
+        # Active status flag
+        item["is_active"] = str(item.get("ae_active_status") or "A").strip().upper() == "A"
+
+        # Commit checkpoint flag: Y=explicit commit, D=default (commit), N=no commit
+        commit_val = str(item.get("ae_commit_after") or "N").strip().upper()
+        item["commits_after"] = commit_val in ("Y", "D")
+
         enriched.append(item)
 
     return {"items": enriched, "warnings": [err] if err else []}
@@ -565,9 +626,12 @@ def program_graph(env, ae_applid):
             ref = f"{ae_applid}.{sect}.{step_name}"
             link("application_engine", ae_applid, "peoplecode", ref, "CONTAINS")
         elif act == "C":
-            onabend_sect = step.get("ae_onabend_section")
-            if onabend_sect:
-                link("application_engine", ae_applid, "section", f"{ae_applid}.{onabend_sect}", "CALLS")
+            called_appl = str(step.get("ae_do_appl_id") or step.get("ae_onabend_section") or "").strip()
+            called_sect = str(step.get("ae_do_section") or "").strip()
+            if called_appl:
+                link("application_engine", ae_applid, "application_engine", called_appl, "CALLS")
+            elif called_sect:
+                link("application_engine", ae_applid, "section", f"{ae_applid}.{called_sect}", "CALLS")
 
     proc_result = process_definitions(env, ae_applid)
     for proc in proc_result["items"]:

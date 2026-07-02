@@ -716,6 +716,18 @@ def sections_for_ae(ae_obj):
         {"name": "SQL Steps", "items": sql_step_items,
          "data": {"count": len(sql_step_items),
                   "note": "SQL text for each step with an executable SQL statement"}},
+        {"name": "Restart Analysis", "items": [], "data": {
+            "restart_disabled": str(raw.get("ae_disable_restart") or "N").strip().upper() == "Y",
+            "commit_steps": sum(1 for s in step_items if s.get("commits_after")),
+            "inactive_steps": sum(1 for s in step_items if not s.get("is_active", True)),
+            "abort_on_error_steps": sum(1 for s in step_items if s.get("abend_action_label") == "Abort"),
+            "call_section_steps": sum(1 for s in step_items if str(s.get("ae_acttype") or "").strip() == "C"),
+            "state_records": len(state_items),
+            "note": (
+                "Restart is DISABLED for this program — it cannot resume from a checkpoint." if str(raw.get("ae_disable_restart") or "N").strip().upper() == "Y"
+                else f"{sum(1 for s in step_items if s.get('commits_after'))} commit checkpoint(s) enable restart recovery."
+            ),
+        }},
         {"name": "State Records", "items": state_items,
          "data": {"count": len(state_items)}},
         {"name": "Temp Tables", "items": tmp_items,
