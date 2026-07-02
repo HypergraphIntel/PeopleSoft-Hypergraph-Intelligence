@@ -110,6 +110,13 @@ def trigger_ingest():
     return {"status": "ingest started", "thread": t.name}
 
 
+@router.post("/re-extract")
+def re_extract():
+    """Re-run extraction on existing log_errors rows with null error_code/object_ref."""
+    db = _db()
+    return db.re_extract_errors(limit=10000)
+
+
 @router.post("/search")
 def search_logs(
     q:     str           = Query(..., description="Text to search in messages/URLs"),

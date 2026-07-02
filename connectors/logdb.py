@@ -429,3 +429,45 @@ def prune_old_entries(web_days: int = 30, app_days: int = 90, error_days: int = 
         (f"-{error_days}",)
     )
     c.commit()
+
+
+def re_extract_errors(limit: int = 5000) -> dict:
+    """
+    Re-run extraction on existing log_errors rows that still have error_code=NULL
+    or object_ref=NULL.  Uses the current logparser patterns so improvements land
+    on already-stored data without re-ingesting.
+
+    Returns {"updated": N, "skipped": M}.
+    """
+    from connectors.logparser import _extract_error_codes, _extract_object_ref, _extract_oprid_from_message
+
+    c = _conn()
+    rows = c.execute(
+        """SELECT id, raw, message, oprid
+           FROM log_errors
+           WHERE (error_code IS NULL OR object_ref IS NULL OR oprid IS NULL)
+             AND (raw IS NOT NULL OR message IS NOT NULL)
+           LIMIT ?""",
+        (limit,),
+    ).fetchall()
+
+    updated = skipped = 0
+    for row in rows:
+        text = row["raw"] or row["message"] or ""
+        codes = _extract_error_codes(text)
+        obj   = _extract_object_ref(text)
+        oprid = row["oprid"] or _extract_oprid_from_message(text)
+        code  = codes[0] if codes else None
+
+        if code is None and obj is None and oprid == row["oprid"]:
+            skipped += 1
+            continue
+
+        c.execute(
+            "UPDATE log_errors SET error_code=?, object_ref=?, oprid=? WHERE id=?",
+            (code, obj, oprid, row["id"]),
+        )
+        updated += 1
+
+    c.commit()
+    return {"updated": updated, "skipped": skipped}

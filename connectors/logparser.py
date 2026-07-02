@@ -45,19 +45,76 @@ def _extract_ps_path(url: str) -> dict:
     return {}
 
 
-_ORA_RE = re.compile(r"\b(ORA-\d{5})\b")
+_ORA_RE      = re.compile(r"\b(ORA-\d{5})\b")
+_HTTP_ERR_RE = re.compile(r"\bHTTP[/ ](\d{3})\b")
+# PCodeWTL: "PCodeWTL(1/3): Operation:SVC_NAME[method]" or just any PCodeWTL
+_PCODEWOL_RE = re.compile(r"PCodeW[OT]L", re.IGNORECASE)
+# Java IB exceptions
+_IB_EXT_RE   = re.compile(r"ExternalApplicationException|HttpTargetConnector", re.IGNORECASE)
 
 def _extract_error_codes(text: str) -> list[str]:
-    codes = []
+    codes: list[str] = []
+
     for m in _ORA_RE.finditer(text):
         c = m.group(1)
         if c not in codes:
             codes.append(c)
+
+    for m in _HTTP_ERR_RE.finditer(text):
+        c = f"HTTP_{m.group(1)}"
+        if c not in codes:
+            codes.append(c)
+
+    # PeopleSoft-specific synthetic codes
+    low = text.lower()
+    if _PCODEWOL_RE.search(text):
+        if "IB_PCODEWOL" not in codes:
+            codes.append("IB_PCODEWOL")
+    elif _IB_EXT_RE.search(text):
+        if "IB_EXT_APP" not in codes:
+            codes.append("IB_EXT_APP")
+
+    if "authentication failed" in low or "invalid password" in low:
+        if "AUTH_FAIL" not in codes:
+            codes.append("AUTH_FAIL")
+    elif "webprofile has set incorrectly" in low:
+        if "WEBPROFILE_ERR" not in codes:
+            codes.append("WEBPROFILE_ERR")
+
     return codes
+
+
+# Patterns ordered by specificity — first match wins.
+_OBJ_PATTERNS: list[tuple] = [
+    # PCodeWTL Operation: SVC_NAME[method]
+    (re.compile(r"Operation:\s*([A-Z][A-Z0-9_$]{2,50})\[", re.IGNORECASE), 1),
+    # "Can not load remote categorys : NAME from node"
+    (re.compile(r"load remote categor\w+\s*:\s*([A-Z][A-Z0-9_$]{2,50})\s+from", re.IGNORECASE), 1),
+    # "Error: WebProfile has set incorrectly, RECORD_NAME, null"
+    (re.compile(r"WebProfile has set incorrectly,\s*([A-Z][A-Z0-9_$]{2,50}),", re.IGNORECASE), 1),
+    # "Invalid password for user OPRID@IP"  (oprid, not object — handled separately)
+    # "XXX PeopleCode" — generic fallback
+    (re.compile(r"\b([A-Z][A-Z0-9_$]{2,30})\s+PeopleCode\b", re.IGNORECASE), 1),
+]
+
+# Patterns to extract OPRID from message text
+_MSG_OPRID_RE = re.compile(
+    r"(?:for user|Error for User)\s*[:\s]*([A-Z][A-Z0-9_$]{1,29})[@\s]",
+    re.IGNORECASE,
+)
 
 def _extract_object_ref(text: str) -> Optional[str]:
     """Best-effort extraction of a PS object name from a log message."""
-    m = re.search(r"\b([A-Z][A-Z0-9_$]{2,30})\s+PeopleCode\b", text, re.IGNORECASE)
+    for pat, grp in _OBJ_PATTERNS:
+        m = pat.search(text)
+        if m:
+            return m.group(grp).upper()
+    return None
+
+
+def _extract_oprid_from_message(text: str) -> Optional[str]:
+    """Extract OPRID from error messages like 'Invalid password for user JARED@...'"""
+    m = _MSG_OPRID_RE.search(text)
     if m:
         return m.group(1).upper()
     return None
@@ -165,7 +222,7 @@ def parse_pia_error(line: str) -> Optional[dict]:
     return {
         "log_type":    "pia_error",
         "ts":          datetime.utcnow(),
-        "oprid":       None,
+        "oprid":       _extract_oprid_from_message(line),
         "level":       "ERROR",
         "message":     line[:2000],
         "error_codes": error_codes,
@@ -422,6 +479,10 @@ def parse_appsrv(line: str) -> Optional[dict]:
         cert = _APPSRV_CERT_RE.search(message)
         if cert:
             oprid = cert.group("oprid").upper()
+
+    # Last-resort: extract OPRID from message text (e.g. "Invalid password for user JARED@...")
+    if oprid is None:
+        oprid = _extract_oprid_from_message(message)
 
     # Skip system/service accounts for session chain (PS, IBAPPS, etc.)
     # but keep them — they're useful for IB tracing

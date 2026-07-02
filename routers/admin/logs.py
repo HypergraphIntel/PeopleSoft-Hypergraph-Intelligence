@@ -99,6 +99,7 @@ def logs_overview(request: Request):
   <a class="ql-btn" href="/admin/log_viewer">Log Viewer</a>
   <a class="ql-btn" href="/admin/log_session">Session Chain</a>
   <button class="ql-btn" onclick="triggerIngest()" id="ingest-btn">Trigger Ingest Now</button>
+  <button class="ql-btn" onclick="reExtract()" id="reextract-btn" style="color:#ffd700;border-color:rgba(255,215,0,.3)">Re-extract Errors</button>
 </div>
 
 <h3 style="color:#d7faff;margin:0 0 12px 0;font-size:14px">Log Sources</h3>
@@ -125,6 +126,15 @@ function triggerIngest() {{
   fetch('/api/logs/ingest', {{method:'POST'}}).then(r => r.json()).then(function(d) {{
     btn.textContent = 'Ingest started ✓';
     setTimeout(function(){{ btn.textContent='Trigger Ingest Now'; btn.disabled=false; }}, 3000);
+  }}).catch(function(e){{ btn.textContent='Error'; btn.disabled=false; }});
+}}
+function reExtract() {{
+  var btn = document.getElementById('reextract-btn');
+  btn.textContent = 'Running…';
+  btn.disabled = true;
+  fetch('/api/logs/re-extract', {{method:'POST'}}).then(r => r.json()).then(function(d) {{
+    btn.textContent = 'Re-extracted ✓ (' + (d.updated||0) + ' updated)';
+    setTimeout(function(){{ btn.textContent='Re-extract Errors'; btn.disabled=false; }}, 4000);
   }}).catch(function(e){{ btn.textContent='Error'; btn.disabled=false; }});
 }}
 </script>
