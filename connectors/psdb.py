@@ -626,6 +626,79 @@ def field_views(env_name, field_ref):
     return query(env_name, sql, {"fieldname": fieldname})
 
 
+def field_cross_record_peoplecode(env_name, fieldname: str) -> dict:
+    """Find all PeopleCode programs that fire on a specific field across all records/components.
+
+    Returns:
+      component_handlers: [{component, market, recname, event_type}] — OBJECTID1=10
+      record_handlers:    [{recname, event_type}]                    — OBJECTID1=2
+    """
+    from connectors import ptmetadata
+    fn = fieldname.strip().upper()
+    result: dict = {"fieldname": fn, "component_handlers": [], "record_handlers": []}
+
+    if not ptmetadata.has_table(env_name, "PSPCMPROG"):
+        result["warning"] = "PSPCMPROG not accessible"
+        return result
+
+    # Component-level field events (OBJECTID1=10):
+    # OV1=component, OV2=market, OV3=record, OV4=field, OV5=event
+    try:
+        rows = query(env_name, """
+            SELECT OBJECTVALUE1 AS component,
+                   OBJECTVALUE2 AS market,
+                   OBJECTVALUE3 AS recname,
+                   OBJECTVALUE5 AS event_type
+              FROM SYSADM.PSPCMPROG
+             WHERE OBJECTID1 = 10
+               AND UPPER(OBJECTVALUE4) = :fn
+               AND OBJECTVALUE5 IS NOT NULL
+               AND OBJECTVALUE5 != ' '
+             ORDER BY OBJECTVALUE5, OBJECTVALUE1, OBJECTVALUE3
+             FETCH FIRST 500 ROWS ONLY
+        """, {"fn": fn})
+        result["component_handlers"] = [
+            {
+                "component": r.get("component", "").strip(),
+                "market":    r.get("market", "").strip(),
+                "recname":   r.get("recname", "").strip(),
+                "event_type": r.get("event_type", "").strip(),
+            }
+            for r in rows
+            if (r.get("event_type") or "").strip()
+        ]
+    except Exception as exc:
+        result["component_handlers_error"] = str(exc)
+
+    # Record-level field events (OBJECTID1=2):
+    # OV1=recname, OV2=field, OV3=event
+    try:
+        rows = query(env_name, """
+            SELECT OBJECTVALUE1 AS recname,
+                   OBJECTVALUE3 AS event_type
+              FROM SYSADM.PSPCMPROG
+             WHERE OBJECTID1 = 2
+               AND UPPER(OBJECTVALUE2) = :fn
+               AND OBJECTVALUE3 IS NOT NULL
+               AND OBJECTVALUE3 != ' '
+             ORDER BY OBJECTVALUE3, OBJECTVALUE1
+             FETCH FIRST 200 ROWS ONLY
+        """, {"fn": fn})
+        result["record_handlers"] = [
+            {
+                "recname":    r.get("recname", "").strip(),
+                "event_type": r.get("event_type", "").strip(),
+            }
+            for r in rows
+            if (r.get("event_type") or "").strip()
+        ]
+    except Exception as exc:
+        result["record_handlers_error"] = str(exc)
+
+    result["total_handlers"] = len(result["component_handlers"]) + len(result["record_handlers"])
+    return result
+
+
 def field_peoplecode_metadata(env_name, field_ref):
     """Return PeopleCode programs that are attached to a specific record.fieldname.
 
@@ -2172,7 +2245,39 @@ def record_usage(env_name, recname):
             pass
     result["records_inheriting_fields"] = subrecord_derivations
 
-    result["total_count"] = result["component_count"] + len(ae_programs) + len(subrecord_derivations)
+    # SQR programs that reference this table (local SQLite index — non-fatal if absent).
+    # SQR source uses PS_<RECNAME> naming; try both the prefixed and bare forms.
+    sqr_programs: list[dict] = []
+    try:
+        from connectors import sqrdb as _sqrdb
+        _sqrdb.init_db()
+        sqr_programs = _sqrdb.get_programs_for_table("PS_" + rec)
+        if not sqr_programs:
+            sqr_programs = _sqrdb.get_programs_for_table(rec)
+    except Exception:
+        pass
+    result["sqr_programs"] = sqr_programs
+    result["sqr_program_count"] = len(sqr_programs)
+
+    # Components with PeopleCode events that fire on this record's fields (PSPCMPROG)
+    pc_component_count = 0
+    if ptmetadata.has_table(env_name, "PSPCMPROG"):
+        try:
+            pc_rows = query(env_name, """
+                SELECT COUNT(DISTINCT OBJECTVALUE1) AS cnt
+                  FROM SYSADM.PSPCMPROG
+                 WHERE OBJECTID1 = 10
+                   AND UPPER(OBJECTVALUE3) = :rec
+            """, {"rec": rec})
+            pc_component_count = int((pc_rows[0].get("cnt") or 0)) if pc_rows else 0
+        except Exception:
+            pass
+    result["pc_event_component_count"] = pc_component_count
+
+    result["total_count"] = (
+        result["component_count"] + len(ae_programs)
+        + len(subrecord_derivations) + len(sqr_programs)
+    )
     return result
 
 

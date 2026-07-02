@@ -974,6 +974,7 @@ async function loadRecord(recname) {
     <div class="tab"      onclick="switchTab('related');loadTab('related')">Related</div>
     <div class="tab"      onclick="switchTab('components');loadTab('components')">Components</div>
     <div class="tab"      onclick="switchTab('pages');loadTab('pages')">Pages</div>
+    <div class="tab"      onclick="switchTab('sqr');loadTab('sqr')">SQR Programs</div>
     <div class="tab"      onclick="switchTab('ddl');loadTab('ddl')">DDL</div>
     <div class="tab"      onclick="switchTab('data');loadTab('data')">Data</div>
   </div>
@@ -1004,6 +1005,7 @@ async function loadRecord(recname) {
   <div id="pane-related"    class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-components" class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-pages"      class="pane"><span class="empty">Loading…</span></div>
+  <div id="pane-sqr"        class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-ddl"        class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-data"       class="pane"><span class="empty">Loading…</span></div>
   `;
@@ -1016,7 +1018,7 @@ async function loadRecord(recname) {
 }
 
 function switchTab(name) {
-  const tabs = ['overview','fields','keys','indexes','related','components','pages','ddl','data'];
+  const tabs = ['overview','fields','keys','indexes','related','components','pages','sqr','ddl','data'];
   tabs.forEach(t => {
     const p = $(`pane-${t}`); if (p) p.className = 'pane' + (t === name ? ' on' : '');
   });
@@ -1053,6 +1055,10 @@ async function loadTab(name) {
   } else if (name === 'pages') {
     const d = await api(`/api/record/${encodeURIComponent(currentRec)}/pages?env=${env()}`);
     pane.innerHTML = renderPages(d.items || []);
+  } else if (name === 'sqr') {
+    const tbl = 'PS_' + currentRec;
+    const d = await api(`/api/sqr/table/${encodeURIComponent(tbl)}`);
+    pane.innerHTML = renderSQR(d.programs || [], tbl);
   } else if (name === 'ddl') {
     const d = await api(`/api/record/${encodeURIComponent(currentRec)}/ddl?env=${env()}`);
     pane.innerHTML = renderDDL(d);
@@ -1193,6 +1199,25 @@ function renderPages(items) {
     unique.map(p => `<tr><td class="mono">
       <a class="obj-link" href="/admin/object/page/${esc(p.pnlname)}">${esc(p.pnlname)}</a>
     </td></tr>`).join('') + '</tbody></table>';
+}
+
+function renderSQR(programs, tblName) {
+  if (!programs.length) return `<div class="empty">No indexed SQR programs reference <span class="mono">${esc(tblName)}</span>.<br><span style="color:#445;font-size:10px">Index SQR programs from <a href="/admin/sqr" style="color:#00e5ff">SQR Explorer</a> to populate this view.</span></div>`;
+  const OP_COLOR = {SELECT:'#0af',UPDATE:'#fa0',INSERT:'#0f9',DELETE:'#f55',CREATE:'#a0f'};
+  return `<div style="font-size:11px;color:#7faab2;margin-bottom:8px">${programs.length} SQR program${programs.length!==1?'s':''} reference <span class="mono" style="color:#d7faff">${esc(tblName)}</span></div>` +
+    `<table><thead><tr><th>Program</th><th>Type</th><th>Description</th><th>Operations</th></tr></thead><tbody>` +
+    programs.map(p => {
+      const ops = (p.operations||'').split(',').filter(Boolean).map(op =>
+        `<span style="font-size:9px;font-weight:700;padding:1px 4px;border-radius:2px;margin:1px;display:inline-block;color:${OP_COLOR[op]||'#888'};background:${OP_COLOR[op]||'#888'}22">${esc(op)}</span>`
+      ).join('');
+      const ftColor = p.file_type === 'sqr' ? '#0f9' : '#fa0';
+      return `<tr>
+        <td class="mono"><a class="obj-link" href="/admin/sqr/${encodeURIComponent(p.filename)}">${esc(p.filename)}</a></td>
+        <td><span style="font-size:9px;font-weight:700;color:${ftColor}">${esc((p.file_type||'').toUpperCase())}</span></td>
+        <td style="font-size:11px;color:#9ab">${esc(p.description||'—')}</td>
+        <td>${ops}</td>
+      </tr>`;
+    }).join('') + '</tbody></table>';
 }
 
 function renderDDL(d) {
@@ -1425,10 +1450,12 @@ a.obj-link:hover{text-decoration:underline;}
         <div class="tab on" onclick="setTab('records')">Records</div>
         <div class="tab"    onclick="setTab('keyed')">Keyed Usage</div>
         <div class="tab"    onclick="setTab('rectype')">By Type</div>
+        <div class="tab"    onclick="setTab('pc')">PeopleCode</div>
       </div>
       <div id="paneRecords" class="pane on"><div id="tblRecords"></div></div>
       <div id="paneKeyed"   class="pane"><div id="tblKeyed"></div></div>
       <div id="paneRectype" class="pane"><div id="tblRectype"></div></div>
+      <div id="panePc"      class="pane"><div id="tblPc"><span class="empty">Loading…</span></div></div>
     </div>
   </div>
 </div>
@@ -1493,6 +1520,8 @@ async function loadField(name, el) {
     el.classList.add('sel');
   }
   currentField = name;
+  _pcLoaded = false;
+  _pcData = null;
   $('placeholder').style.display = 'none';
   $('fieldContent').style.display = '';
   $('fieldTitle').textContent = name;
@@ -1502,9 +1531,10 @@ async function loadField(name, el) {
   $('tblRecords').innerHTML = '<div class="empty">Loading…</div>';
   $('tblKeyed').innerHTML = '';
   $('tblRectype').innerHTML = '';
+  $('tblPc').innerHTML = '<span class="empty">Loading…</span>';
   $('fieldObjLink').href = `/admin/object/field/${encodeURIComponent(name)}`;
 
-  // Load definition + records in parallel
+  // Load definition + records in parallel; kick off PC count in background
   const [defRes, recRes] = await Promise.allSettled([
     api(`/api/field/${encodeURIComponent(name)}/definition?env=${env()}`),
     api(`/api/field/${encodeURIComponent(name)}/records?env=${env()}`)
@@ -1524,11 +1554,12 @@ async function loadField(name, el) {
     }
   }
 
+  let pcCount = null;
   if (recRes.status === 'fulfilled') {
     const d = recRes.value;
     allRecords = d.items || [];
     (d.warnings||[]).forEach(w => $('tblRecords').innerHTML += `<div class="warn-msg">&#9888; ${esc(w.message)}</div>`);
-    renderStats(allRecords);
+    renderStats(allRecords, null);
     renderRecords(allRecords);
     renderKeyed(allRecords);
     renderByType(allRecords);
@@ -1536,19 +1567,34 @@ async function loadField(name, el) {
     $('tblRecords').innerHTML = `<div class="warn-msg">Error: ${esc(recRes.reason?.message)}</div>`;
     $('statGrid').innerHTML = '';
   }
+
+  // Background: load PC count to update stat grid (non-blocking)
+  _pcData = null;
+  api(`/api/field/${encodeURIComponent(name)}/peoplecode?env=${env()}`).then(pcData => {
+    if (currentField !== name) return;
+    _pcData = pcData;
+    renderStats(allRecords, pcData.total_handlers || 0);
+    if (_pcLoaded) renderPC(pcData);
+  }).catch(() => {});
 }
 
-function renderStats(rows) {
+function renderStats(rows, pcCount) {
   const total = rows.length;
   const keyed = rows.filter(r => r.is_key).length;
   const views = rows.filter(r => [1,5,6].includes(r.rectype)).length;
   const tables = rows.filter(r => r.rectype === 0).length;
-  $('statGrid').innerHTML = [
-    {v: total, l: 'Records Using Field'},
+  const stats = [
+    {v: total,  l: 'Records Using Field'},
     {v: tables, l: 'SQL Tables'},
-    {v: views, l: 'Views'},
-    {v: keyed, l: 'Used as Key'},
-  ].map(s => `<div class="stat-box"><div class="sv">${s.v.toLocaleString()}</div><div class="sl">${s.l}</div></div>`).join('');
+    {v: views,  l: 'Views'},
+    {v: keyed,  l: 'Used as Key'},
+  ];
+  if (pcCount !== null && pcCount !== undefined) {
+    stats.push({v: pcCount, l: 'PC Handlers'});
+  }
+  $('statGrid').innerHTML = stats.map(s =>
+    `<div class="stat-box"><div class="sv">${s.v.toLocaleString()}</div><div class="sl">${s.l}</div></div>`
+  ).join('');
 }
 
 function recRow(r) {
@@ -1605,13 +1651,106 @@ function renderByType(rows) {
   }).join('');
 }
 
+let _pcLoaded = false;
+let _pcData = null;
+
 function setTab(name) {
-  ['records','keyed','rectype'].forEach(n => {
-    const tab = document.querySelector(`.tab[onclick*="${n}"]`);
+  ['records','keyed','rectype','pc'].forEach(n => {
+    const tab = document.querySelector(`.tab[onclick*="'${n}'"]`);
     if (tab) tab.classList.toggle('on', n === name);
     const p = $(`pane${n.charAt(0).toUpperCase()+n.slice(1)}`);
     if (p) p.classList.toggle('on', n === name);
   });
+  if (name === 'pc' && !_pcLoaded) loadPCTab();
+}
+
+async function loadPCTab() {
+  _pcLoaded = true;
+  if (!currentField) return;
+  if (_pcData) { renderPC(_pcData); return; }
+  $('tblPc').innerHTML = '<div class="empty">Loading PeopleCode handlers…</div>';
+  try {
+    const d = await api(`/api/field/${encodeURIComponent(currentField)}/peoplecode?env=${env()}`);
+    _pcData = d;
+    renderPC(d);
+  } catch(e) {
+    $('tblPc').innerHTML = `<div class="warn-msg">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+const _EV_COLOR = {
+  FieldChange:'#00e5ff', FieldEdit:'#ffaa00', FieldFormula:'#00cc66',
+  FieldDefault:'#a070ff', SearchInit:'#ff88aa', SearchSave:'#ff88aa',
+  RowInit:'#44bbff', RowInsert:'#44bbff', RowDelete:'#ff6666',
+  SaveEdit:'#ffcc00', SavePreChange:'#ffcc00', SavePostChange:'#ffcc00',
+};
+
+function renderPC(d) {
+  const comp = d.component_handlers || [];
+  const rec  = d.record_handlers   || [];
+  if (!comp.length && !rec.length) {
+    $('tblPc').innerHTML = `<div class="empty">No PeopleCode programs found for field <b>${esc(d.fieldname||currentField)}</b>.</div>`;
+    return;
+  }
+  let html = `<div style="font-size:10px;color:#445;margin-bottom:10px;">
+    ${comp.length} component handler${comp.length===1?'':'s'} · ${rec.length} record-level handler${rec.length===1?'':'s'}
+  </div>`;
+
+  // Group component handlers by event_type
+  if (comp.length) {
+    html += `<h2>Component PeopleCode</h2>`;
+    const byEvt = {};
+    comp.forEach(h => { (byEvt[h.event_type]||(byEvt[h.event_type]=[])).push(h); });
+    const evtOrder = ['FieldChange','FieldEdit','FieldDefault','FieldFormula','RowInit','RowInsert','RowDelete','SearchInit','SearchSave','SaveEdit','SavePreChange','SavePostChange'];
+    const evtKeys = [...new Set([...evtOrder.filter(e=>byEvt[e]), ...Object.keys(byEvt)])];
+    evtKeys.forEach(evt => {
+      const handlers = byEvt[evt];
+      const col = _EV_COLOR[evt] || '#8ab';
+      html += `<details open style="margin-bottom:10px;">
+        <summary style="cursor:pointer;font-size:11px;color:${col};padding:3px 0;letter-spacing:.5px;">
+          ${esc(evt)} <span style="color:#445;font-weight:normal;">(${handlers.length})</span>
+        </summary>
+        <table style="width:100%;border-collapse:collapse;margin-top:4px;font-size:11px;">
+          <thead><tr style="color:#445;border-bottom:1px solid #0a2030">
+            <th style="text-align:left;padding:3px 6px">Component</th>
+            <th style="text-align:left;padding:3px 6px">Record</th>
+            <th style="text-align:left;padding:3px 6px">Mkt</th>
+          </tr></thead><tbody>`;
+      handlers.forEach(h => {
+        html += `<tr style="border-bottom:1px solid #08101a">
+          <td style="padding:3px 6px">
+            <a class="obj-link" href="/admin/compflow?component=${encodeURIComponent(h.component)}">${esc(h.component)}</a>
+          </td>
+          <td style="padding:3px 6px">
+            <a class="obj-link" href="/admin/record/${esc(h.recname)}">${esc(h.recname)}</a>
+          </td>
+          <td style="padding:3px 6px;color:#445;font-size:10px">${esc(h.market||'GBL')}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></details>`;
+    });
+  }
+
+  // Record-level handlers
+  if (rec.length) {
+    html += `<h2>Record PeopleCode</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead><tr style="color:#445;border-bottom:1px solid #0a2030">
+          <th style="text-align:left;padding:3px 6px">Record</th>
+          <th style="text-align:left;padding:3px 6px">Event</th>
+        </tr></thead><tbody>`;
+    rec.forEach(h => {
+      const col = _EV_COLOR[h.event_type] || '#8ab';
+      html += `<tr style="border-bottom:1px solid #08101a">
+        <td style="padding:3px 6px">
+          <a class="obj-link" href="/admin/record/${esc(h.recname)}">${esc(h.recname)}</a>
+        </td>
+        <td style="padding:3px 6px;color:${col}">${esc(h.event_type)}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  $('tblPc').innerHTML = html;
 }
 
 (async () => {

@@ -41,3 +41,13 @@ def field_definition(fieldname: str, env: str = Query("HCM"), record: str = Quer
     ref = f"{record}.{fieldname}" if record else fieldname
     result, err = _safe(psdb.field_definition, env, ref, empty={})
     return {"item": result or {}, "warnings": [{"message": err, "severity": "warning"}] if err else []}
+
+
+@router.get("/{fieldname}/peoplecode")
+def field_peoplecode(fieldname: str, env: str = Query("HCM")):
+    """Return all PeopleCode programs that fire on this field across all records/components."""
+    result, err = _safe(psdb.field_cross_record_peoplecode, env, fieldname, empty={})
+    if err:
+        return {"fieldname": fieldname, "component_handlers": [], "record_handlers": [],
+                "total_handlers": 0, "warnings": [{"message": err, "severity": "warning"}]}
+    return result

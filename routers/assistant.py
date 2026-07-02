@@ -24,7 +24,8 @@ Guidelines:
 - For "what components/pages use record X", "what depends on record X", or "what is the \
   blast radius of changing record X": use record_usage. This queries live metadata directly \
   and is comprehensive. It returns components, pages, search-record components, AE programs, \
-  and records that inherit fields — sorted and ready to interpret.
+  records that inherit fields, SQR programs that reference the table (sqr_programs / sqr_program_count), \
+  and the count of components with PeopleCode events on this record's fields (pc_event_component_count).
 - For "who uses X" or "what does X affect" on non-record objects (components, pages, AE \
   programs, fields), use graph_impact, but be aware KG coverage may be incomplete.
 - For "what does X depend on" (what this object references), use graph_dependencies.
