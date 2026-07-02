@@ -250,6 +250,7 @@ Continue enriching graph relationships.
 - XML Publisher Report UOM objects now expose datasource relationships and compact graph previews for PS Query / Connected Query data sources; persisted Knowledge Graph ingestion emits XML Publisher Report → PS Query / Connected Query `USES` edges where `DS_TYPE` is `QRY` or `CQR`
 - PTF Test UOM objects now expose menu/component/page/record/field relationships from command metadata with compact graph previews; persisted Knowledge Graph ingestion emits PTF Test → touched object `USES` edges
 - Process Definition UOM objects now expose run-control component relationships and implementation links for Application Engine / XML Publisher process types; persisted Knowledge Graph ingestion emits Process Definition → Component `USES` and Process Definition → implementation `WRAPS` edges
+- IB Message UOM objects now expose schema record relationships with compact graph previews; persisted Knowledge Graph ingestion emits Message → Record and parent Record → child Record `CONTAINS` edges from PSMSGREC default-version metadata
 - Tree → Record USES edges
 - Impact analysis (forward and reverse dependency traversal with depth control)
 

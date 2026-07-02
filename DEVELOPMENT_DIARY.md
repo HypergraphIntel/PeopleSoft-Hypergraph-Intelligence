@@ -6,6 +6,56 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-02 — IB Message UOM and Knowledge Graph Relationships
+
+Date/time: 2026-07-02 00:18 CDT
+
+Features implemented:
+- IB Message UOM objects now expose `_relationships.schema_records` from
+  PSMSGREC default-version schema metadata.
+- IB Message compact `_graph` previews now show Message → Record `CONTAINS`
+  edges and parent Record → child Record `CONTAINS` hierarchy edges.
+- Persisted Knowledge Graph ingestion now batch-loads PSMSGREC rows for sampled
+  PSMSGDEFN messages and emits the same schema record and hierarchy edges.
+
+Files modified:
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Used the message default version (`PSMSGDEFN.DEFAULTVER`) so the compact
+  graph matches the schema records already displayed by the Object Explorer.
+- Treated `PRNTRECNAME = '--'` as the schema root marker and skipped hierarchy
+  edges for that pseudo-parent.
+- Reused canonical `record` nodes rather than creating message-specific schema
+  node types.
+
+Bugs fixed:
+- IB Message object pages showed schema records but had no canonical
+  relationship model or compact graph preview.
+- Persisted KG IB Message provider created message nodes without edges to the
+  records contained in each message schema.
+
+Technical debt:
+- Version-specific message graph selection is not yet exposed; current compact
+  graph follows the default version only.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/graphdb.py` — OK.
+- `uom.ib_message_payload('HCM', 'PERSON_BASIC_SYNC')` returned 33 schema
+  record relationships and a compact graph with 34 nodes / 65 edges.
+- `/api/peoplesoft/graph/message/PERSON_BASIC_SYNC` route helper returned
+  `_source: uom`, `_vocabulary: compact_uom`, and Message → Record / parent
+  Record → child Record `CONTAINS` edges.
+
+Next recommended work:
+- Continue compact UOM graph alignment for File Layout Definitions or ADS
+  Definitions.
+- Consider a version selector for IB Message graph previews if users need to
+  compare non-default schema versions.
+
 ## 2026-07-02 — Process Definition UOM and Knowledge Graph Relationships
 
 Date/time: 2026-07-02 00:08 CDT

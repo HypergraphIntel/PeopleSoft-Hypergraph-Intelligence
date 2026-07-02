@@ -5688,6 +5688,40 @@ def ib_message_object(env, msgname):
     defn = data.get("definition", {})
     status = defn.get("msgstatus", 0)
     status_cls, status_label = _IB_MSG_STATUS_CLS.get(status, ("chip-muted", "Unknown"))
+    schema_records = []
+    for row in data.get("schema_records", []) or []:
+        recname = str(row.get("recname") or "").strip().upper()
+        parent = str(row.get("prntrecname") or "").strip().upper()
+        item = dict(row)
+        item["name"] = recname
+        item["parent_record"] = parent if parent and parent != "--" else ""
+        if recname:
+            item["_links"] = {"admin": object_url("record", recname)}
+            schema_records.append(item)
+    relationships = {"schema_records": schema_records}
+    graph = relationship_graph(
+        "message",
+        msgname.upper(),
+        limit_relationships(relationships, {"schema_records": 80}),
+        [
+            {
+                "relationship": "schema_records",
+                "node_type": "record",
+                "target_name": "name",
+                "default_edge": "CONTAINS",
+                "extra_edges": [
+                    {
+                        "source_node_type": "record",
+                        "source_name": "parent_record",
+                        "target_node_type": "record",
+                        "target_name": "name",
+                        "edge": "CONTAINS",
+                    }
+                ],
+            },
+        ],
+        root_data=defn,
+    )
     return {
         "type": "message",
         "name": defn.get("msgname", msgname),
@@ -5706,6 +5740,8 @@ def ib_message_object(env, msgname):
         "counts": data.get("counts", {}),
         "_raw": data,
         "_links": {"admin": "/admin/ibmessage"},
+        "_relationships": relationships,
+        "_graph": graph,
         "warnings": data.get("warnings", []),
     }
 
@@ -5794,6 +5830,8 @@ def ib_message_payload(env, msgname):
         "sections": sections_for_ib_message(obj),
         "warnings": obj.get("warnings", []),
         "_links": obj["_links"],
+        "_relationships": obj.get("_relationships", {}),
+        "_graph": obj.get("_graph", {}),
         "_uom": obj,
     }
 

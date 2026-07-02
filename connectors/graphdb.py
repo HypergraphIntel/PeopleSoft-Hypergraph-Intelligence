@@ -1720,16 +1720,53 @@ def build(env="HCM", limit=50, persist=True):
         if not ptmetadata.has_table(env, "PSMSGDEFN"):
             return 0
         rows = psdb.query(env, f"""
-            SELECT MSGNAME, DESCR, CHNLNAME, MSGSTATUS, OBJECTOWNERID
+            SELECT MSGNAME, DESCR, CHNLNAME, DEFAULTVER, MSGSTATUS, OBJECTOWNERID
               FROM SYSADM.PSMSGDEFN
              WHERE ROWNUM <= {limit}
              ORDER BY MSGNAME
         """) or []
+        records_by_message = defaultdict(list)
+        message_keys = [
+            (str(r.get("msgname") or "").strip().upper(), str(r.get("defaultver") or "").strip())
+            for r in rows
+            if r.get("msgname") and str(r.get("defaultver") or "").strip()
+        ]
+        if message_keys and ptmetadata.has_table(env, "PSMSGREC"):
+            clauses = []
+            params = {}
+            for idx, (msgname, version) in enumerate(message_keys[:900]):
+                clauses.append(f"(MSGNAME = :msg{idx} AND APMSGVER = :ver{idx})")
+                params[f"msg{idx}"] = msgname
+                params[f"ver{idx}"] = version
+            rec_rows = psdb.query(env, f"""
+                SELECT MSGNAME, APMSGVER, RECNAME, PRNTRECNAME, SEQNO, XMLALIAS
+                  FROM SYSADM.PSMSGREC
+                 WHERE ({' OR '.join(clauses)})
+                 ORDER BY MSGNAME, APMSGVER, SEQNO, RECNAME
+            """, params) or []
+            for rec in rec_rows:
+                msgname = str(rec.get("msgname") or "").strip().upper()
+                recname = str(rec.get("recname") or "").strip().upper()
+                if msgname and recname:
+                    records_by_message[msgname].append({**rec, "recname": recname})
         for r in rows:
             mid = r.get("msgname")
             if not mid:
                 continue
             add_node(graph, "message", mid, r.get("descr") or mid, r)
+            seen_records = set()
+            for rec in records_by_message.get(str(mid).strip().upper(), []):
+                recname = str(rec.get("recname") or "").strip().upper()
+                parent = str(rec.get("prntrecname") or "").strip().upper()
+                if not recname:
+                    continue
+                if recname not in seen_records:
+                    seen_records.add(recname)
+                    add_node(graph, "record", recname, recname, rec)
+                    add_edge(graph, "message", mid, "record", recname, "CONTAINS", rec)
+                if parent and parent != "--":
+                    add_node(graph, "record", parent, parent, rec)
+                    add_edge(graph, "record", parent, "record", recname, "CONTAINS", rec)
         return len(rows)
 
     def projects():
