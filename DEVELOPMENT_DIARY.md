@@ -6,6 +6,55 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-02 — ADS Definition UOM and Knowledge Graph Relationships
+
+Date/time: 2026-07-02 00:38 CDT
+
+Features implemented:
+- ADS Definition UOM objects now expose `_relationships.records` from
+  PSADSDEFNITEM metadata.
+- ADS Definition compact `_graph` previews now show ADS Definition → Record
+  `CONTAINS` edges and parent Record → child Record `CONTAINS` hierarchy edges.
+- Persisted Knowledge Graph ingestion now batch-loads PSADSDEFNITEM rows for
+  sampled ADS definitions and emits the same record containment model.
+
+Files modified:
+- `connectors/uom.py`
+- `connectors/graphdb.py`
+- `ROADMAP.md`
+- `DEVELOPMENT_DIARY.md`
+
+Design decisions:
+- Kept ADS groups as section metadata for this slice because the current
+  connector only returns group counts, not group-member field rows.
+- Reused canonical `record` nodes so ADS migration definitions line up with
+  Object Explorer, Environment Compare, and impact analysis record objects.
+
+Bugs fixed:
+- ADS Definition object pages showed managed records but had no canonical
+  relationship model or compact graph preview.
+- Persisted KG ADS provider created only ADS nodes without edges to the
+  PeopleSoft records managed by each data set.
+
+Technical debt:
+- ADS group-member field relationships can be added after `PSADSGROUPMEMB`
+  detail rows are fetched into the connector.
+
+Verification:
+- `python -m py_compile connectors/uom.py connectors/graphdb.py` — OK.
+- `uom.ads_definition_object('HCM', 'ACTIVITY_GUIDE_ITEM')` returned 8 records
+  and a compact graph with 9 nodes / 15 edges.
+- `uom.ads_definition_object('HCM', 'BAS_CMPDEFN')` returned 4 records and a
+  compact graph with 5 nodes / 7 edges.
+- `/api/peoplesoft/graph/ads_definition/ACTIVITY_GUIDE_ITEM` route helper
+  returned `_source: uom`, `_vocabulary: compact_uom`, and ADS Definition →
+  Record plus parent Record → child Record `CONTAINS` edges.
+
+Next recommended work:
+- Add ADS group-member field relationships by expanding `get_ads_definition()`
+  to return `PSADSGROUPMEMB` detail rows.
+- Continue compact UOM graph alignment for Translate Values or URL Definitions.
+
 ## 2026-07-02 — File Layout UOM and Knowledge Graph Relationships
 
 Date/time: 2026-07-02 00:29 CDT

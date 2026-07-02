@@ -1689,12 +1689,42 @@ def build(env="HCM", limit=50, persist=True):
              WHERE ROWNUM <= {limit}
              ORDER BY PTADSNAME
         """) or []
+        ads_names = [str(r.get("ptadsname") or "").strip().upper() for r in rows if r.get("ptadsname")]
+        records_by_ads = defaultdict(list)
+        if ads_names and ptmetadata.has_table(env, "PSADSDEFNITEM"):
+            for start_idx in range(0, len(ads_names), 900):
+                chunk = ads_names[start_idx:start_idx + 900]
+                quoted = ",".join("'" + name.replace("'", "''") + "'" for name in chunk)
+                item_rows = psdb.query(env, f"""
+                    SELECT PTADSNAME, RECNAME, PTPARENTRECNAME, PTPEERORDER
+                      FROM SYSADM.PSADSDEFNITEM
+                     WHERE PTADSNAME IN ({quoted})
+                     ORDER BY PTADSNAME, PTPARENTRECNAME, RECNAME
+                """) or []
+                for item in item_rows:
+                    ads_name = str(item.get("ptadsname") or "").strip().upper()
+                    recname = str(item.get("recname") or "").strip().upper()
+                    if ads_name and recname:
+                        records_by_ads[ads_name].append({**item, "recname": recname})
         for r in rows:
             ads_name = r.get("ptadsname")
             if not ads_name:
                 continue
             label = (r.get("descr") or "").strip() or ads_name
             add_node(graph, "ads_definition", ads_name, label, r)
+            seen_records = set()
+            for item in records_by_ads.get(str(ads_name).strip().upper(), []):
+                recname = str(item.get("recname") or "").strip().upper()
+                parent = str(item.get("ptparentrecname") or "").strip().upper()
+                if not recname:
+                    continue
+                if recname not in seen_records:
+                    seen_records.add(recname)
+                    add_node(graph, "record", recname, recname, item)
+                    add_edge(graph, "ads_definition", ads_name, "record", recname, "CONTAINS", item)
+                if parent:
+                    add_node(graph, "record", parent, parent, item)
+                    add_edge(graph, "record", parent, "record", recname, "CONTAINS", item)
         return len(rows)
 
     def ib_applications():

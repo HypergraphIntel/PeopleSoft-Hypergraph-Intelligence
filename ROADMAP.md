@@ -252,6 +252,7 @@ Continue enriching graph relationships.
 - Process Definition UOM objects now expose run-control component relationships and implementation links for Application Engine / XML Publisher process types; persisted Knowledge Graph ingestion emits Process Definition → Component `USES` and Process Definition → implementation `WRAPS` edges
 - IB Message UOM objects now expose schema record relationships with compact graph previews; persisted Knowledge Graph ingestion emits Message → Record and parent Record → child Record `CONTAINS` edges from PSMSGREC default-version metadata
 - File Layout UOM objects now expose segment record and layout field relationships with compact graph previews; persisted Knowledge Graph ingestion emits File Layout → Record/Field and Record → Field `CONTAINS` edges from PSFLDSEGDEFN/PSFLDFIELDDEFN metadata
+- ADS Definition UOM objects now expose managed record relationships with compact graph previews; persisted Knowledge Graph ingestion emits ADS Definition → Record and parent Record → child Record `CONTAINS` edges from PSADSDEFNITEM metadata
 - Tree → Record USES edges
 - Impact analysis (forward and reverse dependency traversal with depth control)
 

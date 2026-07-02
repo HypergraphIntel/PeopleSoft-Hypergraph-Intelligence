@@ -7534,6 +7534,44 @@ def ads_definition_object(env, ads_name):
     warnings = data.get("warnings") or []
     counts = data.get("counts") or {}
     key_cols = data.get("key_cols") or []
+    record_rows = []
+    seen_records = set()
+    for row in data.get("records") or []:
+        recname = str(row.get("recname") or "").strip().upper()
+        parent = str(row.get("ptparentrecname") or "").strip().upper()
+        if not recname or recname in seen_records:
+            continue
+        seen_records.add(recname)
+        item = dict(row)
+        item["name"] = recname
+        item["parent_record"] = parent if parent else ""
+        item["_links"] = {"admin": object_url("record", recname)}
+        record_rows.append(item)
+
+    relationships = {"records": record_rows}
+    graph = relationship_graph(
+        "ads_definition",
+        ads_name.upper(),
+        limit_relationships(relationships, {"records": 80}),
+        [
+            {
+                "relationship": "records",
+                "node_type": "record",
+                "target_name": "name",
+                "default_edge": "CONTAINS",
+                "extra_edges": [
+                    {
+                        "source_node_type": "record",
+                        "source_name": "parent_record",
+                        "target_node_type": "record",
+                        "target_name": "name",
+                        "edge": "CONTAINS",
+                    }
+                ],
+            },
+        ],
+        root_data=defn,
+    )
 
     descr = (defn.get("descr") or "").strip()
     display = f"{ads_name} — {descr}" if descr else ads_name
@@ -7553,6 +7591,8 @@ def ads_definition_object(env, ads_name):
             "record_count": counts.get("records", 0),
             "group_count": counts.get("groups", 0),
         },
+        _relationships=relationships,
+        _graph=graph,
         _metadata={"environment": env.upper(), "source_table": "PSADSDEFN"},
     )
 
