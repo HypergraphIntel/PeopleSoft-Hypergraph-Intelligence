@@ -6,6 +6,60 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — Comprehensive Object Cross-Reference Expansion
+
+### Cross-Reference Sections — All Object Types
+
+Extended the Knowledge Graph cross-reference system in `routers/peoplesoft.py`
+with dedicated sections for every major object type.
+
+**Root cause**: `attach_graph_context()` added only generic "Knowledge Graph
+Neighbors" items.  Engineers had no quick way to answer "who touches this?" or
+"where is this deployed?" for records, AEs, PeopleCode, pages, or components.
+
+**Changes in `routers/peoplesoft.py`**:
+
+`_attach_outbound_rw_xref()` — was AE/SQL only; extended to **peoplecode** so
+PeopleCode programs with READS edges show a "Records Read / Written" section.
+
+`_attach_ae_schedulers()` — new helper; for `application_engine` objects queries
+inbound WRAPS edges from `prcs_defn` nodes to append "Invoked By (Process
+Definitions)" showing which Process Scheduler definitions invoke this AE.
+Parses `PTYPE~PNAME` node names into display_name + prcs_type fields.
+
+`_attach_record_components_xref()` — new helper; for `record` objects queries
+inbound USES edges filtered to `component:` sources to append "Components Using
+This Record".
+
+`_attach_inbound_xref()` — new generic helper; builds any inbound cross-reference
+section given `src_type`, `edge_type`, `section_name`, and `note` parameters.
+Eliminates boilerplate for page/project cross-refs.
+
+New sections wired via dispatch in `attach_graph_context()`:
+| Object type | Section | Edge query |
+|---|---|---|
+| `record` | READS / WRITES | in READS/WRITES |
+| `record` | Components Using This Record | in USES (component sources) |
+| `record` | Pages Using This Record | in USES (page sources) |
+| `record` | Projects Deploying This Record | in DEPLOYS (project sources) |
+| `application_engine` | Records Read / Written | out READS/WRITES |
+| `application_engine` | Invoked By (Process Definitions) | in WRAPS |
+| `sql_definition` | Records Read / Written | out READS/WRITES |
+| `peoplecode` | Records Read / Written | out READS/WRITES |
+| `page` | Projects Deploying This Page | in DEPLOYS |
+| `component` | Projects Deploying This Component | in DEPLOYS |
+
+**Verified**:
+- `record:JOB` → 25-item READS/WRITES + "Pages Using" (ABSV_PLANS)
+- `record:INSTALLATION` → 9-item READS/WRITES + 9 Components Using
+- `application_engine:BEN110` → 7 Records Read/Written + Invoked By (BEN110)
+- `application_engine:AA_CONV_JPN` → 3 Records Read/Written (Invoked By skipped — not in top-100 KG)
+- `peoplecode:AA_COST_RT_JPN.EMPL_RCD_JPN.SAVEEDIT.0` → Records Read/Written: JOB
+- Projects Deploying sections verified via graphdb.neighbors() directly on GPIT_CTR_EE (GPIT project limit)
+
+Commits: `e4f9ab1`, `7b0232d`, `60cd837`, `f1fee77`
+
+------------------------------------------------------------------------
 ## 2026-07-03 — HANDOFF #10: Typed KG Edges and READS/WRITES Record Cross-Reference
 
 ### HANDOFF #10 — SQL Definition Cross-Reference (Knowledge Graph)
@@ -4645,7 +4699,7 @@ Files changed:
 Verification:
 - `python3 -c "import py_compile; py_compile.compile(...)"` → OK both files
 - Direct call: `psdb.get_app_class("HCM", "PTNUI~IBHandlers~UniNavLandingPageHandler")` → source len: 91487
-- Root-level class `HR_ABN~:~ABNDynamicFolderBase` → source len: 10338  
+- Root-level class `HR_ABN~:~ABNDynamicFolderBase` → source len: 10338
 - API: `GET /api/peoplesoft/object/app_class/PTNUI~IBHandlers~UniNavLandingPageHandler?env=HCM` → 3 sections, PeopleCode Source present
 
 ### HANDOFF #3 — Portal Rich Reconstruction (Subtree Expansion)
