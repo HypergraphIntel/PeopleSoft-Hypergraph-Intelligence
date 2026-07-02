@@ -275,15 +275,17 @@ Every object should answer:
 ### ✅ Completed (2026-07-02)
 
 - Record objects: `READS / WRITES` section — lists every AE/SQL/PeopleCode program that reads or writes this record, sourced from Knowledge Graph inbound READS/WRITES edges; WRITES-first sort
+- Record objects: `Components Using This Record` section — lists components with inbound USES edges from the KG; surfaces components that reference this record as search/data record
 - Application Engine objects: `Records Read / Written` section — lists every record touched by this AE, sourced from outbound READS/WRITES KG edges
+- Application Engine objects: `Invoked By (Process Definitions)` section — lists process scheduler definitions that wrap/invoke this AE via inbound WRAPS KG edges
 - SQL Definition objects: `Records Read / Written` section — lists records accessed by this SQL definition, sourced from outbound READS/WRITES KG edges
+- PeopleCode objects: `Records Read / Written` section — lists records accessed by PeopleCode programs with READS edges in the KG
 - Knowledge Graph Neighbors edge types: all neighbor items now show the actual edge type (CONTAINS, USES, REFERENCES, READS, …) instead of generic 'neighbor'
 
 ### Remaining
 
 - Universal "what references me / what do I reference" coverage across all object types
-- "Who executes me?" for runtime-linked objects (AEs, Service Operations)
-- Consistent cross-reference sections across remaining UOM providers
+- Consistent cross-reference sections across remaining UOM providers (message, tree, project, portal)
 
 ---
 
