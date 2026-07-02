@@ -1217,6 +1217,16 @@ def auth_component_source(env_name, auth_alias="ai", group_alias="auth_pg"):
             "order": f"{auth_alias}.pnlgrpname",
         }
 
+    # PeopleTools 8.5x: BARITEMNAME holds the component (PNLGRPNAME equivalent)
+    if "baritemname" in auth_columns:
+        return {
+            "column": "BARITEMNAME",
+            "expr": f"{auth_alias}.baritemname",
+            "join": "",
+            "where": f"{auth_alias}.baritemname",
+            "order": f"{auth_alias}.baritemname",
+        }
+
     if "pnlitemname" in auth_columns:
         # Some PeopleTools schemas store the authorized page/item in PSAUTHITEM and
         # require PSPNLGROUP to resolve the owning component.
@@ -1232,7 +1242,7 @@ def auth_component_source(env_name, auth_alias="ai", group_alias="auth_pg"):
             "order": f"{group_alias}.pnlgrpname",
         }
 
-    raise ValueError("PSAUTHITEM has neither PNLGRPNAME nor PNLITEMNAME")
+    raise ValueError("PSAUTHITEM has neither PNLGRPNAME nor BARITEMNAME nor PNLITEMNAME")
 
 
 def permissionlist_components(env_name, classid):
