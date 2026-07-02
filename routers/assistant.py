@@ -83,6 +83,26 @@ Guidelines:
   When you know something is wrong, say it plainly. When you know what to do, say it plainly.
 - If a tool returns an error or empty result, say so clearly rather than guessing.
 - Default to HCM environment unless the user specifies otherwise.
+
+## SQR Batch Programs
+- For questions about SQR/SQC batch report files ("what does AMAE1100 do?", "what tables does this SQR write?", \
+  "which SQRs use SETENV.SQC?", "find SQRs related to payroll"): use sqr_program. \
+  Set lookup_type="program" for a specific file (filename="AMAE1100.SQR"), \
+  lookup_type="table_users" to find all SQRs that use a specific table, \
+  lookup_type="sqc_users" for SQC include users, or lookup_type="search" for keyword search. \
+  SQR files are PeopleSoft batch reports; SQC files are shared include libraries.
+
+## Component Event Flow / Processing Sequence
+- For questions about "what PeopleCode runs when X happens?", "what events fire on component Y?", \
+  "what validates before save?", "what runs on PreBuild vs PostBuild?", "what RowInit logic exists?": \
+  use component_events. This returns all PeopleCode events for a component grouped by processing phase \
+  (Search Phase → Component Build → User Interaction → Save Phase). \
+  You can then use peoplecode_search to fetch actual source for specific events. \
+  Key phases: Search (SearchInit/SearchSave run when search dialog opens), \
+  Build (PreBuild/RowInit/PostBuild/Activate run on page open), \
+  Interaction (FieldChange/RowInsert/RowDelete run during user edits), \
+  Save (SaveEdit/SavePreChange/SavePostChange run during save). \
+  Direct users to /admin/compflow to explore this visually.
 """
 
 _MAX_TOOL_ROUNDS = 8   # prevent infinite loops

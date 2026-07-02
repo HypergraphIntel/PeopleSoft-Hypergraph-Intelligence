@@ -2046,6 +2046,11 @@ def component_peoplecode_events(env: str, name: str):
     return psdb.get_component_peoplecode_events(env, name)
 
 
+@router.get("/api/peoplesoft/{env}/component/{name}/event-source")
+def component_event_source(env: str, name: str, event: str, record: str = "", field: str = ""):
+    return psdb.get_component_event_source(env, name, event, record, field)
+
+
 @router.get("/api/peoplesoft/{env}/component/search")
 def component_search(env: str, q: str = "", limit: int = 30):
     from connectors import ptmetadata

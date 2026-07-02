@@ -7814,6 +7814,65 @@ _COMP_EVENT_ORDER = {k: i for i, k in enumerate([
 ])}
 
 
+def get_component_event_source(env_name, component, event, record="", field=""):
+    """Fetch PeopleCode source for a specific component event (component/record/field level)."""
+    from connectors import ptmetadata, peoplecode as pc
+    if not ptmetadata.has_table(env_name, "PSPCMPROG"):
+        return {"source": None, "warnings": ["PSPCMPROG not accessible"]}
+
+    comp = component.strip().upper()
+    evt = event.strip().upper()
+    rec = record.strip().upper()
+    fld = field.strip().upper()
+
+    if rec and fld:
+        rows = query(env_name, """
+            SELECT OBJECTID1, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3,
+                   OBJECTVALUE4, OBJECTVALUE5, PROGSEQ
+              FROM SYSADM.PSPCMPROG
+             WHERE OBJECTID1 = 10
+               AND UPPER(OBJECTVALUE1) = :comp
+               AND UPPER(OBJECTVALUE3) = :rec
+               AND UPPER(OBJECTVALUE4) = :fld
+               AND UPPER(OBJECTVALUE5) = :evt
+        """, {"comp": comp, "rec": rec, "fld": fld, "evt": evt})
+    elif rec:
+        rows = query(env_name, """
+            SELECT OBJECTID1, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3,
+                   OBJECTVALUE4, OBJECTVALUE5, PROGSEQ
+              FROM SYSADM.PSPCMPROG
+             WHERE OBJECTID1 = 10
+               AND UPPER(OBJECTVALUE1) = :comp
+               AND UPPER(OBJECTVALUE3) = :rec
+               AND UPPER(OBJECTVALUE4) = :evt
+               AND TRIM(OBJECTVALUE5) IS NULL OR TRIM(OBJECTVALUE5) = ''
+        """, {"comp": comp, "rec": rec, "evt": evt})
+        if not rows:
+            rows = query(env_name, """
+                SELECT OBJECTID1, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3,
+                       OBJECTVALUE4, OBJECTVALUE5, PROGSEQ
+                  FROM SYSADM.PSPCMPROG
+                 WHERE OBJECTID1 = 10
+                   AND UPPER(OBJECTVALUE1) = :comp
+                   AND UPPER(OBJECTVALUE3) = :rec
+                   AND UPPER(OBJECTVALUE4) = :evt
+            """, {"comp": comp, "rec": rec, "evt": evt})
+    else:
+        rows = query(env_name, """
+            SELECT OBJECTID1, OBJECTVALUE1, OBJECTVALUE2, OBJECTVALUE3,
+                   OBJECTVALUE4, OBJECTVALUE5, PROGSEQ
+              FROM SYSADM.PSPCMPROG
+             WHERE OBJECTID1 IN (9, 10)
+               AND UPPER(OBJECTVALUE1) = :comp
+               AND (UPPER(OBJECTVALUE3) = :evt OR UPPER(OBJECTVALUE2) = :evt)
+        """, {"comp": comp, "evt": evt})
+
+    if not rows:
+        return {"source": None, "warnings": [f"No PeopleCode found for {comp} {event}"]}
+
+    return pc.source_for_reference(env_name, dict(rows[0]))
+
+
 def get_component_peoplecode_events(env_name, component):
     from connectors import ptmetadata
     if not ptmetadata.has_table(env_name, "PSPCMPROG"):
