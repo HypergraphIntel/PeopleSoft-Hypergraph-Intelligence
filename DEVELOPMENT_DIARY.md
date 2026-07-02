@@ -3521,3 +3521,76 @@ Verification:
 - Live connector calls: compare_menus (20 diffs), compare_trees (OK), compare_ib_routings (OK), compare_ib_messages (OK)
 - HTTP endpoints all returned 200 after service restart
 - `/admin/envcompare` page confirmed 44,822 bytes; Menus/Trees/IB Routings tabs present
+
+------------------------------------------------------------------------
+
+## 2026-07-02 — App Class Source, Portal Reconstruction, Access Path Fix
+
+### HANDOFF #8 — App Class PeopleCode Source in Object Explorer
+
+Added PeopleCode source code display to the App Class Object Explorer page.
+
+**Problem**: `psdb.get_app_class()` fetched PSAPPCLASSDEFN metadata but did not
+fetch the actual PeopleCode source from PSPCMTXT.
+
+**Root cause #1 — sections ignored**: `uom.object_payload()` was calling
+`sections_for_field()` regardless of whether the object had custom sections
+from `canonical_base`. Fixed by checking `field.get("sections") is not None`
+first; falls back to `sections_for_field` for legacy field objects only.
+
+**Root cause #2 — case sensitivity**: The route does `object_name.upper()`, so
+the compound key `PTNUI~IBHandlers~UniNavLandingPageHandler` becomes
+`PTNUI~IBHANDLERS~UNINAVLANDINGPAGEHANDLER`. `PSAPPCLASSDEFN` stores mixed-case
+qualify paths and class IDs. Fixed by using `UPPER()` predicates in the
+PSAPPCLASSDEFN query and then re-assigning to DB-returned correct-case values.
+
+**Source lookup key**: OV1=packageroot, OV2..n-1=qualifypath split by `:`, OVn-1=classid, OVn=OnExecute; padded to 7 columns.
+
+Files changed:
+- `connectors/psdb.py` — `get_app_class()`: add source fetch via PSPCMTXT; case-insensitive PSAPPCLASSDEFN lookup; DB-returned correct-case values for subsequent queries
+- `connectors/uom.py` — `_app_class_sections()`: add "PeopleCode Source" section; `object_payload()`: prefer `field.sections` when already set
+
+Verification:
+- `python3 -c "import py_compile; py_compile.compile(...)"` → OK both files
+- Direct call: `psdb.get_app_class("HCM", "PTNUI~IBHandlers~UniNavLandingPageHandler")` → source len: 91487
+- Root-level class `HR_ABN~:~ABNDynamicFolderBase` → source len: 10338  
+- API: `GET /api/peoplesoft/object/app_class/PTNUI~IBHandlers~UniNavLandingPageHandler?env=HCM` → 3 sections, PeopleCode Source present
+
+### HANDOFF #3 — Portal Rich Reconstruction (Subtree Expansion)
+
+Added deep portal subtree expansion capability using Oracle CONNECT BY.
+
+**New**: `psdb.portal_registry_subtree(env, portal_name, parent_objname, max_depth=6, max_rows=1000)` — hierarchical CONNECT BY query returning full descendant subtree as a flat depth-annotated list.
+
+**New API**: `GET /api/peoplesoft/portal/subtree?portal_name=EMPLOYEE&parent=HC_WORKFORCE_ADMINISTRATION&max_depth=3&max_rows=50&env=HCM` → returns `{items, count}` with depth-sorted items.
+
+**Portal Explorer enhancement**: "Expand Subtree" button (purple) on the Portal Explorer page loads the full subtree of the currently loaded portal object and renders it as a depth-indented color-coded tree (folders=blue, content refs=green).
+
+Files changed:
+- `connectors/psdb.py` — `portal_registry_subtree()` function
+- `routers/peoplesoft.py` — `GET /api/peoplesoft/portal/subtree` endpoint
+- `routers/admin/graph.py` — "Expand Subtree" button + subtree card + `expandSubtree()` JS function
+
+Verification:
+- `portal_registry_subtree("HCM", "EMPLOYEE", "HC_WORKFORCE_ADMINISTRATION", max_depth=3, max_rows=50)` → 50 rows
+- API: 50 rows returned, correct depth ordering
+
+### HANDOFF #4 — Access Path Visualization Fix (BARITEMNAME)
+
+**Critical bug discovered**: `auth_component_source()` in `psdb.py` only handled `PNLGRPNAME` (older schema) and `PNLITEMNAME`→PSPNLGROUP join path. PeopleTools 8.5x uses `BARITEMNAME` to store the component name. Since this DB has `BARITEMNAME` but not `PNLGRPNAME`, ALL component access path queries were returning empty results.
+
+**Fix**: Added `BARITEMNAME` as a priority-2 check in `auth_component_source()`, before the `PNLITEMNAME` join path.
+
+**Impact**: Functions now returning real data:
+- `component_access("HCM", "JOB_DATA")` → 2,250 paths (was 0)
+- `permissionlist_components("HCM", "HCCPHD1000")` → 31 components (was 0)
+- `GET /api/peoplesoft/security/components/JOB_DATA/access?env=HCM` → counts: 11 PLs, 15 roles, 43 users, 2250 paths
+- Permission List Object Explorer now shows 31 components for HCCPHD1000
+
+Files changed:
+- `connectors/psdb.py` — `auth_component_source()`: add BARITEMNAME branch
+
+Commits:
+- `a7ef5dd` feat(app-class): add PeopleCode source code to App Class Object Explorer
+- `a76f1c9` feat(portal): rich portal reconstruction — deep subtree expansion
+- `4c5ceff` fix(security): support BARITEMNAME as component source in PSAUTHITEM
