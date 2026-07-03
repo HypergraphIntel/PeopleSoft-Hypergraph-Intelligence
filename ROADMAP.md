@@ -1232,25 +1232,95 @@ AI tools for log diagnosis; session chain correlation web→app; error surface w
 - **Security nav group** consolidates secaudit/security/operator/role/permissionlist; permissionlist moved from Objects
 - **SQR cross-reference in Record Explorer** — record UOM calls sqrdb.get_programs_for_table(table_name); "SQR Programs" section with _links.admin → /admin/sqr/{filename}; re-index triggered 2026-07-03 — 344 rows, 123 distinct tables
 
-## ✅ Phase 10 — SQR Explorer (Partial, complete as of 2026-07-02)
+## ✅ Phase 10 — SQR Explorer (Substantially Complete as of 2026-07-02)
 
 SQR/SQC source artifact intelligence is live for FSCM (507 SQR + 698 SQC = 1,205 files indexed).
-Admin pages: `/admin/sqr`, `/admin/sqr/{filename}`, `/admin/sqr/table/{table}`, `/admin/sqr/analytics`.
+Admin pages: `/admin/sqr`, `/admin/sqr/{filename}`, `/admin/sqr/table/{table}`, `/admin/sqr/analytics`, `/admin/sqrsearch`.
 KG edges: `sqr_program → record` READS/WRITES, `sqr_program → sqr_program` INCLUDES, `prcs_defn → sqr_program` WRAPS.
 Runtime process panel: SQR Report/Process type links directly to source.
 
-**Remaining:** COBOL Explorer, COPYBOOK Explorer, SQR override intelligence, environment side-by-side comparison.
+### Done (2026-07-02, session 3)
 
-## Phase 6 — Environment Intelligence (Substantially Complete as of 2026-07-01)
+- **SQR Override Intelligence infrastructure**: `sqr_sources` keys split per source_type (`fscm_sqr_delivered` / `fscm_sqr_custom` / `hcm_sqr_delivered` / `hcm_sqr_custom`); `source_type: delivered|custom` field added to config; sqrdb schema migrated to `UNIQUE(filename, source_key)` + `source_type` column; `GET /api/sqr/overrides?env=` returns filenames present in both delivered and custom; re-index required to populate source_type in DB
+- **SQR KG Records tab**: all detail pages now have a "KG Records" lazy-load tab; queries `/api/graph/neighbors/sqr_program:FILE?env=HCM`; renders READS (blue) / WRITES (amber) groups with links to Record Explorer
+- **SQR Full-Text Search** at `/admin/sqrsearch`: SQLite-backed source text index with automatic schema migration; syntax-highlighted snippets; deduplication across delivered/custom trees; cross-link to SQR Explorer
+- **EnvCompare Process Definitions tab**: `GET /api/envcompare/process_definitions` compares PS_PRCSDEFN (PRCSTYPE, PRCSNAME, DESCR, LASTUPDDTTM) using composite TYPE~NAME key; "Processes" tab in EnvCompare UI between Trees and IB Routings
+- **EnvCompare summary**: Process Definitions count row added (PS_PRCSDEFN)
+- **Env-based filtering** in SQR Explorer: env selector dropdown populated from `/api/sqr/sources`; stats and search results scoped to selected env
+- **SQC Included By tab**: SQC detail pages show a third "Included By" tab listing programs that #include this SQC (lazy-loaded from `/api/sqr/sqc/{name}/users`)
+
+**Remaining:** COBOL Explorer, COPYBOOK Explorer, environment side-by-side SQR comparison.
+
+## ✅ Phase 6 — Environment Intelligence (Substantially Complete as of 2026-07-01)
 
 Continuous drift detection, environment history, and impact forecasting are complete.
 
 **Remaining:** Promotion history tracking (DEV → TEST → UAT → PROD) — needs real promotion-chain DB connections before implementation.
 
 **What was delivered:**
-- 16-type envcompare coverage (records, fields, components, pages, permissions, roles, AE, PeopleCode, SQL defs, portals, queries, menus, trees, IB routings, IB messages, comp. interfaces)
+- 17-type envcompare coverage (records, fields, components, pages, permissions, roles, AE, PeopleCode, SQL defs, portals, queries, menus, trees, IB routings, IB messages, comp. interfaces, **process definitions**)
 - AE step-level body comparison with unified SQL diff
 - Scheduled drift snapshots (SQLite) with threshold + growth alerts, history time series
 - KG-independent deployment risk scoring (weighted by object type) via `/api/impact/risk`
 - Project impact reports via KG reverse traversal via `/api/impact/project`
 - Admin pages: `/admin/drift`, `/admin/impact`
+
+## ✅ Dedicated Object Explorers (2026-07-02)
+
+Rich dedicated explorer pages for major PeopleSoft object types, providing deep contextual analysis beyond the generic Object Explorer.
+
+- **AE Explorer** at `/admin/ae`: search catalog, tabbed detail (Overview, Steps, Runtime History, Cross-References, KG Graph); live runtime history from Process Scheduler; step/section/SQL deep dive; Invoked By (Process Definitions) cross-reference
+- **Component Explorer** at `/admin/component`: tabbed analysis — Overview, Pages, Security, PeopleCode, Portal, Records; Who Has Access (complete PL → Role → Operator chain); grouped PeopleCode by event; component-to-page cross-linking
+- **Page Explorer** at `/admin/page`: Overview, Records, Components, PeopleCode, Security; hierarchical page/subpage navigation
+- **Permission List Explorer** at `/admin/permissionlist`: Overview, Components, Roles, Menus; access coverage analysis
+- **Unified Object Explorer** at `/admin/object/{type}/{name}`: cross-type search; auto-redirects to dedicated explorer for supported types; generic UOM provider view for all other types
+- Cross-linking updated throughout platform: AE/Component/Page/Permission List deep-links from process definitions, runtime monitor, record explorer, security explorer
+
+## ✅ Component Event Flow Explorer (2026-07-02)
+
+- `/admin/compflow`: enter component, renders canonical PeopleSoft processing lifecycle (20 event slots across 4 phases: Search → Build → Interaction → Save); each slot shows delivered/custom PeopleCode with inline source viewer and syntax highlighting; custom events highlighted in amber with LASTUPDOPRID
+- `/api/peoplesoft/components/{comp}/events`: enumerate component, record, and field-level PeopleCode events with execution phase, scope, customization status; decode 20 canonical events with purpose/phase metadata
+- `/api/peoplesoft/components/{comp}/event-source`: fetch PeopleCode source for specific event context from PSPCMTXT
+- Inline source viewer within event flow; SQR syntax highlighting for PeopleCode
+- Addressed Processing Sequence Intelligence roadmap: canonical event sequence model, event-aware indexing, delivered vs custom comparison
+
+## ✅ Incident RCA (2026-07-02)
+
+- `/admin/rca`: single-pane root-cause analysis; correlates process failure with Oracle ASH, app/web logs, IB errors, and Knowledge Graph; tabbed output (Process, Logs, ASH, IB, KG); pre-populated from runtime process panel
+- Integrated with Component Event Flow for PeopleCode-level correlation
+
+## ✅ SQR Full-Text Search (2026-07-02)
+
+- `/admin/sqrsearch`: SQLite-backed source text index; search across all indexed SQR/SQC source code; syntax-highlighted snippets with matching term highlight; sorted by hit count; deduplication across delivered/custom; "Open in SQR Explorer" cross-link per result
+- Schema migration for source text column applied automatically on first use
+
+## ✅ Access Path Explorer (2026-07-02)
+
+- `/admin/accesspath` (Security nav group): dual-mode security analysis — component-centric (who can access this component?) and operator-centric (what can this operator access?)
+- Component mode: complete Permission List → Role → Operator authorization paths; access level breakdown; count summary
+- Operator mode: component permissions, access levels, and granting security objects
+- Environment-aware; URL deep-linking; client-side filtering for rapid security investigation
+
+## ✅ Change Risk Analyzer (2026-07-02)
+
+- `/admin/riskanalysis` (Tools nav group): evaluate project impact, blast radius, and affected users before deployment; computes risk scores based on affected records, components, AE programs, and user population
+- Direct navigation from risk results to Component Explorer, Record Explorer, and Access Path Explorer
+- IB Message cross-references: UOM IB Message objects now show correlated Service Operations, Routings, and Subscriptions
+
+## ✅ Security Audit Dashboard (2026-07-02)
+
+- `/admin/secaudit`: stat cards (total operators/roles/PLs/active-30d), top roles by member count, top operators by role count, recent sign-ons (30d), orphaned roles, operator type breakdown
+- Security nav group consolidates: Security Audit, Security Explorer, Operators, Roles, Permission Lists
+
+## ✅ What Changed Expansion (2026-07-02)
+
+Expanded from 9 → 20 supported object types: added Menus, Queries, Projects, Processes, App Packages, IB Messages, IB Routings, Trees, Translate Values, Component Interfaces.
+OPRID filter added: client-side filter on updater shows N/Total counts per type pill.
+
+## ✅ SQR Cross-References in Record Explorer (2026-07-02)
+
+Record objects now have a "SQR Programs" section (sourced from `sqrdb.get_programs_for_table()`); shows which SQR programs read or write this record with operation badges and links to SQR Explorer.
+
+## ✅ Field PeopleCode Impact Tab (2026-07-02)
+
+`/admin/field/{name}` now has a "PeopleCode" tab alongside Records/Keyed/ByType: shows all PeopleCode programs that reference this field, grouped by object type (Record/Component/Page), with event name and direct links to source.

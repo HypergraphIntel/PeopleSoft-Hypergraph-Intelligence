@@ -17,15 +17,18 @@ Before changing code, read and reconcile:
 - `_core.py` — router object, `_NAV_GROUPS`, `_NAV_CSS`, `_ESC_JS`, `_nav_html()`, `_shell()`
 - `__init__.py` — re-exports `router`; importing it registers all sub-module routes
 - `home.py`, `security.py`, `graph.py`, `runtime.py`, `data.py`, `integration.py`,
-  `objects.py`, `portal.py`, `platform.py`, `perf.py`, `logs.py`, `tools.py`
+  `objects.py`, `portal.py`, `platform.py`, `perf.py`, `logs.py`, `tools.py`,
+  `compflow.py`, `rca.py`, `sqr_view.py`
 - Each sub-module imports `router, _shell, _nav_html, _NAV_CSS, _ESC_JS` from `._core`
 - New admin pages go in the sub-module matching their nav group (see `_NAV_GROUPS` in `_core.py`)
 
 ## Nav bar
 
-Grouped CSS-only dropdown bar. Groups: Runtime · Data · Integration · Objects · Portal · Platform · Perf · Tools.
+Grouped CSS-only dropdown bar. Groups: Runtime · Data · Integration · Objects · Portal · Platform · Perf · Security · Tools.
 Direct links: Home · Users. Active group highlights on any child page.
 Styles in `/static/app.css` (`.ds-nav-group`, `.ds-nav-dropdown`, `.ds-nav-drop-link`).
+
+Security group items: Security Audit (`/admin/secaudit`), Security Explorer (`/admin/security`), Operators (`/admin/operator`), Roles (`/admin/role`), Permission Lists (`/admin/permissionlist`).
 
 **`_NAV_CSS` rule:** `_NAV_CSS` is a complete `<style>…</style>` block. Always place `{_NAV_CSS}`
 directly in `<head>`, never inside another `<style>` block. Standalone pages (no `app.css`) call
@@ -55,8 +58,8 @@ All database/file/AI logic lives in `connectors/`. Key modules:
 | `logdb.py` | SQLite log store (`data/logs.db`) |
 | `logingest.py` | Log ingestion orchestrator (SSH → parse → store) |
 | `sqrparser.py` | SQR/SQC file parser (description, tables, includes, procedures) |
-| `sqrdb.py` | SQLite SQR index (`data/sqr.db`) |
-| `sqringest.py` | SSH-based SQR filesystem indexer |
+| `sqrdb.py` | SQLite SQR index (`data/sqr.db`); schema: `UNIQUE(filename, source_key)` + `source_type` column; `overrides(env_source_keys)` returns delivered+custom duplicates |
+| `sqringest.py` | SSH-based SQR filesystem indexer; reads `source["ssh_host"]` (was `alias`), passes `source_type` to `upsert_program()` |
 | `sshclient.py` | Paramiko SSH/SFTP wrapper with per-host connection pooling |
 | `runtimedb.py` | SQLite runtime snapshot store |
 | `promotiondb.py` | SQLite promotion event log (`data/promotions.db`) |
@@ -91,7 +94,7 @@ All database/file/AI logic lives in `connectors/`. Key modules:
 ## Verification and CI
 
 - `make check` — runs syntax check on all Python files
-- `python3 scripts/smoke_admin_shell.py` — headless Chrome smoke test for all 57 admin pages (expect 57/57)
+- `python3 scripts/smoke_admin_shell.py` — headless Chrome smoke test for all admin pages (expect 57/57 as of 2026-07-02)
 - `.github/workflows/ci.yml` — runs `make check` on push/PR
 - Always run `python3 -c "import py_compile; py_compile.compile('path/to/file.py', doraise=True)"` on touched files before restart
 - Restart server with `pkill -f "uvicorn main:app"; .venv/bin/uvicorn main:app --host 127.0.0.1 --port 8088 &`
@@ -125,8 +128,25 @@ Drawn from `ROADMAP.md` remaining sections — pick the highest-value slice:
 ### Phase 10 — Source Artifact Intelligence (remaining)
 - COBOL Explorer, COPYBOOK Explorer
 - SQR dependency graph (SQC include tree, visual)
-- SQR environment presence (HCM vs FSCM side-by-side)
+- SQR environment side-by-side comparison (HCM vs FSCM)
 - Incremental SQR scanning (checksum-based change detection)
+- **Note**: After any `sqr_sources` config change, a re-index is required to populate `source_type` in sqrdb (`POST /api/sqr/index`)
+
+## Key pages added since last handoff (2026-07-02)
+
+| URL | Sub-module | Description |
+|-----|-----------|-------------|
+| `/admin/ae` | `platform.py` | AE Explorer: steps, SQL, runtime history, cross-refs |
+| `/admin/component` | `platform.py` | Component Explorer: pages, security, PeopleCode, access paths |
+| `/admin/page` | `platform.py` | Page Explorer: records, components, PeopleCode, security |
+| `/admin/permissionlist` | `security.py` | Permission List Explorer: components, roles, menus |
+| `/admin/object/{type}/{name}` | `graph.py` | Unified Object Explorer; auto-redirects to dedicated explorers |
+| `/admin/compflow` | `compflow.py` | Component Event Flow Explorer with inline PeopleCode source |
+| `/admin/rca` | `rca.py` | Incident RCA: log+runtime+ASH+IB+KG correlation |
+| `/admin/sqrsearch` | `sqr_view.py` | SQR Full-Text Search with syntax-highlighted snippets |
+| `/admin/accesspath` | `security.py` | Access Path Explorer: component-centric and operator-centric |
+| `/admin/riskanalysis` | `platform.py` | Change Risk Analyzer: project KG blast radius + affected users |
+| `/admin/secaudit` | `security.py` | Security Audit Dashboard: stats, orphan detection, sign-on history |
 
 ---
 

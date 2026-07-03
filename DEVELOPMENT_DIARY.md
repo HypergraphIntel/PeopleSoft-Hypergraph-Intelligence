@@ -4830,3 +4830,248 @@ Files changed:
 
 Commits:
 - `72c4311` feat(graph,topology): HANDOFF #5 graph indexing + HANDOFF #7 topology diagram
+
+---
+
+## 2026-07-02 — Object Explorers, Component Event Flow, Security Intelligence, SQR Intelligence
+
+### SQR Explorer: Env-Based Filtering + SQC Included-By Tab (c5552ae, 71bbda2, bcf5e95)
+
+Added environment-scoped filtering to the SQR Explorer. The env selector dropdown is populated from `/api/sqr/sources`, and changing env reloads stats and search results filtered to the selected env's source keys. The `GET /api/sqr/sources?env=` endpoint was introduced to return both the full sources list and the enumerated env names. SQC detail pages now have an "Included By" tab that lazy-loads programs referencing this SQC via `/api/sqr/sqc/{name}/users`.
+
+Config change: `sqr_sources` entries now use `ssh_host` instead of `alias`. `sqringest.py` updated accordingly.
+
+Files changed:
+- `routers/sqr.py` — `GET /api/sqr/sources[?env=]`, env→source_keys resolution in `GET /api/sqr/programs`
+- `routers/admin/sqr_view.py` — env selector, `onEnvChange()`, `doSearch()` env param, SQC Included By tab
+- `connectors/sqringest.py` — `source["ssh_host"]` rename
+- `config.json` (gitignored) — `sqr_sources` keys renamed
+
+Verification:
+- `/api/sqr/sources` returns combined sources + env list
+- Env selector in admin SQR changes filtered results
+
+Commits:
+- `bcf5e95` feat(sqr): rename sqr_sources alias to ssh_host
+- `71bbda2` feat(sqr): env-based source filtering in SQR Explorer
+- `c5552ae` feat(envcompare): add Process Definitions comparison tab
+
+---
+
+### EnvCompare: Process Definitions Tab + Summary Row (c5552ae)
+
+`compare_process_definitions()` added to `connectors/envcompare.py`. Queries `PS_PRCSDEFN` using composite key `TYPE~NAME`; compares DESCR and LASTUPDDTTM across environments. A "Processes" tab was wired into the EnvCompare UI (between Trees and IB Routings) and a Process Definitions count row added to the summary table.
+
+Files changed:
+- `connectors/envcompare.py` — `compare_process_definitions()`
+- `routers/envcompare.py` — `GET /api/envcompare/process_definitions`
+- `routers/admin/runtime.py` — Processes tab in TABS/Q_IDS/keyCol/metaHeaders/metaCells
+
+Commits:
+- `c5552ae` feat(envcompare): add Process Definitions comparison tab
+
+---
+
+### SQR JS $ Fix (44acd94)
+
+`_ESC_JS` only defines `esc()`, not `$`. Fixed by adding `const $ = id => document.getElementById(id);` to all three script blocks in `sqr_view.py` that used `$` without defining it.
+
+Files changed:
+- `routers/admin/sqr_view.py` — three `const $ = …` declarations
+
+Commits:
+- `44acd94` fix(sqr): add const $ definition to all script blocks
+
+---
+
+### SQR Override Intelligence + KG Records Tab + Schema Migration (76b24c4, 7565949)
+
+**sqr_sources config split:** Distinct keys per source+env (`fscm_sqr_delivered`, `fscm_sqr_custom`, `hcm_sqr_delivered`, `hcm_sqr_custom`) plus `source_type: delivered|custom` field. This enables override detection: a file present in both a delivered and a custom source key for the same env is an override.
+
+**sqrdb schema migration:** Old schema had `UNIQUE(filename)`. New schema requires `UNIQUE(filename, source_key)` plus `source_type TEXT` column. SQLite can't ALTER CONSTRAINT, so `init_db()` detects the old schema by presence of the old index, renames to `sqr_programs_v1`, creates the new table, copies data, drops the old. 1,384 programs preserved across migration.
+
+**Override endpoint:** `GET /api/sqr/overrides?env=` returns filenames appearing in both delivered and custom source keys for the given env. Powers the Overrides tab in SQR Explorer analytics.
+
+**KG Records tab:** All SQR detail pages now have a lazy-loaded "KG Records" tab. Queries `/api/graph/neighbors/sqr_program:FILENAME?env=HCM&limit=150`. Groups results as READS (blue) and WRITES (amber) with links to Record Explorer. Node ID uses `filename.toUpperCase()` to match KG conventions.
+
+Files changed:
+- `connectors/sqrdb.py` — schema migration in `init_db()`, `UNIQUE(filename, source_key)`, `source_type` column, `overrides()` method
+- `connectors/sqringest.py` — passes `source_type` to `upsert_program()`
+- `routers/sqr.py` — `GET /api/sqr/overrides`
+- `routers/admin/sqr_view.py` — KG Records tab on all detail pages, `loadKgRecords()` with uppercase node ID
+- `config.json` (gitignored) — sqr_sources split into four distinct keys
+
+Verification:
+- sqrdb migration ran without data loss (1,384 programs)
+- `/api/sqr/overrides?env=HCM` returns filenames present in both delivered and custom
+- KG Records tab loads in SQR detail pages
+- `python3 scripts/smoke_admin_shell.py` → 57/57
+
+Commits:
+- `76b24c4` feat(sqr): override intelligence, KG records tab, schema migration
+- `7565949` fix(sqr): sqrdb overrides query param order
+
+---
+
+### SQR Full-Text Search (1e648dc)
+
+`/admin/sqrsearch` added to SQR nav. SQLite-backed source text index with schema migration (adds `source_text TEXT` column to `sqr_programs` on first use). Search queries via `/api/sqr/search?q=&env=`. Results show syntax-highlighted snippets, hit counts (sorted descending), source type badge, and "Open in SQR Explorer" cross-link. Deduplicates across delivered/custom trees.
+
+Files changed:
+- `connectors/sqrdb.py` — `source_text` column, FTS search
+- `routers/sqr.py` — `GET /api/sqr/search`
+- `routers/admin/sqr_view.py` — `/sqrsearch` route and page
+
+Commits:
+- `1e648dc` feat(sqr): full-text SQR search + complete Component Event Flow
+
+---
+
+### Field PeopleCode Impact Tab (2717465, c5de9b7)
+
+`/admin/field/{name}` now has a "PeopleCode" tab showing all PeopleCode programs that reference this field, grouped by object type (Record/Component/Page), with event name and direct links. Also added Operator Activity insights to the Operator 360 page.
+
+Files changed:
+- `routers/admin/objects.py` — PeopleCode tab in field detail, operator activity insights
+- `connectors/psdb.py` — `field_peoplecode_references()` query
+
+Commits:
+- `2717465` feat(field): add PeopleCode impact tab to /admin/field
+- `c5de9b7` feat(field): PeopleCode impact analysis + operator activity insights
+
+---
+
+### Application Engine Explorer (22d7595)
+
+`/admin/ae` added to Platform nav. Tabbed detail: Overview (DESCR, type, owner, dates), Steps (section→step tree with SQL text inline), Runtime History (recent process instances from runtimedb), Cross-References (Process Definitions that invoke this AE), KG Graph (graph neighbors). Env-aware; env selector populates from available environments.
+
+Files changed:
+- `routers/admin/platform.py` — `admin_ae()` route and page
+- `connectors/ae.py` — step listing, runtime history, cross-reference queries
+
+Commits:
+- `22d7595` feat(ae): Application Engine Explorer with runtime/dependency analysis
+
+---
+
+### Dedicated Object Explorers: Component, Page, Permission List (6072e76, 7473280)
+
+- **Component Explorer** at `/admin/component`: tabbed — Overview, Pages, Security (full PL→Role→Operator chain), PeopleCode (events by record/field), Portal, Records; deep-link to Page Explorer, Access Path Explorer, Security Explorer
+- **Page Explorer** at `/admin/page`: Overview, Records, Components, PeopleCode, Security tabs
+- **Permission List Explorer** at `/admin/permissionlist`: Overview, Components, Roles, Menus tabs
+- **Unified Object Explorer** at `/admin/object/{type}/{name}` (in `graph.py`): cross-type search; auto-redirects to dedicated explorer for supported types (component, page, permissionlist, ae); generic UOM view otherwise
+- Nav wiring: dedicated explorers added to Objects nav group; correct cross-links throughout
+
+Files changed:
+- `routers/admin/platform.py` — `admin_component()`, `admin_page()` routes
+- `routers/admin/security.py` — `admin_permissionlist()` route
+- `routers/admin/graph.py` — unified object explorer, cross-type search
+- `routers/admin/_core.py` — nav entries for component, page, permissionlist, ae
+
+Commits:
+- `6072e76` feat(objects): Component Explorer, Page Explorer, Permission List Explorer
+- `7473280` feat(objects): wire dedicated explorers into platform navigation
+
+---
+
+### Component Event Flow Explorer (b42e5b2, d805ee6, 35cd6de, 1e648dc)
+
+`/admin/compflow` (Platform nav): enter a component name, renders the canonical 20-event PeopleSoft processing lifecycle across 4 phases (Search, Build, Interaction, Save). Each event slot shows delivered vs custom PeopleCode presence with inline source viewer and syntax highlighting. Custom events highlighted in amber with LASTUPDOPRID.
+
+New APIs:
+- `GET /api/peoplesoft/components/{comp}/events` — enumerate component/record/field PeopleCode events with execution phase, scope, customization status, and canonical event metadata (purpose, phase)
+- `GET /api/peoplesoft/components/{comp}/event-source` — fetch PeopleCode source for specific event context from PSPCMTXT
+
+Inline source viewer: click event slot → loads source; PeopleCode syntax highlighting with token-level coloring.
+
+Files changed:
+- `routers/admin/compflow.py` — full page (new file)
+- `routers/peoplesoft.py` — `/components/{comp}/events`, `/components/{comp}/event-source`
+- `routers/admin/_core.py` — Component Event Flow in Platform nav
+
+Commits:
+- `b42e5b2` feat(compflow): Component Event Flow APIs + runtime RCA integration
+- `d805ee6` feat(compflow): inline PeopleCode source viewer
+- `35cd6de` feat(compflow): page improvements and event canonicalization
+- `1e648dc` feat(sqr): full-text SQR search + complete Component Event Flow
+
+---
+
+### Incident RCA (39d7409)
+
+`/admin/rca` (Tools nav): single-pane root-cause analysis correlating process failure with Oracle ASH, app/web logs, IB errors, and Knowledge Graph. Tabbed output: Process (scheduler details), Logs (parsed log errors near failure time), ASH (wait events), IB (correlated IB errors), KG (graph context for involved components/records). Pre-populated from runtime process panel deep-links.
+
+Files changed:
+- `routers/admin/rca.py` — new file; full RCA page
+- `routers/admin/_core.py` — RCA in Tools nav
+
+Commits:
+- `39d7409` feat(rca): Incident RCA with log/runtime/alert correlation
+
+---
+
+### Security Audit Dashboard + What Changed Expansion (1d781a0, 762cc9f, 2280c61)
+
+**Security Audit** at `/admin/secaudit`: stat cards (total operators, roles, permission lists, active 30d), top roles by member count, top operators by role count, recent sign-ons (30d), orphaned roles (defined but unassigned), operator type breakdown chart. Added **Security nav group** consolidating: Security Audit, Security Explorer, Operators, Roles, Permission Lists.
+
+**What Changed expansion**: 9 → 20 supported object types. New types: Menus, Queries, Projects, Processes (PS_PRCSDEFN), App Packages, IB Messages, IB Routings, Trees, Translate Values, Component Interfaces. OPRID filter added: client-side filter on updater OPRID shows N/Total counts per type pill.
+
+Files changed:
+- `routers/admin/security.py` — `admin_secaudit()`, Security nav group entries
+- `routers/admin/_core.py` — Security nav group
+- `routers/admin/data.py` — What Changed expansion to 20 types
+
+Commits:
+- `1d781a0` feat(security): Security Audit dashboard + SQR record cross-references
+- `762cc9f` feat(security): expand audit intelligence and change tracking
+- `2280c61` feat(security): expand audit intelligence and change tracking
+
+---
+
+### SQR Cross-References in Record Explorer (1d781a0)
+
+Record detail pages now include a "SQR Programs" section showing which SQR programs read or write this record. Sourced from `sqrdb.get_programs_for_table()`. Operation badges (READ/WRITE) and links to SQR Explorer.
+
+Files changed:
+- `routers/admin/objects.py` — SQR Programs section in record detail
+
+Commits:
+- `1d781a0` feat(security): Security Audit dashboard + SQR record cross-references
+
+---
+
+### Access Path Explorer (1bac112)
+
+`/admin/accesspath` (Security nav): dual-mode security analysis.
+
+- **Component mode**: enter a component name → lists all Permission Lists that grant access, with linked Roles and Operators per PL; access level and add/update/display flags shown; total access count summary
+- **Operator mode**: enter an OPRID → lists all components the operator can access, through which PL and Role chain, with access level badges
+
+Env-aware; URL deep-linking (`?comp=` / `?oprid=`); client-side filtering for rapid investigation; links back to Component Explorer and Security Explorer.
+
+Files changed:
+- `routers/admin/security.py` — `admin_access()` route and page
+
+Commits:
+- `1bac112` feat(security): Access Path Explorer
+
+---
+
+### Change Risk Analyzer + IB Message Cross-References (5f8e16b)
+
+**Change Risk Analyzer** at `/admin/riskanalysis` (Tools nav): enter a project name → computes blast radius using KG reverse traversal (`/api/impact/project`); scores risk by affected object type weights; shows affected records, components, AE programs, and estimated affected users (via Role→Operator chains); direct navigation to Component Explorer, Record Explorer, and Access Path Explorer for each affected object.
+
+**IB Message cross-references**: UOM IB Message objects (`uom.py` IBMessageProvider) now show correlated Service Operations, Routings, and Subscriptions. Added to Phase 5 Cross-References delivery.
+
+Files changed:
+- `routers/admin/platform.py` — `admin_riskanalysis()` route and page
+- `connectors/uom.py` — IBMessageProvider cross-reference section
+- `routers/admin/_core.py` — Risk Analysis in Tools nav
+
+Verification:
+- `/admin/riskanalysis` renders correctly
+- IB Message cross-references appear in Object Explorer for IB Message objects
+- `python3 scripts/smoke_admin_shell.py` → 57/57
+
+Commits:
+- `5f8e16b` feat(risk): Change Risk Analyzer + IB message cross-reference intelligence
