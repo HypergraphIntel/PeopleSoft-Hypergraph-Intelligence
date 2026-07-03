@@ -86,10 +86,40 @@ def init_db() -> None:
                 );
             """)
         else:
-            # Table already has the new schema; ensure source_type column exists
+            # Table already has the new schema; ensure new columns exist
             cols = {row[1] for row in c.execute("PRAGMA table_info(sqr_programs)")}
             if "source_type" not in cols:
                 c.execute("ALTER TABLE sqr_programs ADD COLUMN source_type TEXT")
+            if "source_text" not in cols:
+                c.execute("ALTER TABLE sqr_programs ADD COLUMN source_text TEXT")
+
+        # Fix stale FK references in sub-tables that point to dropped sqr_programs_v1
+        for subtbl, unique in (
+            ("sqr_includes",   "UNIQUE(program_id, include_file)"),
+            ("sqr_procedures", ""),
+            ("sqr_tables",     "UNIQUE(program_id, table_name)"),
+        ):
+            sub_sql = (c.execute(
+                f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{subtbl}'"
+            ).fetchone() or (None,))[0] or ""
+            if "sqr_programs_v1" in sub_sql:
+                unique_clause = f", {unique}" if unique else ""
+                extra_cols = {
+                    "sqr_includes":   "include_file TEXT NOT NULL",
+                    "sqr_procedures": "proc_name TEXT NOT NULL",
+                    "sqr_tables":     "table_name TEXT NOT NULL, operations TEXT",
+                }[subtbl]
+                c.execute("PRAGMA foreign_keys=OFF")
+                c.executescript(f"""
+                    ALTER TABLE {subtbl} RENAME TO {subtbl}_fkfix;
+                    CREATE TABLE {subtbl} (
+                        program_id INTEGER NOT NULL REFERENCES sqr_programs(id) ON DELETE CASCADE,
+                        {extra_cols}{unique_clause}
+                    );
+                    INSERT OR IGNORE INTO {subtbl} SELECT * FROM {subtbl}_fkfix;
+                    DROP TABLE {subtbl}_fkfix;
+                """)
+                c.execute("PRAGMA foreign_keys=ON")
 
         c.executescript("""
             CREATE TABLE IF NOT EXISTS sqr_tables (
@@ -119,7 +149,7 @@ def init_db() -> None:
 
 
 def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str,
-                   source_type: str = "") -> int:
+                   source_type: str = "", source_text: str = None) -> int:
     """Insert or replace one parsed program. Returns program id."""
     import time
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -132,8 +162,9 @@ def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str,
         c.execute("""
             INSERT INTO sqr_programs
                 (filename, program_name, file_type, source_key, source_type, description,
-                 release, revision, sqr_date, table_count, include_count, proc_count, indexed_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 release, revision, sqr_date, table_count, include_count, proc_count,
+                 indexed_at, source_text)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(filename, source_key) DO UPDATE SET
                 program_name=excluded.program_name,
                 file_type=excluded.file_type,
@@ -145,7 +176,8 @@ def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str,
                 table_count=excluded.table_count,
                 include_count=excluded.include_count,
                 proc_count=excluded.proc_count,
-                indexed_at=excluded.indexed_at
+                indexed_at=excluded.indexed_at,
+                source_text=excluded.source_text
         """, (
             filename,
             parsed.get("program_name", ""),
@@ -160,6 +192,7 @@ def upsert_program(parsed: dict, filename: str, file_type: str, source_key: str,
             len(includes),
             len(procs),
             now,
+            source_text,
         ))
 
         row = c.execute(
@@ -443,3 +476,98 @@ def get_include_tree(filename: str) -> dict:
     tree = _build(filename, frozenset([filename.lower()]))
     c.close()
     return tree
+
+
+def search_source(q: str, file_type: str = None, source_key: str = None, limit: int = 50) -> dict:
+    """Search SQR/SQC source text. Returns hits with line-context snippets."""
+    if not q or len(q) < 2:
+        return {"query": q, "hits": [], "total": 0, "indexed": 0}
+
+    c = _conn()
+    total_indexed = c.execute(
+        "SELECT COUNT(*) FROM sqr_programs WHERE source_text IS NOT NULL"
+    ).fetchone()[0]
+    total_programs = c.execute("SELECT COUNT(*) FROM sqr_programs").fetchone()[0]
+
+    if total_indexed == 0:
+        c.close()
+        return {"query": q, "hits": [], "total": 0, "indexed": 0,
+                "warning": "Source text not yet indexed. Trigger a Re-index to enable search."}
+
+    predicates = ["LOWER(source_text) LIKE LOWER(:pat)", "source_text IS NOT NULL"]
+    params: dict = {"pat": f"%{q}%", "limit": limit + 1}
+
+    if file_type:
+        predicates.append("file_type = :ft")
+        params["ft"] = file_type.lower()
+    if source_key:
+        predicates.append("source_key = :sk")
+        params["sk"] = source_key
+
+    all_rows = c.execute(
+        f"SELECT filename, file_type, source_key, description, source_text"
+        f"  FROM sqr_programs WHERE {' AND '.join(predicates)}"
+        f" ORDER BY filename",
+        params,
+    ).fetchall()
+    c.close()
+
+    # Deduplicate by filename (same file indexed under multiple source_keys)
+    seen: set = set()
+    rows = []
+    for row in all_rows:
+        key = row["filename"].lower()
+        if key not in seen:
+            seen.add(key)
+            rows.append(row)
+
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+
+    q_lower = q.lower()
+    hits = []
+    for row in rows:
+        src = row["source_text"] or ""
+        lines = src.splitlines()
+        snippets = []
+        for i, line in enumerate(lines):
+            if q_lower in line.lower():
+                ctx_start = max(0, i - 1)
+                ctx_end = min(len(lines), i + 2)
+                snippets.append({
+                    "line_no": i + 1,
+                    "context": lines[ctx_start:ctx_end],
+                    "match_offset": i - ctx_start,
+                })
+                if len(snippets) >= 5:
+                    break
+        total_hits = sum(1 for ln in lines if q_lower in ln.lower())
+        hits.append({
+            "filename": row["filename"],
+            "file_type": row["file_type"],
+            "source_key": row["source_key"],
+            "description": row["description"] or "",
+            "total_hits": total_hits,
+            "snippets": snippets,
+        })
+
+    hits.sort(key=lambda h: h["total_hits"], reverse=True)
+    return {
+        "query": q,
+        "hits": hits,
+        "total": len(hits),
+        "has_more": has_more,
+        "indexed": total_indexed,
+        "total_programs": total_programs,
+    }
+
+
+def source_index_status() -> dict:
+    """Return count of programs with source_text populated vs total."""
+    c = _conn()
+    total = c.execute("SELECT COUNT(*) FROM sqr_programs").fetchone()[0]
+    indexed = c.execute(
+        "SELECT COUNT(*) FROM sqr_programs WHERE source_text IS NOT NULL"
+    ).fetchone()[0]
+    c.close()
+    return {"total": total, "indexed": indexed, "pct": round(indexed * 100 / total, 1) if total else 0}

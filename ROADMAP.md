@@ -892,6 +892,16 @@ Comparison modes
 
 ## Search
 
+### ✅ Done (2026-07-02) — SQR Source Full-Text Search
+
+- `source_text TEXT` column added to `sqr_programs` via schema migration in `init_db()`; also fixed stale FK references in sub-tables that pointed to dropped `sqr_programs_v1`
+- `sqringest.py` now passes `content` (full source) to `upsert_program(source_text=content)` — populated on each re-index
+- `sqrdb.search_source(q, file_type, source_key, limit)` — LIKE search, deduplicates by filename, returns per-file hit count + up to 5 snippet contexts with line numbers
+- `sqrdb.source_index_status()` — returns indexed/total/pct for UI progress display
+- `GET /api/sqr/search?q=&type=&source_key=&limit=` and `GET /api/sqr/search/status` in `routers/sqr.py`
+- `/admin/sqrsearch` in `routers/admin/sqr_view.py`: sidebar results sorted by hit count, inline source viewer with SQR syntax highlighting and term highlighting; "Open in SQR Explorer" cross-link per result; re-index notice when not yet indexed
+- "SQR Search" added to Platform nav group
+
 ### Planned
 
 Global search

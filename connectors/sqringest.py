@@ -69,7 +69,8 @@ def index_source(source: dict, progress_cb=None) -> dict:
                     content = raw.decode("latin-1", errors="replace")
 
                 parsed = sqrparser.parse(content, filename=filename)
-                sqrdb.upsert_program(parsed, filename, ext, key, source_type)
+                sqrdb.upsert_program(parsed, filename, ext, key, source_type,
+                                     source_text=content)
                 indexed += 1
             except Exception as exc:
                 errors += 1

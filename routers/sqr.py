@@ -198,6 +198,24 @@ def sqr_ingest_status():
     }
 
 
+@router.get("/search")
+def sqr_search(q: str = Query(""), type: str = Query(None), source_key: str = Query(None),
+               limit: int = Query(50, ge=1, le=200)):
+    """Full-text search within indexed SQR/SQC source code."""
+    from connectors import sqrdb
+    sqrdb.init_db()
+    return sqrdb.search_source(q.strip(), file_type=type or None,
+                               source_key=source_key or None, limit=limit)
+
+
+@router.get("/search/status")
+def sqr_search_status():
+    """Return how many programs have source_text indexed for search."""
+    from connectors import sqrdb
+    sqrdb.init_db()
+    return sqrdb.source_index_status()
+
+
 @router.get("/program/{filename}/tree")
 def sqr_include_tree(filename: str):
     """Return recursive SQC include tree for a program."""

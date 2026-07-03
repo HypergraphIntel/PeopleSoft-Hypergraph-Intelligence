@@ -78,6 +78,7 @@ _NAV_GROUPS = [
         ("locale",     "Locales",      "/admin/locale"),
         ("ptftest",    "PTF Tests",    "/admin/ptftest"),
         ("sqr",        "SQR Explorer",  "/admin/sqr"),
+        ("sqrsearch",  "SQR Search",    "/admin/sqrsearch"),
         ("compflow",   "Comp Event Flow", "/admin/compflow"),
     ]),
     ("Perf", [

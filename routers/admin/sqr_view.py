@@ -788,3 +788,231 @@ load();
 </script>
 """
     return HTMLResponse(_shell(f"SQR — {tbl_upper}", "sqr", content))
+
+
+# ── SQR Source Search ────────────────────────────────────────────────────────
+
+_SQR_KW = (
+    "'BEGIN-PROGRAM','END-PROGRAM','BEGIN-PROCEDURE','END-PROCEDURE',"
+    "'BEGIN-HEADING','END-HEADING','BEGIN-FOOTING','END-FOOTING',"
+    "'BEGIN-REPORT','END-REPORT','BEGIN-SELECT','END-SELECT',"
+    "'BEGIN-SQL','END-SQL','BEGIN-SETUP','END-SETUP',"
+    "'LET','DO','IF','ELSE','ELSEIF','END-IF','WHILE','END-WHILE',"
+    "'EVALUATE','WHEN','WHEN-OTHER','END-EVALUATE',"
+    "'CALL','PRINT','DISPLAY','MOVE','ADD','SUBTRACT','MULTIPLY','DIVIDE',"
+    "'STRING','UNSTRING','CONCAT','TRIM','UPPER-CASE','LOWER-CASE',"
+    "'OPEN','READ','CLOSE','WRITE','NEXT-LISTING','NEW-PAGE',"
+    "'FROM','WHERE','AND','OR','NOT','IN','BETWEEN','ORDER BY','GROUP BY',"
+    "'SELECT','INSERT','UPDATE','DELETE','COMMIT','ROLLBACK',"
+    "'#include','#define','#ifdef','#endif','#else',"
+    "'INPUT','SHOW','ASK','POSITION'"
+)
+
+
+@router.get("/sqrsearch", response_class=HTMLResponse)
+def sqr_search_page(q: str = ""):
+    preload = q.strip()
+    return _shell("SQR Source Search", "sqrsearch", noscroll=True, content=f"""
+<style>
+*{{box-sizing:border-box}}
+.ds-content{{display:flex;flex-direction:column;overflow:hidden;height:calc(100vh - 88px)}}
+.topbar{{padding:10px 16px;border-bottom:1px solid #22aa6622;display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex-shrink:0}}
+input[type=text]{{background:#0b1b24;color:#d7faff;border:1px solid #22aa6644;padding:5px 10px;font-size:12px;border-radius:3px}}
+input[type=text]:focus{{outline:none;border-color:#22aa66}}
+button{{background:#22aa66;border:none;padding:5px 14px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;border-radius:3px}}
+button:hover{{background:#33cc77}}
+button.sec{{background:transparent;border:1px solid #22aa6644;color:#22aa66}}
+button.sec.on{{background:rgba(34,170,102,.15);border-color:#22aa66}}
+button.sec:hover{{border-color:#22aa66;background:rgba(34,170,102,.1)}}
+select{{background:#0b1b24;color:#d7faff;border:1px solid #22aa6644;padding:5px 8px;font-size:12px;border-radius:3px}}
+.split{{display:flex;flex:1;overflow:hidden}}
+.sidebar{{width:340px;min-width:220px;border-right:1px solid #22aa6622;overflow-y:auto;flex-shrink:0}}
+.content{{flex:1;overflow:auto;padding:0}}
+.hint{{font-size:10px;color:#445}}
+.empty{{color:#445;font-size:12px;padding:24px;text-align:center}}
+.hit-item{{padding:8px 12px;border-bottom:1px solid #0d1b24;cursor:pointer;border-left:3px solid transparent}}
+.hit-item:hover{{background:rgba(34,170,102,.06);border-left-color:#22aa6644}}
+.hit-item.sel{{background:rgba(34,170,102,.1);border-left-color:#22aa66}}
+.hit-name{{font-family:monospace;font-size:12px;color:#22aa66;font-weight:bold}}
+.hit-meta{{font-size:10px;color:#556;margin-top:2px}}
+.hit-count{{display:inline-block;padding:0 6px;border-radius:8px;font-size:10px;font-weight:bold;
+  background:rgba(34,170,102,.15);color:#22aa66;border:1px solid rgba(34,170,102,.3);margin-left:6px}}
+.src-wrap{{padding:0}}
+.src-hdr{{padding:10px 16px;border-bottom:1px solid #22aa6622;display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
+.src-hdr-name{{font-family:monospace;font-size:14px;color:#22aa66;font-weight:bold}}
+.src-hdr-meta{{font-size:11px;color:#556}}
+.snippets{{padding:12px 16px;border-bottom:1px solid #0d1b24}}
+.snip-lbl{{font-size:10px;color:#445;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}}
+.snip-block{{font-family:monospace;font-size:11px;background:#020c14;border:1px solid #0d1b24;
+  border-radius:3px;padding:6px 10px;margin-bottom:6px;line-height:1.5;white-space:pre}}
+.snip-lineno{{color:#334;user-select:none;display:inline-block;width:36px;text-align:right;margin-right:8px}}
+.snip-match{{background:#1a3300;color:#88ff44}}
+.src-full{{padding:12px 16px}}
+.src-full-hdr{{font-size:10px;color:#445;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;
+  display:flex;align-items:center;justify-content:space-between}}
+.src-inner{{font-family:monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
+  background:#020c14;border:1px solid #0d1b24;border-radius:3px;padding:10px 14px;
+  max-height:calc(100vh - 340px);overflow-y:auto}}
+.kw{{color:#569cd6}}.str{{color:#ce9178}}.cmt{{color:#6a9955}}.hit{{background:#1a3300;color:#88ff44}}
+.status-bar{{font-size:10px;color:#445;padding:4px 12px;flex-shrink:0;border-top:1px solid #0d1b24}}
+</style>
+
+<div class="topbar">
+  <input id="qInp" type="text" placeholder="Search SQR/SQC source… (2+ chars)" style="width:320px"
+         value="{preload}" onkeydown="if(event.key==='Enter')doSearch()">
+  <button onclick="doSearch()">&#128269; Search</button>
+  <select id="typeFilter" onchange="doSearch()">
+    <option value="">All types</option>
+    <option value="sqr">SQR only</option>
+    <option value="sqc">SQC only</option>
+  </select>
+  <span class="hint" id="statusTxt"></span>
+</div>
+<div class="split">
+  <div class="sidebar" id="sidebar"><div class="empty">Enter a search term to find SQR/SQC programs.</div></div>
+  <div class="content" id="content"><div class="empty">Select a result to view source with highlights.</div></div>
+</div>
+<div class="status-bar" id="statusBar"></div>
+
+<script>
+const SQR_KW=[{_SQR_KW}];
+
+function esc(s){{return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}}
+
+function highlightSQR(src, q){{
+  const qLo=q.toLowerCase();
+  let out='',i=0;
+  while(i<src.length){{
+    // Comment: !
+    if(src[i]==='!'){{const nl=src.indexOf('\\n',i);const end=nl<0?src.length:nl;out+='<span class="cmt">'+esc(src.slice(i,end))+'</span>';i=end;continue;}}
+    // Comment: /*
+    if(src[i]==='/'&&src[i+1]==='*'){{const e=src.indexOf('*/',i+2);const end=e<0?src.length:e+2;out+='<span class="cmt">'+esc(src.slice(i,end))+'</span>';i=end;continue;}}
+    // String
+    if(src[i]==="'"){{let j=i+1;while(j<src.length&&src[j]!=="'")j++;out+='<span class="str">'+esc(src.slice(i,j+1))+'</span>';i=j+1;continue;}}
+    // Word
+    if(/[A-Za-z#_%$]/.test(src[i])){{
+      let j=i;while(j<src.length&&/[A-Za-z0-9_\-#%$.]/.test(src[j]))j++;
+      const w=src.slice(i,j);
+      const wu=w.toUpperCase();
+      if(qLo&&wu.toLowerCase().includes(qLo))out+='<span class="hit">'+esc(w)+'</span>';
+      else if(SQR_KW.includes(wu))out+='<span class="kw">'+esc(w)+'</span>';
+      else out+=esc(w);
+      i=j;continue;
+    }}
+    out+=esc(src[i]);i++;
+  }}
+  return out;
+}}
+
+let _curQ='';
+let _hits=[];
+let _srcCache={{}};
+
+async function doSearch(){{
+  const q=document.getElementById('qInp').value.trim();
+  const type=document.getElementById('typeFilter').value;
+  if(!q||q.length<2){{
+    document.getElementById('sidebar').innerHTML='<div class="empty">Enter 2+ characters.</div>';
+    document.getElementById('content').innerHTML='<div class="empty">Select a result to view source.</div>';
+    return;
+  }}
+  _curQ=q;
+  _srcCache={{}};
+  document.getElementById('sidebar').innerHTML='<div class="empty" style="color:#334">Searching…</div>';
+  document.getElementById('statusTxt').textContent='';
+  const params=new URLSearchParams({{q, limit:100}});
+  if(type)params.set('type',type);
+  try{{
+    const d=await fetch('/api/sqr/search?'+params).then(r=>r.json());
+    if(d.warning){{
+      document.getElementById('sidebar').innerHTML=
+        `<div style="padding:12px;color:#ffaa00;font-size:11px;border:1px solid #ffaa0022;background:#1a0e00;margin:10px;border-radius:3px">&#9888; ${{esc(d.warning)}}</div>`;
+      document.getElementById('statusTxt').textContent=d.warning;
+      return;
+    }}
+    _hits=d.hits||[];
+    document.getElementById('statusTxt').textContent=
+      `${{_hits.length}} file${{_hits.length!==1?'s':''}} matched`+(d.has_more?' (showing first 100)':'')+
+      ` — ${{d.indexed||0}} files indexed`;
+    renderSidebar(_hits, q);
+    if(_hits.length)selectHit(0);
+  }}catch(e){{
+    document.getElementById('sidebar').innerHTML=`<div class="empty">Error: ${{esc(String(e))}}</div>`;
+  }}
+}}
+
+function renderSidebar(hits, q){{
+  if(!hits.length){{document.getElementById('sidebar').innerHTML='<div class="empty">No matches found.</div>';return;}}
+  const side=document.getElementById('sidebar');
+  side.innerHTML=hits.map((h,i)=>
+    `<div class="hit-item" id="hi-${{i}}" onclick="selectHit(${{i}})">
+      <div class="hit-name">${{esc(h.filename)}}<span class="hit-count">${{h.total_hits}} match${{h.total_hits!==1?'es':''}}</span></div>
+      <div class="hit-meta">${{esc((h.description||'').slice(0,55))||'&nbsp;'}}</div>
+    </div>`
+  ).join('');
+}}
+
+async function selectHit(idx){{
+  document.querySelectorAll('.hit-item').forEach((el,i)=>el.classList.toggle('sel',i===idx));
+  const h=_hits[idx];if(!h)return;
+  const content=document.getElementById('content');
+
+  // Show snippets immediately
+  let html=`<div class="src-wrap">
+    <div class="src-hdr">
+      <span class="src-hdr-name">${{esc(h.filename)}}</span>
+      <span class="src-hdr-meta">${{esc(h.file_type?.toUpperCase()||'')}}</span>
+      <a href="/admin/sqr/${{encodeURIComponent(h.filename)}}" target="_blank"
+         style="color:#22aa66;font-size:11px">Open in SQR Explorer &#x2197;</a>
+    </div>`;
+
+  if((h.snippets||[]).length){{
+    html+=`<div class="snippets"><div class="snip-lbl">Matching lines</div>`;
+    for(const sn of h.snippets){{
+      html+='<div class="snip-block">';
+      sn.context.forEach((ln,ci)=>{{
+        const lineNo=sn.line_no-(sn.match_offset||0)+ci;
+        const isMatch=ci===(sn.match_offset||0);
+        const escaped=esc(ln);
+        const highlighted=isMatch
+          ?escaped.replace(new RegExp(esc(_curQ).replace(/[.*+?^${{}}()|[\]\\\\]/g,'\\\\$&'),'gi'),m=>`<span class="snip-match">${{m}}</span>`)
+          :escaped;
+        html+=`<span class="snip-lineno">${{lineNo}}</span>${{isMatch?'<span class="snip-match-line">'+highlighted+'</span>':highlighted}}\\n`;
+      }});
+      html+='</div>';
+    }}
+    html+='</div>';
+  }}
+
+  html+=`<div class="src-full">
+    <div class="src-full-hdr">
+      <span>Full Source</span>
+      <span style="color:#22aa66;font-size:10px">${{h.total_hits}} match${{h.total_hits!==1?'es':''}}</span>
+    </div>
+    <div class="src-inner" id="src-body">Loading source…</div>
+  </div></div>`;
+  content.innerHTML=html;
+
+  // Load full source
+  if(_srcCache[h.filename]){{
+    document.getElementById('src-body').innerHTML=_srcCache[h.filename];
+    return;
+  }}
+  try{{
+    const d=await fetch(`/api/sqr/program/${{encodeURIComponent(h.filename)}}/source`).then(r=>r.json());
+    const src=d.source||d.content||'';
+    const highlighted=highlightSQR(src,_curQ);
+    _srcCache[h.filename]=highlighted;
+    const el=document.getElementById('src-body');
+    if(el)el.innerHTML=highlighted;
+  }}catch(e){{
+    const el=document.getElementById('src-body');
+    if(el)el.innerHTML=`<span style="color:#445">Could not load source: ${{esc(String(e))}}</span>`;
+  }}
+}}
+
+{f"document.addEventListener('DOMContentLoaded',()=>doSearch());" if preload else ""}
+window.onEnvChange=()=>{{}};
+</script>
+""")
+
