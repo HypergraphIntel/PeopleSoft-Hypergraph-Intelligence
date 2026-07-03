@@ -6124,3 +6124,35 @@ matching pre-change behavior).
 Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (was 72/72,
 added `/admin/compseq` coverage which had none before); `make check` →
 100/100 files, 11/11 tests.
+
+---
+
+### AI-Assisted Sequence Explanation (pending commit)
+
+Added `peoplecode_sequence` to `connectors/ai_tools.py` — closes the last
+"Processing Sequence Intelligence" ROADMAP gap ("AI-assisted conversational
+sequence explanation ... not started"). Rather than three separate tools
+(component/record/page), one tool with a `target_type` enum dispatches to
+the existing `component_sequence()`/`record_sequence()`/`page_owned_events()`
+connector functions — reusing the exact backend logic already verified
+earlier this session, no new SQL. Complements the pre-existing
+`component_events` tool: that one is a flat listing (no ordering context),
+this one is specifically for "what fires before/after what" reasoning.
+
+As with the earlier SQR/COBOL AI-explain work, no new chat UI or
+summarization pipeline was needed — once real canonical-sequence data is in
+a tool result, ordering questions fall out of the existing agentic tool loop
+for free.
+
+Verified live against the real OpenAI-backed assistant at `/admin/assistant`
+(not just dispatch()-level unit checks):
+- "Is FieldDefault in the Build phase or Interaction phase?" for record JOB
+  -> correctly answered Build phase
+- "What fires immediately before SaveEdit?" for component JOB_DATA ->
+  correctly answered RowDelete — independently cross-checked by calling
+  `component_sequence('HCM','JOB_DATA')` directly and confirming Interaction
+  Phase's last populated slot is RowDelete, immediately preceding Save
+  Phase's SaveEdit
+
+Verification: `make check` 100/100 files + 11/11 tests; smoke test 73/73
+(unchanged — AI-tool-only change, no new admin pages).

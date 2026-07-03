@@ -419,6 +419,39 @@ TOOLS = [
             "required": ["env", "component"],
         },
     },
+    {
+        "name": "peoplecode_sequence",
+        "description": (
+            "Return the CANONICAL ORDERED processing sequence for a PeopleSoft component, "
+            "record, or page — i.e. what fires before/after what, not just which events exist. "
+            "For components/records, slots real PeopleCode into the canonical phase order "
+            "(Search -> Build -> Interaction -> Save for components; Build -> Interaction -> Save "
+            "for records, which have no component-only phases) and marks each slot empty/"
+            "delivered/custom. For pages, returns the flat list of Page Activate PeopleCode "
+            "(no phase ordering applies at the page level). "
+            "Use this specifically for ORDERING questions — 'what fires before X', 'what's the "
+            "first/last thing that runs', 'is Y in the save phase or the build phase' — "
+            "component_events is better for a flat listing without ordering context. "
+            "Examples: 'What fires before Save on JOB_DATA?', 'Is RowInit part of the Build phase "
+            "or Interaction phase?', 'What Record Field PeopleCode does JOB have, in order?', "
+            "'What Page Activate PeopleCode exists on JOB_DATA_1?'"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "target_type": {
+                    "type": "string",
+                    "enum": ["component", "record", "page"],
+                    "description": "component=component-scoped canonical sequence; "
+                                   "record=record-owned Field PeopleCode canonical sequence; "
+                                   "page=flat list of Page-owned (Page Activate) PeopleCode, no ordering.",
+                },
+                "name": {"type": "string", "description": "Component, record, or page name"},
+            },
+            "required": ["env", "target_type", "name"],
+        },
+    },
 ]
 
 # Tool name → schema lookup
@@ -1073,6 +1106,18 @@ def _component_events(env: str, component: str) -> dict:
     return result
 
 
+def _peoplecode_sequence(env: str, target_type: str, name: str) -> dict:
+    from connectors import peoplecode
+    env = env.upper()
+    if target_type == "component":
+        return peoplecode.component_sequence(env, name.upper())
+    elif target_type == "record":
+        return peoplecode.record_sequence(env, name.upper())
+    elif target_type == "page":
+        return peoplecode.page_owned_events(env, name.upper())
+    return {"error": f"Unknown target_type: {target_type}"}
+
+
 _HANDLERS = {
     "search_objects":     _search_objects,
     "peoplecode_search":  _peoplecode_search,
@@ -1094,4 +1139,5 @@ _HANDLERS = {
     "sqr_program":             _sqr_program,
     "cobol_program":           _cobol_program,
     "component_events":        _component_events,
+    "peoplecode_sequence":     _peoplecode_sequence,
 }

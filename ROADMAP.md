@@ -422,6 +422,24 @@ and confirmed the metadata panel opens with correct field/status; re-verified
 Component mode (`JOB_DATA`) still renders identically post-change (20 slots, no
 regression).
 
+### AI-Assisted Sequence Explanation — ✅ Complete
+Added `peoplecode_sequence` to `connectors/ai_tools.py` — a unified AI tool covering
+Component/Record/Page ordering questions ("what fires before Save on JOB_DATA?", "is
+FieldDefault in Build or Interaction phase?"), dispatching to the existing
+`component_sequence()`/`record_sequence()`/`page_owned_events()` connector functions
+by a `target_type` parameter rather than three separate tools. Complements the
+existing `component_events` tool (flat listing, no ordering context) — this one is
+specifically for ordering/sequence reasoning. No new chat UI needed: with real
+canonical-sequence data in the tool result, ordering questions fall out of the
+existing agentic tool loop for free, the same pattern used for SQR/COBOL explain.
+
+**Verified live against the real OpenAI-backed assistant** (`/admin/assistant`, not
+just dispatch()-level): asked "is FieldDefault in the Build phase or Interaction
+phase?" for record JOB — correctly answered Build phase; asked "what fires
+immediately before SaveEdit?" for component JOB_DATA — correctly answered RowDelete
+(independently confirmed against `component_sequence('HCM','JOB_DATA')` directly:
+Interaction Phase ends with RowDelete, Save Phase begins with SaveEdit).
+
 ### Remaining
 - **Delivered vs Custom Sequence Comparison** beyond the existing `LASTUPDOPRID`
   heuristic — PeopleCode has no delivered-source baseline to diff against (unlike
@@ -434,8 +452,6 @@ regression).
   `VALIDATES_BEFORE_SAVE`, `MUTATES_BUFFER`/`_DATABASE`, `BLOCKS_PROCESSING`,
   `TRIGGERS_RUNTIME_ACTION`) — `FIRES_BEFORE`/`FIRES_AFTER` are done; these others
   aren't started.
-- AI-assisted conversational sequence explanation (new chat UI, not just tool data) —
-  not started.
 
 ---
 
