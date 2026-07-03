@@ -286,6 +286,16 @@ async function selectItem(idx, key) {{
     html += `<div class="muted">No detail available.</div>`;
   }}
 
+  // AE deep link for Application Engine processes
+  if ((uom.prcstype||'').trim() === 'Application Engine') {{
+    const aeId = (uom.prcsname||'').trim();
+    if (aeId) {{
+      html += `<div style="margin-top:14px;padding-top:10px;border-top:1px solid #1a2a3a">
+        <a href="/admin/ae?q=${{encodeURIComponent(aeId)}}&env=${{ENV}}" style="color:#22cc88;font-size:12px">Open in AE Explorer &#x2197;</a>
+      </div>`;
+    }}
+  }}
+
   detail.innerHTML = html;
 }}
 
@@ -1850,6 +1860,284 @@ function setTab(name, el) {{
     }});
   }} else if (name) {{
     loadComponent(name);
+  }}
+}})();
+</script>
+</body></html>""")
+
+
+@router.get("/page", response_class=HTMLResponse)
+def admin_page(request: Request, env: str = "HCM"):
+    nav = _nav_html("page", env)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>Page Explorer</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+<style>
+*{{box-sizing:border-box}}
+body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
+.muted{{color:#446;font-style:italic;font-size:12px}}
+.list-item{{padding:6px 10px;border-radius:3px;cursor:pointer;margin-bottom:1px;border-bottom:1px solid #0d1520}}
+.list-item:hover{{background:rgba(136,136,255,.06)}}
+.list-item.sel{{background:rgba(136,136,255,.12);border-left:2px solid #8888ff}}
+.tab-row{{display:flex;gap:2px;margin-bottom:14px;border-bottom:1px solid #1a2a3a;padding-bottom:0}}
+.tab{{padding:6px 14px;cursor:pointer;font-size:12px;color:#778;border-bottom:2px solid transparent;margin-bottom:-1px}}
+.tab:hover{{color:#acd}}.tab.on{{color:#8888ff;border-bottom-color:#8888ff}}
+.pane{{display:none}}.pane.on{{display:block}}
+.kv{{display:grid;grid-template-columns:160px 1fr;gap:2px 8px;font-size:12px;margin-bottom:12px}}
+.kv-lbl{{color:#556;padding:2px 0}}.kv-val{{color:#acd;font-family:monospace;word-break:break-all;padding:2px 0}}
+.stat-row{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}}
+.stat-pill{{background:rgba(136,136,255,.08);border:1px solid rgba(136,136,255,.25);border-radius:4px;padding:6px 14px;text-align:center}}
+.stat-num{{font-size:20px;font-weight:bold;color:#8888ff;display:block}}
+.stat-lbl{{font-size:10px;color:#556;text-transform:uppercase;letter-spacing:.5px}}
+.rec-row{{display:flex;align-items:center;gap:8px;padding:5px 6px;border-bottom:1px solid #0d1520;font-size:12px}}
+.rec-row:hover{{background:rgba(0,229,255,.04)}}
+.scroll-badge{{display:inline-block;font-size:9px;padding:1px 4px;border-radius:2px;background:rgba(136,136,255,.15);color:#8888ff;border:1px solid rgba(136,136,255,.3);font-family:monospace}}
+.comp-row{{display:flex;align-items:center;padding:6px 8px;border-bottom:1px solid #0d1520;font-size:12px}}
+.comp-row:hover{{background:rgba(68,170,255,.05)}}
+.pc-group{{margin-bottom:14px}}
+.pc-group-hdr{{font-size:11px;font-weight:bold;color:#556;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid #1a2a3a}}
+.pc-row{{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:3px;font-size:11px}}
+.pc-row:hover{{background:rgba(170,102,255,.06)}}
+.event-chip{{display:inline-block;font-size:10px;padding:1px 5px;border-radius:2px;font-family:monospace;font-weight:bold}}
+.sec-card{{background:#0a1520;border:1px solid rgba(136,136,255,.18);border-radius:4px;padding:8px 12px;margin-bottom:6px}}
+.action-chip{{display:inline-block;font-size:10px;padding:1px 5px;border-radius:2px;margin-right:3px;background:rgba(68,170,255,.12);color:#44aaff;border:1px solid rgba(68,170,255,.25)}}
+</style>
+</head><body>
+{nav}
+<div style="display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 42px)">
+  <!-- RAIL -->
+  <div style="border-right:1px solid #1a2a3a;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:10px;border-bottom:1px solid #1a2a3a">
+      <div style="font-size:11px;color:#8888ff;font-weight:bold;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Page Explorer</div>
+      <input id="q" type="text" placeholder="Search pages..." autocomplete="off"
+        style="width:100%;background:#0a1520;border:1px solid #1a2a3a;color:#c8d8e8;padding:6px 8px;border-radius:3px;font-size:12px;outline:none">
+      <div id="rail-status" style="font-size:11px;color:#446;margin-top:5px">&nbsp;</div>
+    </div>
+    <div id="rail-list" style="overflow-y:auto;flex:1;padding:4px"></div>
+  </div>
+  <!-- DETAIL -->
+  <div id="detail-panel" style="overflow-y:auto;padding:20px">
+    <div class="muted" style="margin-top:40px;text-align:center">Search for a page to explore its records, components, and PeopleCode.</div>
+  </div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = "{env}";
+
+async function api(url) {{
+  try {{ const r = await fetch(url); if (!r.ok) return null; return await r.json(); }} catch(e) {{ return null; }}
+}}
+function fmt(s) {{
+  if (!s) return '';
+  const d = new Date(s);
+  return isNaN(d) ? s : d.toLocaleDateString('en-AU', {{year:'numeric',month:'short',day:'numeric'}});
+}}
+
+const PNLTYPE = {{0:'Standard',1:'Subpage',2:'Secondary',3:'Summary',4:'Child'}};
+
+let debounce;
+document.getElementById('q').addEventListener('input', () => {{ clearTimeout(debounce); debounce = setTimeout(doSearch, 220); }});
+document.getElementById('q').addEventListener('keydown', e => {{ if (e.key==='Enter') {{ clearTimeout(debounce); doSearch(); }} }});
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  if (!q) return;
+  document.getElementById('rail-status').textContent = 'Searching...';
+  const rows = await api(`/api/peoplesoft/pages?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=100`);
+  const list = document.getElementById('rail-list');
+  if (!rows || !rows.length) {{
+    list.innerHTML = '<div class="muted" style="padding:12px">No pages found.</div>';
+    document.getElementById('rail-status').textContent = '0 results';
+    return;
+  }}
+  document.getElementById('rail-status').textContent = rows.length + ' result' + (rows.length===1?'':'s');
+  list.innerHTML = rows.map(r => {{
+    const name = r.pnlname || '';
+    const desc = r.descr || '';
+    const typeLbl = PNLTYPE[r.pnltype] || '';
+    return `<div class="list-item" onclick="loadPage(${{JSON.stringify(name)}})" data-name="${{esc(name)}}">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-family:monospace;font-size:12px;color:#c8d8e8">${{esc(name)}}</span>
+        ${{typeLbl && typeLbl !== 'Standard' ? `<span style="font-size:9px;color:#556">${{esc(typeLbl)}}</span>` : ''}}
+      </div>
+      ${{desc && desc.trim() ? `<div style="font-size:11px;color:#556;margin-top:1px">${{esc(desc.trim())}}</div>` : ''}}
+    </div>`;
+  }}).join('');
+}}
+
+async function loadPage(name) {{
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('sel', el.dataset.name === name));
+  const panel = document.getElementById('detail-panel');
+  panel.innerHTML = '<div class="muted" style="margin-top:40px;text-align:center">Loading...</div>';
+  history.replaceState(null, '', `/admin/page?q=${{encodeURIComponent(document.getElementById('q').value.trim())}}&name=${{encodeURIComponent(name)}}&env=${{ENV}}`);
+
+  const d = await api(`/api/peoplesoft/object/page/${{encodeURIComponent(name)}}?env=${{ENV}}`);
+  if (!d) {{ panel.innerHTML = '<div style="color:#f88;padding:20px">Failed to load page data.</div>'; return; }}
+  renderPage(d, name, panel);
+}}
+
+const EV_COLOR = {{
+  'FieldChange':'#44aaff','FieldDefault':'#22bb88','FieldEdit':'#ffaa22','FieldFormula':'#aa66ff',
+  'RowInit':'#5588cc','RowInsert':'#44cc88','RowSelect':'#6688aa','RowDelete':'#ff6644',
+  'PreBuild':'#ffdd44','PostBuild':'#ffcc33','Activate':'#22ccff',
+  'SaveEdit':'#ff8844','SavePreChange':'#cc44aa','SavePostChange':'#aa44cc',
+}};
+function evChip(ev) {{
+  const c = EV_COLOR[ev] || '#667788';
+  return `<span class="event-chip" style="background:${{c}}22;color:${{c}};border:1px solid ${{c}}44">${{esc(ev)}}</span>`;
+}}
+
+function renderPage(d, name, panel) {{
+  const ov = d.overview || {{}};
+  const secs = d.sections || [];
+  const by = {{}};
+  secs.forEach(s => {{ if (s.name) by[s.name] = s; }});
+
+  const recItems  = (by['Records']     || {{}}).items || [];
+  const compItems = (by['Components']  || {{}}).items || [];
+  const pcItems   = (by['PeopleCode']  || {{}}).items || [];
+  const whoItems  = (by['Who Has Access'] || {{}}).items || [];
+  const subItems  = (by['Subpages']    || {{}}).items || [];
+  const xferCount = ((by['Transfers']  || {{}}).data || {{}}).count || 0;
+
+  // Overview
+  const ovHtml = `
+    <div class="stat-row">
+      <div class="stat-pill"><span class="stat-num">${{ov.fields||0}}</span><span class="stat-lbl">Fields</span></div>
+      <div class="stat-pill"><span class="stat-num">${{recItems.length}}</span><span class="stat-lbl">Records</span></div>
+      <div class="stat-pill"><span class="stat-num">${{compItems.length}}</span><span class="stat-lbl">Components</span></div>
+      <div class="stat-pill"><span class="stat-num">${{pcItems.length}}</span><span class="stat-lbl">PC Events</span></div>
+      <div class="stat-pill"><span class="stat-num">${{ov.permissionlists||0}}</span><span class="stat-lbl">Perm Lists</span></div>
+      ${{subItems.length ? `<div class="stat-pill"><span class="stat-num">${{subItems.length}}</span><span class="stat-lbl">Subpages</span></div>` : ''}}
+      ${{xferCount ? `<div class="stat-pill"><span class="stat-num">${{xferCount}}</span><span class="stat-lbl">Transfers</span></div>` : ''}}
+    </div>
+    <div class="kv">
+      <span class="kv-lbl">Page</span><span class="kv-val">${{esc(ov.pnlname||name)}}</span>
+      ${{ov.descr && ov.descr.trim() ? `<span class="kv-lbl">Description</span><span class="kv-val" style="color:#c8d8e8">${{esc(ov.descr.trim())}}</span>` : ''}}
+      <span class="kv-lbl">Type</span><span class="kv-val">${{esc(PNLTYPE[ov.pnltype]||'Standard')}}</span>
+      <span class="kv-lbl">Version</span><span class="kv-val">${{ov.version||''}}</span>
+      <span class="kv-lbl">Last Updated</span><span class="kv-val">${{fmt(ov.lastupddttm||'')}}</span>
+      <span class="kv-lbl">Updated By</span><span class="kv-val">${{esc(ov.lastupdoprid||'')}}</span>
+    </div>
+    ${{subItems.length ? `<div style="margin-top:8px"><div style="font-size:11px;color:#556;margin-bottom:6px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px">Subpages</div>${{subItems.map(s=>`<span style="font-family:monospace;font-size:11px;margin-right:10px"><a href="/admin/page?name=${{encodeURIComponent(s.pnlname||'')}}&env=${{ENV}}" style="color:#8888ff;text-decoration:none">${{esc(s.pnlname||'')}}</a></span>`).join('')}}</div>` : ''}}
+    <div style="margin-top:12px">
+      <a href="/admin/object/page/${{encodeURIComponent(name)}}?env=${{ENV}}" style="color:#8888ff;font-size:12px">Full Object View &#x2197;</a>
+    </div>`;
+
+  // Records tab
+  const recsHtml = recItems.length ? (() => {{
+    const real = recItems.filter(r => r.recname && r.recname.trim());
+    return `<div style="font-size:11px;color:#446;margin-bottom:8px">${{real.length}} record(s) referenced on this page</div>`
+      + real.map(r => {{
+        const rn = r.recname.trim();
+        const fc = r.field_count || 0;
+        const usage = (r.usage || []).join(', ');
+        return `<div class="rec-row">
+          <a href="/admin/record/${{encodeURIComponent(rn)}}?env=${{ENV}}" style="color:#00e5ff;font-family:monospace;font-size:12px;flex:0 0 220px;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(rn)}}</a>
+          <span style="color:#556;font-size:11px;flex:1">${{esc(usage)}}</span>
+          <span class="scroll-badge">${{fc}} field${{fc===1?'':'s'}}</span>
+        </div>`;
+      }}).join('');
+  }})() : '<div class="muted">No records found.</div>';
+
+  // Components tab
+  const compsHtml = compItems.length ? compItems.map(c => {{
+    const cn = c.pnlgrpname || '';
+    const mk = c.market || '';
+    return `<div class="comp-row">
+      <a href="/admin/component?name=${{encodeURIComponent(cn)}}&env=${{ENV}}" style="color:#44aaff;font-family:monospace;font-size:12px;flex:1;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(cn)}}</a>
+      ${{mk ? `<span style="font-size:11px;color:#446">${{esc(mk)}}</span>` : ''}}
+    </div>`;
+  }}).join('') : '<div class="muted">No components reference this page.</div>';
+
+  // PeopleCode tab — group by source component
+  let pcHtml = '';
+  if (!pcItems.length) {{
+    pcHtml = '<div class="muted">No PeopleCode events on this page.</div>';
+  }} else {{
+    const groups = {{}};
+    pcItems.forEach(pc => {{
+      const comp = pc._source_component || pc.objectvalue1 || 'unknown';
+      (groups[comp] = groups[comp] || []).push(pc);
+    }});
+    pcHtml = Object.entries(groups).map(([comp, pcs]) => {{
+      const rows = pcs.slice(0, 30).map(pc => {{
+        const ref = pc.encoded_reference || pc.reference || '';
+        const lnk = ref ? `/admin/object/peoplecode/${{encodeURIComponent(ref)}}?env=${{ENV}}` : '#';
+        const pathParts = (pc.semantic_path || []).slice(2);
+        const pathHtml = pathParts.map(p => `<span style="color:#445;margin:0 2px">›</span><span style="color:#8aabb8;font-family:monospace">${{esc(p.name)}}</span>`).join('');
+        return `<div class="pc-row">
+          ${{evChip(pc.event||'?')}}
+          <span style="color:#556;font-size:10px">${{pathHtml}}</span>
+          <a href="${{lnk}}" style="color:#aa66ff;font-size:10px;margin-left:auto">View &#x2197;</a>
+        </div>`;
+      }}).join('');
+      const extra = pcs.length > 30 ? `<div style="color:#446;font-size:10px;padding:3px 6px">+${{pcs.length-30}} more</div>` : '';
+      return `<div class="pc-group">
+        <div class="pc-group-hdr">
+          <a href="/admin/component?name=${{encodeURIComponent(comp)}}&env=${{ENV}}" style="color:#acd;text-decoration:none">${{esc(comp)}}</a>
+          <span style="margin-left:4px;color:#446">(${{pcs.length}} event${{pcs.length===1?'':'s'}})</span>
+        </div>
+        ${{rows}}${{extra}}
+      </div>`;
+    }}).join('');
+  }}
+
+  // Security tab
+  const secHtml = whoItems.length ? (() => {{
+    const wdata = (by['Who Has Access'] || {{}}).data || {{}};
+    return `<div style="margin-bottom:12px;font-size:12px;color:#556">
+      ${{wdata.permissionlists||whoItems.length}} permission list(s) · ${{wdata.roles||0}} role(s) · ${{wdata.operators||0}} operator(s) with access to this page
+    </div>` + whoItems.map(pl => {{
+      const via = pl.via_roles ? `<div style="font-size:11px;color:#8aabb8;margin-top:4px">Via: ${{esc(pl.via_roles)}}</div>` : '';
+      const acts = (pl.actions||'').split(',').map(a => `<span class="action-chip">${{esc(a.trim())}}</span>`).join('');
+      return `<div class="sec-card">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <a href="/admin/permissionlist/${{encodeURIComponent(pl.classid)}}?env=${{ENV}}" style="color:#ff9900;font-family:monospace;font-size:13px;font-weight:bold;text-decoration:none">${{esc(pl.classid)}}</a>
+          <div>${{acts}}</div>
+        </div>
+        ${{via}}
+      </div>`;
+    }}).join('');
+  }})() : '<div class="muted">No access data found.</div>';
+
+  panel.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <h1 style="margin:0;font-family:monospace;font-size:20px;color:#8888ff">${{esc(name)}}</h1>
+      ${{ov.descr && ov.descr.trim() ? `<span style="color:#778;font-size:14px">${{esc(ov.descr.trim())}}</span>` : ''}}
+    </div>
+    <div class="tab-row">
+      <div class="tab on" onclick="setTab('overview',this)">Overview</div>
+      <div class="tab" onclick="setTab('records',this)">Records (${{recItems.filter(r=>r.recname&&r.recname.trim()).length}})</div>
+      <div class="tab" onclick="setTab('components',this)">Components (${{compItems.length}})</div>
+      <div class="tab" onclick="setTab('peoplecode',this)">PeopleCode (${{pcItems.length}})</div>
+      <div class="tab" onclick="setTab('security',this)">Security (${{whoItems.length}} PLs)</div>
+    </div>
+    <div id="pane-overview"   class="pane on">${{ovHtml}}</div>
+    <div id="pane-records"    class="pane">${{recsHtml}}</div>
+    <div id="pane-components" class="pane">${{compsHtml}}</div>
+    <div id="pane-peoplecode" class="pane">${{pcHtml}}</div>
+    <div id="pane-security"   class="pane">${{secHtml}}</div>`;
+}}
+
+function setTab(name, el) {{
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('on'));
+  el.classList.add('on');
+  const pane = document.getElementById('pane-' + name);
+  if (pane) pane.classList.add('on');
+}}
+
+(function() {{
+  const params = new URLSearchParams(location.search);
+  const q = params.get('q');
+  const name = params.get('name');
+  if (q) {{
+    document.getElementById('q').value = q;
+    doSearch().then(() => {{ if (name) loadPage(name); }});
+  }} else if (name) {{
+    loadPage(name);
   }}
 }})();
 </script>

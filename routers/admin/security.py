@@ -2867,3 +2867,265 @@ function highlightPeopleCode(source) {
 </script>""")
 
 
+
+
+@router.get("/permissionlist", response_class=HTMLResponse)
+@router.get("/permissionlist/{classid_val:path}", response_class=HTMLResponse)
+def admin_permissionlist(classid_val: str = None):
+    from ._core import _NAV_CSS, _ESC_JS, _nav_html
+    nav = _nav_html("permissionlist")
+    INIT_CLASSID = json.dumps(classid_val or "")
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>Permission List Explorer</title>
+<meta charset="utf-8">
+{_NAV_CSS}
+<style>
+*{{box-sizing:border-box}}
+body{{margin:0;background:#050b12;color:#c8d8e8;font-family:Arial,sans-serif}}
+.muted{{color:#446;font-style:italic;font-size:12px}}
+.list-item{{padding:6px 10px;border-radius:3px;cursor:pointer;margin-bottom:1px;border-bottom:1px solid #0d1520}}
+.list-item:hover{{background:rgba(255,153,0,.06)}}
+.list-item.sel{{background:rgba(255,153,0,.12);border-left:2px solid #ff9900}}
+.tab-row{{display:flex;gap:2px;margin-bottom:14px;border-bottom:1px solid #1a2a3a}}
+.tab{{padding:6px 14px;cursor:pointer;font-size:12px;color:#778;border-bottom:2px solid transparent;margin-bottom:-1px}}
+.tab:hover{{color:#acd}}.tab.on{{color:#ff9900;border-bottom-color:#ff9900}}
+.pane{{display:none}}.pane.on{{display:block}}
+.kv{{display:grid;grid-template-columns:180px 1fr;gap:2px 8px;font-size:12px;margin-bottom:12px}}
+.kv-lbl{{color:#556;padding:2px 0}}.kv-val{{color:#acd;font-family:monospace;word-break:break-all;padding:2px 0}}
+.stat-row{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}}
+.stat-pill{{background:rgba(255,153,0,.08);border:1px solid rgba(255,153,0,.25);border-radius:4px;padding:6px 14px;text-align:center}}
+.stat-num{{font-size:20px;font-weight:bold;color:#ff9900;display:block}}
+.stat-lbl{{font-size:10px;color:#556;text-transform:uppercase;letter-spacing:.5px}}
+.comp-block{{background:#0a1520;border:1px solid rgba(255,153,0,.15);border-radius:4px;margin-bottom:6px}}
+.comp-hdr{{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer}}
+.comp-hdr:hover{{background:rgba(255,153,0,.05)}}
+.comp-body{{padding:4px 12px 8px 24px;display:none}}
+.comp-body.open{{display:block}}
+.pg-row{{display:flex;align-items:center;gap:6px;padding:3px 6px;font-size:12px;border-bottom:1px solid #0d1520}}
+.pg-row:last-child{{border-bottom:none}}
+.action-badge{{display:inline-block;font-size:10px;padding:1px 5px;border-radius:2px;margin-right:3px}}
+.role-row{{display:flex;align-items:center;padding:7px 10px;border-bottom:1px solid #0d1520;font-size:13px}}
+.role-row:hover{{background:rgba(255,170,34,.05)}}
+.menu-row{{padding:6px 10px;border-bottom:1px solid #0d1520;font-size:12px}}
+.menu-row:hover{{background:rgba(0,229,255,.04)}}
+</style>
+</head><body>
+{nav}
+<div style="display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 42px)">
+  <!-- RAIL -->
+  <div style="border-right:1px solid #1a2a3a;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:10px;border-bottom:1px solid #1a2a3a">
+      <div style="font-size:11px;color:#ff9900;font-weight:bold;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Permission Lists</div>
+      <input id="q" type="text" placeholder="Search permission lists..." autocomplete="off"
+        style="width:100%;background:#0a1520;border:1px solid #1a2a3a;color:#c8d8e8;padding:6px 8px;border-radius:3px;font-size:12px;outline:none">
+      <div id="rail-status" style="font-size:11px;color:#446;margin-top:5px">&nbsp;</div>
+    </div>
+    <div id="rail-list" style="overflow-y:auto;flex:1;padding:4px"></div>
+  </div>
+  <!-- DETAIL -->
+  <div id="detail-panel" style="overflow-y:auto;padding:20px">
+    <div class="muted" style="margin-top:40px;text-align:center">Search for a permission list to explore its components and roles.</div>
+  </div>
+</div>
+<script>
+{_ESC_JS}
+const ENV = (new URLSearchParams(location.search).get('env')) || 'HCM';
+
+async function api(url) {{
+  try {{ const r = await fetch(url); if (!r.ok) return null; return await r.json(); }} catch(e) {{ return null; }}
+}}
+function fmt(s) {{
+  if (!s) return '';
+  const d = new Date(s);
+  return isNaN(d) ? s : d.toLocaleDateString('en-AU', {{year:'numeric',month:'short',day:'numeric'}});
+}}
+
+let debounce;
+document.getElementById('q').addEventListener('input', () => {{ clearTimeout(debounce); debounce = setTimeout(doSearch, 220); }});
+document.getElementById('q').addEventListener('keydown', e => {{ if (e.key==='Enter') {{ clearTimeout(debounce); doSearch(); }} }});
+
+async function doSearch() {{
+  const q = document.getElementById('q').value.trim();
+  if (!q) return;
+  document.getElementById('rail-status').textContent = 'Searching...';
+  const rows = await api(`/api/peoplesoft/permissionlists?env=${{ENV}}&q=${{encodeURIComponent(q)}}&limit=100`);
+  const list = document.getElementById('rail-list');
+  if (!rows || !rows.length) {{
+    list.innerHTML = '<div class="muted" style="padding:12px">No permission lists found.</div>';
+    document.getElementById('rail-status').textContent = '0 results';
+    return;
+  }}
+  document.getElementById('rail-status').textContent = rows.length + ' result' + (rows.length===1?'':'s');
+  list.innerHTML = rows.map(r => {{
+    const id = r.classid || '';
+    const desc = r.classdefndesc || '';
+    return `<div class="list-item" onclick="loadPL(${{JSON.stringify(id)}})" data-id="${{esc(id)}}">
+      <div style="font-family:monospace;font-size:12px;color:#c8d8e8">${{esc(id)}}</div>
+      ${{desc ? `<div style="font-size:11px;color:#556;margin-top:1px">${{esc(desc)}}</div>` : ''}}
+    </div>`;
+  }}).join('');
+}}
+
+async function loadPL(classid) {{
+  document.querySelectorAll('.list-item').forEach(el => el.classList.toggle('sel', el.dataset.id === classid));
+  const panel = document.getElementById('detail-panel');
+  panel.innerHTML = '<div class="muted" style="margin-top:40px;text-align:center">Loading...</div>';
+  history.replaceState(null, '', `/admin/permissionlist/${{encodeURIComponent(classid)}}?env=${{ENV}}`);
+
+  const d = await api(`/api/peoplesoft/object/permissionlist/${{encodeURIComponent(classid)}}?env=${{ENV}}`);
+  if (!d) {{ panel.innerHTML = '<div style="color:#f88;padding:20px">Failed to load data.</div>'; return; }}
+  renderPL(d, classid, panel);
+}}
+
+function renderPL(d, classid, panel) {{
+  const ov = d.overview || {{}};
+  const secs = d.sections || [];
+  const by = {{}};
+  secs.forEach(s => {{ if (s.name) by[s.name] = s; }});
+
+  const def = (by['Definition'] || {{}}).data || {{}};
+  const roles     = (by['Roles']      || {{}}).items || [];
+  const menus     = (by['Menus']      || {{}}).items || [];
+  const comps     = (by['Components'] || {{}}).items || [];
+  const pgGrants  = (by['Page Grants']|| {{}}).items || [];
+
+  // Overview
+  const ovHtml = `
+    <div class="stat-row">
+      <div class="stat-pill"><span class="stat-num">${{roles.length}}</span><span class="stat-lbl">Roles</span></div>
+      <div class="stat-pill"><span class="stat-num">${{(by['Components']||{{}}).data?.count || new Set(comps.map(c=>c.pnlgrpname)).size}}</span><span class="stat-lbl">Components</span></div>
+      <div class="stat-pill"><span class="stat-num">${{menus.length}}</span><span class="stat-lbl">Menus</span></div>
+      <div class="stat-pill"><span class="stat-num">${{pgGrants.filter(p=>p.level===1).length}}</span><span class="stat-lbl">Page Grants</span></div>
+    </div>
+    <div class="kv">
+      <span class="kv-lbl">Permission List</span><span class="kv-val">${{esc(classid)}}</span>
+      ${{def.description||def.descr ? `<span class="kv-lbl">Description</span><span class="kv-val" style="color:#c8d8e8">${{esc(def.description||def.classdefndesc||def.descr||'')}}</span>` : ''}}
+      ${{def.timeout_minutes != null ? `<span class="kv-lbl">Session Timeout</span><span class="kv-val">${{def.timeout_minutes}} min</span>` : ''}}
+      ${{def.version != null ? `<span class="kv-lbl">Version</span><span class="kv-val">${{def.version}}</span>` : ''}}
+      <span class="kv-lbl">Last Updated</span><span class="kv-val">${{fmt(def.lastupddttm||ov.lastupddttm||'')}}</span>
+      <span class="kv-lbl">Updated By</span><span class="kv-val">${{esc(def.lastupdoprid||ov.lastupdoprid||'')}}</span>
+    </div>`;
+
+  // Components tab — use Page Grants (hierarchical) if available, else flat comps
+  let compHtml = '';
+  let blocks = null;
+  if (!pgGrants.length && !comps.length) {{
+    compHtml = '<div class="muted">No component grants found.</div>';
+  }} else if (pgGrants.length) {{
+    // pgGrants: level=0 → component header, level=1 → page row
+    let curComp = null;
+    blocks = [];
+    let pages = [];
+    pgGrants.forEach(pg => {{
+      if (pg.level === 0) {{
+        if (curComp) blocks.push({{comp: curComp, pages}});
+        curComp = pg;
+        pages = [];
+      }} else {{
+        pages.push(pg);
+      }}
+    }});
+    if (curComp) blocks.push({{comp: curComp, pages}});
+
+    compHtml = blocks.map((b, idx) => {{
+      const cname = b.comp.pnlgrpname || b.comp.name || '';
+      const cdesc = b.comp.component_descr || '';
+      const pgRows = b.pages.map(pg => {{
+        const rel = pg.relationship || '';
+        const isCorr = rel.toLowerCase().includes('correction');
+        const isUpd  = rel.toLowerCase().includes('update');
+        const ac = `<span class="action-badge" style="background:rgba(${{isCorr?'255,68,68':isUpd?'34,204,136':'68,170,255'}},.15);color:${{isCorr?'#ff8888':isUpd?'#44cc88':'#44aaff'}};border:1px solid rgba(${{isCorr?'255,68,68':isUpd?'34,204,136':'68,170,255'}},.3)">${{esc(rel)}}</span>`;
+        return `<div class="pg-row">
+          <span style="font-family:monospace;color:#8aabb8">${{esc(pg.pnlname||pg.name||'')}}</span>
+          <span style="margin-left:auto">${{ac}}</span>
+        </div>`;
+      }}).join('');
+      const uid = 'cb'+idx;
+      return `<div class="comp-block">
+        <div class="comp-hdr" onclick="toggleBlock('${{uid}}')">
+          <span style="color:#778;font-size:11px">&#x25B6;</span>
+          <a href="/admin/component?name=${{encodeURIComponent(cname)}}&env=${{ENV}}" style="color:#44aaff;font-family:monospace;font-size:13px;text-decoration:none" onclick="event.stopPropagation()">${{esc(cname)}}</a>
+          ${{cdesc ? `<span style="color:#556;font-size:11px">${{esc(cdesc)}}</span>` : ''}}
+          <span style="margin-left:auto;color:#446;font-size:11px">${{b.pages.length}} page(s)</span>
+        </div>
+        <div class="comp-body" id="${{uid}}">${{pgRows}}</div>
+      </div>`;
+    }}).join('');
+  }} else {{
+    // flat comps
+    const seen = new Set();
+    compHtml = comps.filter(c => {{ const k = c.pnlgrpname; if (seen.has(k)) return false; seen.add(k); return true; }}).map(c => {{
+      const cname = c.pnlgrpname || '';
+      return `<div style="padding:5px 8px;border-bottom:1px solid #0d1520;font-size:12px">
+        <a href="/admin/component?name=${{encodeURIComponent(cname)}}&env=${{ENV}}" style="color:#44aaff;font-family:monospace">${{esc(cname)}}</a>
+        <span style="color:#556;margin-left:8px">${{esc(c.component_descr||'')}}</span>
+      </div>`;
+    }}).join('');
+  }}
+
+  // Roles tab
+  const rolesHtml = roles.length ? roles.map(r => {{
+    const rn = r.rolename || '';
+    return `<div class="role-row">
+      <a href="/admin/role/${{encodeURIComponent(rn)}}?env=${{ENV}}" style="color:#ffaa22;font-size:13px;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(rn)}}</a>
+    </div>`;
+  }}).join('') : '<div class="muted">No roles assigned.</div>';
+
+  // Menus tab
+  const menusHtml = menus.length ? menus.map(m => {{
+    const mn = m.menuname || m.name || '';
+    const mi = m.baritemname || '';
+    return `<div class="menu-row">
+      <a href="/admin/object/menu/${{encodeURIComponent(mn)}}?env=${{ENV}}" style="color:#00e5ff;font-family:monospace;font-size:12px;text-decoration:none" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${{esc(mn)}}</a>
+      ${{mi ? `<span style="color:#446;margin-left:8px;font-size:11px">${{esc(mi)}}</span>` : ''}}
+    </div>`;
+  }}).join('') : '<div class="muted">No menus found.</div>';
+
+  panel.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <h1 style="margin:0;font-family:monospace;font-size:20px;color:#ff9900">${{esc(classid)}}</h1>
+      ${{def.description||def.classdefndesc ? `<span style="color:#778;font-size:14px">${{esc(def.description||def.classdefndesc||'')}}</span>` : ''}}
+    </div>
+    <div class="tab-row">
+      <div class="tab on" onclick="setTab('overview',this)">Overview</div>
+      <div class="tab" onclick="setTab('components',this)">Components (${{blocks ? blocks.length : new Set(comps.map(c=>c.pnlgrpname)).size}})</div>
+      <div class="tab" onclick="setTab('roles',this)">Roles (${{roles.length}})</div>
+      <div class="tab" onclick="setTab('menus',this)">Menus (${{menus.length}})</div>
+    </div>
+    <div id="pane-overview"    class="pane on">${{ovHtml}}</div>
+    <div id="pane-components"  class="pane">${{compHtml}}</div>
+    <div id="pane-roles"       class="pane">${{rolesHtml}}</div>
+    <div id="pane-menus"       class="pane">${{menusHtml}}</div>`;
+}}
+
+function setTab(name, el) {{
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('on'));
+  el.classList.add('on');
+  const pane = document.getElementById('pane-' + name);
+  if (pane) pane.classList.add('on');
+}}
+
+function toggleBlock(uid) {{
+  const body = document.getElementById(uid);
+  if (!body) return;
+  const hdr = body.previousElementSibling;
+  const arrow = hdr && hdr.querySelector('span');
+  body.classList.toggle('open');
+  if (arrow) arrow.textContent = body.classList.contains('open') ? '▼' : '▶';
+}}
+
+(function() {{
+  const params = new URLSearchParams(location.search);
+  const q = params.get('q');
+  const initId = {INIT_CLASSID};
+  if (initId) {{
+    if (q) {{ document.getElementById('q').value = q; doSearch(); }}
+    loadPL(initId);
+  }} else if (q) {{
+    document.getElementById('q').value = q;
+    doSearch();
+  }}
+}})();
+</script>
+</body></html>""")
