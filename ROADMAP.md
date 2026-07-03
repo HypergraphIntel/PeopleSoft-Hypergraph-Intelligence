@@ -181,10 +181,18 @@ Interactive infrastructure topology.
 
 Capture complete runtime incidents.
 
-### Remaining
+### ✅ Completed
 
-- Incident recording with full runtime state capture
-- Replay support for troubleshooting
+- `connectors/incidentdb.py` (`data/incidents.db`) — `incidents` (title, env,
+  severity, state, RCA window, notes) + `incident_snapshots` (source:
+  rca/process/log/ash/ib/kg, JSON blob, timestamp) — full runtime state
+  capture, not just a summary row
+- `routers/incident.py` — `/api/incidents` CRUD + `/api/incidents/{id}/snapshot`
+  (re-run RCA and attach a fresh snapshot to an existing incident)
+- `routers/admin/incidents.py` — `/admin/incidents` list + `/admin/incidents/{id}`
+  detail/replay page (walks back through the captured snapshots for
+  post-incident troubleshooting)
+- Integrated with Incident RCA (`/admin/rca`) for pre-populated capture
 
 ---
 
