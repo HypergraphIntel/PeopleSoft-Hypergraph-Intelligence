@@ -317,16 +317,15 @@ Continue enriching graph relationships.
 - Continue aligning provider-specific Knowledge Graph ingestion with UOM
   `_relationships` / `_graph` relationship definitions — an audit (see
   "UOM/KG Alignment" below) covered ~20 of the highest-traffic provider
-  types and found 9 genuine mismatches; 7 are fixed (below), 2 remain:
-  `component → record` broader page-record usage and `page` subpages/
-  security edges (page-level security isn't modeled in the KG at all — only
-  component-level). The remaining ~34 provider types were not audited yet.
+  types and found 9 genuine mismatches; **all 9 are now fixed**. The
+  remaining ~34 provider types were not audited yet — that's the next slice
+  if this work continues.
   Also noted: AE PeopleCode-step `CONTAINS` edges are a no-op on both the
   UOM side and the KG side in this environment — `AE_ACTTYPE == 'P'` never
   matches here, a pre-existing schema-version gap in `ae.py`'s own reference
   implementation, not something introduced by this alignment work.
 
-### ✅ Completed (2026-07-03) — UOM/KG Alignment fixes (partial)
+### ✅ Completed (2026-07-03) — UOM/KG Alignment fixes (all 9 mismatches closed)
 
 An Explore-agent audit compared ~20 high-traffic UOM object types'
 `_relationships`/`_graph` declarations against what `connectors/graphdb.py`'s
@@ -394,13 +393,37 @@ list above). Fixed 6 of the 9:
   program-level `CALLS` edge when the called program genuinely differs from
   the caller.
 
+- **`component → record` broader page-record usage**: `components()` only
+  covered search/add-search records; UOM's `component_object()` also
+  surfaces every record any page in the component actually uses (via
+  `PSPNLFIELD`, `psdb.component_records_used_by_pages`). Added the same
+  `USES` edges to the KG.
+- **`page` subpages**: `pages()` had no subpage handling at all; UOM's
+  `page_object()` promises a `subpages` relationship
+  (`psdb.page_subpages`). Added `page → page` `CONTAINS` edges.
+- **`page`-level security — re-scoped, not a real gap**: the audit initially
+  flagged this as a missing edge, but PeopleSoft doesn't actually have
+  page-level security distinct from component-level — UOM's "secures_page"
+  relationship is sourced from `psdb.component_access`, the exact same
+  component-scoped `PSAUTHITEM` data `permissionlists()` already persists as
+  `permissionlist → component` `SECURES`. Since `components()` already
+  emits `component → page` `CONTAINS`, a page can already reach its
+  permission chain via a 2-hop bidirectional traversal
+  (`page ← CONTAINS ← component ← SECURES ← permissionlist`) — the
+  information isn't missing, just not a direct 1-hop edge. Adding a
+  redundant direct edge would require an extra per-page query back through
+  `PSPNLGROUP` to resolve owning component(s) for no new information, so
+  left as-is.
+
 **Verified**: fresh graph rebuild (`limit=50`) — 4,026 `HAS_PERMISSION`
 edges, 568 `HAS_MEMBER` edges, 98 `SENDS`/`RECEIVES` edges, 50
 `portal_registry` `CONTAINS` edges, 50 `tree → field` `USES` edges, 9
 `ci → menu` `DECLARED_ON` edges, 811 `ci → field` `EXPOSES` edges, 138
-`ci → record` `USES` edges, 106 AE `CALLS` edges with **zero self-loops**
-(all up from 0). `make check` 91/91; smoke test 69/69 (`/admin/ae` — the one
-page that reads AE section data — spot-checked and still renders).
+`ci → record` `USES` edges, 106 AE `CALLS` edges with **zero self-loops**,
+375 `component → record` `USES` edges (broader page-record usage), 32
+`page → page` `CONTAINS` edges (subpages) — all up from 0. `make check`
+91/91; smoke test 69/69 (`/admin/ae` — the one page that reads AE section
+data — spot-checked and still renders).
 
 ### ✅ Completed (2026-07-03) — Dynamic SQL READS/WRITES coverage
 

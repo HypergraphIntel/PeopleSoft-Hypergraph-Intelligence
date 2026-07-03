@@ -6,6 +6,52 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — UOM/KG Alignment Audit Closed: All 9 Mismatches Fixed — 69/69
+
+### Final round: component→record broader usage, page subpages, and re-scoping page security
+
+Closed out today's UOM/KG alignment audit — the last 2 of 9 mismatches.
+
+- **`component → record` broader page-record usage**: `components()` only
+  covered search/add-search records; added the full set of records any page
+  in the component actually uses, via `psdb.component_records_used_by_pages()`.
+- **`page → page` subpages**: `pages()` had no subpage handling; added via
+  `psdb.page_subpages()`.
+- **Page-level security — re-scoped rather than "fixed"**: on closer look,
+  this was never actually a gap. PeopleSoft doesn't have page-level security
+  distinct from component-level — UOM's "secures_page" relationship on a
+  page object is sourced from `psdb.component_access()`, which is the exact
+  same component-scoped `PSAUTHITEM` data `permissionlists()` already
+  persists as `permissionlist → component SECURES`. Since `components()`
+  already emits `component → page CONTAINS`, a page can already reach its
+  permission chain via a 2-hop bidirectional traversal — the data was never
+  missing, just not a direct 1-hop edge. Decided against adding a redundant
+  direct edge (would need an extra per-page query back through `PSPNLGROUP`
+  to resolve owning component, for zero new information) — this is a
+  legitimate "no fix needed" outcome, not a shortcut.
+
+**Verified**: fresh graph rebuild — 375 `component → record` `USES` edges
+(up from the previous search/add-search-only baseline), 32 `page → page`
+`CONTAINS` edges (up from 0). `make check` 91/91; smoke test 69/69.
+
+**Summary of the whole 3-session-block alignment effort**: an Explore-agent
+audit compared ~20 high-traffic UOM object types against the persisted
+Knowledge Graph and found 9 genuine mismatches. All 9 are now fixed:
+`operator ↔ permissionlist`/`role ↔ operator` edges, direct
+`service_operation ↔ node` edges, `portal_registry` KG persistence (was
+totally absent), `tree → field` edges, `component_interface → menu/record/
+field` edges, the AE `section`/`ae_section` node-type split + `CALLS`
+edges, and this final round's `component → record` broadening + `page`
+subpages. Found and fixed 3 real bugs along the way that were independent
+of the alignment work itself: an Oracle NULL-comparison bug in
+`portal_registry_portals()` (also used by the Portal Registry admin page),
+a SQL-generation bug in the `trees()` column-fallback rewrite, and a
+self-loop bug in the AE `CALLS` edge logic inherited from the reference
+implementation. ~34 provider types were never audited — a clear next slice
+if this work continues, but not attempted in this session.
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — UOM/KG Alignment Fixes, Round 3 (AE) — 69/69
 
 ### Application Engine: section node-type mismatch + CALLS edges

@@ -610,6 +610,23 @@ def build(env="HCM", limit=50, persist=True):
                 for page in psdb.component_pages(env, component)[:limit]:
                     add_node(graph, "page", page.get("pnlname"), page.get("pnlname"), page)
                     add_edge(graph, "component", component, "page", page.get("pnlname"), "CONTAINS", page)
+
+        # UOM's component_object() promises a broader "page_records" edge —
+        # every record any page in the component actually uses (via
+        # PSPNLFIELD), not just the search/add-search records above.
+        for row in rows:
+            component = row.get("pnlgrpname")
+            if not component:
+                continue
+            try:
+                for pr in psdb.component_records_used_by_pages(env, component)[:limit]:
+                    recname = pr.get("recname")
+                    if not recname:
+                        continue
+                    add_node(graph, "record", recname, recname, pr)
+                    add_edge(graph, "component", component, "record", recname, "USES", pr)
+            except Exception:
+                pass
         return len(rows)
 
     def component_peoplecode():
@@ -703,6 +720,17 @@ def build(env="HCM", limit=50, persist=True):
                     add_node(graph, "field", full_field, full_field, field)
                     add_edge(graph, "page", page, "field", full_field, "EXPOSES", field)
                     add_edge(graph, "record", record, "field", full_field, "CONTAINS", field)
+
+            # UOM's page_object() promises a "subpages" relationship
+            # (psdb.page_subpages) — entirely missing from the KG.
+            try:
+                for sub in psdb.page_subpages(env, page)[:limit]:
+                    sub_page = sub.get("pnlname")
+                    if sub_page and sub_page != page:
+                        add_node(graph, "page", sub_page, sub_page, {})
+                        add_edge(graph, "page", page, "page", sub_page, "CONTAINS", sub)
+            except Exception:
+                pass
         return len(rows)
 
     def fields():
