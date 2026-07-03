@@ -203,6 +203,29 @@ enable later ones — build vertically, not horizontally.
 Providers 7 and 8 are optional when the domain has no runtime state or no object-level
 canonical page (e.g., environment comparison has no single "object" to navigate to).
 
+### Plugin path (alternative to editing core files)
+
+The table above assumes you're editing this codebase directly. `connectors/plugins.py`
+offers a second path for providers 4, 5, 7, and 9 that doesn't require touching
+`uom.py`/`graphdb.py`/`routers/peoplesoft.py`/`routers/admin/_core.py` at all:
+
+| Provider | Core-file mechanism | Plugin mechanism |
+|---|---|---|
+| UOM Provider | `if object_type == "x":` branch in `routers/peoplesoft.py` | `plugins.register_object_provider(type, object_fn, payload_fn, registry_meta)` |
+| Graph Provider | closure inside `graphdb.py`'s `build()`, added to its literal tuple | `plugins.register_graph_provider(name, loader)` — `loader(graph, env, limit)` |
+| Runtime Provider | new endpoint in `routers/runtime.py` + hand-written admin card | `plugins.register_runtime_provider(name, fetch_fn, label)` — surfaces automatically on the generic "Plugin Providers" `/admin/runtime` card |
+| Admin Page + Nav | route in `routers/admin/<group>.py` + entry in `_core.py`'s `_NAV_GROUPS` | `plugins.register_router(router)` + `plugins.register_nav_entry(group, key, label, href)` |
+
+A module dropped into `plugins/` and exposing `register(sdk)` is discovered and loaded
+automatically at startup (`connectors/pluginloader.py`), with per-plugin failure
+isolation — a broken plugin is logged and skipped, never crashes the server or other
+plugins. See `PLUGINS.md` for the full walkthrough and `plugins/example_hello.py` for
+a working reference implementation of all four extension points.
+
+Use the plugin path for organization-specific extensions that shouldn't live in this
+repo's core files; use the core-file path (table above) for anything meant to become a
+permanent part of the platform itself.
+
 ---
 
 ## Planned Platform Capabilities
@@ -509,45 +532,52 @@ PHI models both layers simultaneously.
 
 ## Configuration
 
-Filesystem locations are configured independently for each environment.
+Filesystem locations are configured as flat, per-artifact-type source lists in
+`config.json` (`sqr_sources`, `cobol_sources`) — one entry per (env, delivered/custom)
+combination, not a nested `{env: {delivered: {...}, custom: {...}}}` tree. Each entry
+carries its own `ssh_host` so delivered and custom trees can even live on different
+hosts if needed.
 
-Example:
+Example (as actually implemented — see `connectors/sqringest.py`/`cobolingest.py`):
 
 ```json
 {
-  "source_artifacts": {
-    "HCM": {
-      "delivered": {
-        "sqr": "/opt/psoft/hcm/src/sqr",
-        "cobol": "/opt/psoft/hcm/src/cbl",
-        "copybook": "/opt/psoft/hcm/src/cpy"
-      },
-      "custom": {
-        "sqr": "/opt/company/hcm/custom/sqr",
-        "cobol": "/opt/company/hcm/custom/cbl",
-        "copybook": "/opt/company/hcm/custom/cpy"
-      }
+  "sqr_sources": [
+    {
+      "env": "HCM", "key": "hcm_sqr_delivered", "source_type": "delivered",
+      "ssh_host": "hcm_appserver", "label": "HCM SQR Library - Delivered",
+      "sqr_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/sqr"
     },
-    "FSCM": {
-      ...
+    {
+      "env": "HCM", "key": "hcm_sqr_custom", "source_type": "custom",
+      "ssh_host": "hcm_appserver", "label": "HCM SQR Library - Custom",
+      "sqr_dir": "/opt/psoft/hcm/ps_cust_home/sqr"
     }
-  }
+  ],
+  "cobol_sources": [
+    {
+      "env": "HCM", "key": "hcm_cobol_delivered", "source_type": "delivered",
+      "ssh_host": "hcm_appserver", "label": "HCM COBOL Library - Delivered",
+      "cbl_src_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/src/cbl",
+      "cbl_compiled_dir": "/opt/psoft/hcm/ps_app_home/ps_home8.62.07/cblbin"
+    }
+  ]
 }
 ```
 
-Multiple custom source roots may be configured.
+**No separate `copybook` artifact type**: PeopleSoft COBOL copybooks are not a
+distinct file type/extension/directory. They're plain `.cbl` files distinguished only
+by the *absence* of a `PROGRAM-ID` (they're pulled into programs via `COPY name.`) —
+`connectors/cobolparser.py` classifies `file_type` as `program`/`copybook` by content,
+not by config path. No true `.cpy`-style copybook files exist in any environment this
+platform has been run against so far; if one ever does, it would need its own
+`source_type`/parser branch, not a new top-level config key.
 
-Search order is deterministic.
-
-```
-Custom Layer 1
-↓
-Custom Layer 2
-↓
-Delivered Layer
-```
-
-This allows PHI to resolve the effective implementation exactly as PeopleSoft executes it.
+`source_type: "delivered"|"custom"` on each entry drives resolution: SQR/COBOL admin
+pages and the `overrides()` query (`GET /api/sqr/overrides`) find filenames present in
+*both* a delivered and custom entry for the same env to surface customizations —
+there's no separate "search order" merge logic; delivered and custom trees are indexed
+and queried as distinct, comparable sets rather than resolved into one effective view.
 
 ---
 
