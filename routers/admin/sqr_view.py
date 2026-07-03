@@ -1292,6 +1292,10 @@ a{{color:#00e5ff;text-decoration:none}}a:hover{{text-decoration:underline}}
   <select class="cmp-sel" id="envA"><option>HCM</option><option>FSCM</option></select>
   <span style="color:#445;font-size:12px">vs</span>
   <select class="cmp-sel" id="envB"><option>FSCM</option><option>HCM</option></select>
+  <select class="cmp-sel" id="diffMode" title="Exact = raw byte comparison. Normalized = ignore comment lines and whitespace-only differences.">
+    <option value="exact">Exact match</option>
+    <option value="normalized">Ignore whitespace/comments</option>
+  </select>
   <button class="cmp-btn" onclick="load()">Compare</button>
   <span id="status"></span>
 </div>
@@ -1347,6 +1351,8 @@ function renderChanged(rows, labelA, labelB){{
     const tDiff=r.table_count_a!==r.table_count_b;
     const iDiff=r.include_count_a!==r.include_count_b;
     const hDiff=r.content_hash_a&&r.content_hash_b&&r.content_hash_a!==r.content_hash_b;
+    let hashLabel = hDiff?'DIFFERS':(r.content_hash_a?'SAME':'—');
+    if (hDiff && r.content_normalized_same === true) hashLabel = 'DIFFERS (whitespace/comments only)';
     return `<tr>
       <td><a href="/admin/sqr/${{encodeURIComponent(r.filename)}}">${{esc(r.filename)}}</a></td>
       <td><span class="${{ftClass(r.file_type)}}">${{esc(r.file_type||'')}}</span></td>
@@ -1354,18 +1360,19 @@ function renderChanged(rows, labelA, labelB){{
       <td class="${{tDiff?'diff-val':'same-val'}}">${{r.table_count_b||0}}</td>
       <td class="${{iDiff?'diff-val':'same-val'}}">${{r.include_count_a||0}}</td>
       <td class="${{iDiff?'diff-val':'same-val'}}">${{r.include_count_b||0}}</td>
-      <td style="font-size:10px;color:${{hDiff?'#ffcc44':'#445'}}">${{hDiff?'DIFFERS':r.content_hash_a?'SAME':'—'}}</td>
+      <td style="font-size:10px;color:${{hDiff?'#ffcc44':'#445'}}">${{hashLabel}}</td>
     </tr>`;
   }}).join('')+'</tbody></table>';
 }}
 
 async function load(){{
   const envA=$('envA').value, envB=$('envB').value;
+  const diffMode=$('diffMode').value;
   if(envA===envB){{$('status').textContent='Select different environments.';return;}}
   $('status').textContent='Loading…';
   $('statRow').style.display='none';
   $('tabBar').style.display='none';
-  const data=await fetch(`/api/sqr/envcompare?env_a=${{encodeURIComponent(envA)}}&env_b=${{encodeURIComponent(envB)}}`).then(r=>r.json()).catch(e=>({{error:String(e)}}));
+  const data=await fetch(`/api/sqr/envcompare?env_a=${{encodeURIComponent(envA)}}&env_b=${{encodeURIComponent(envB)}}&diff_mode=${{diffMode}}`).then(r=>r.json()).catch(e=>({{error:String(e)}}));
   $('status').textContent='';
   if(data.error){{$('status').textContent='Error: '+data.error;return;}}
   const c=data.counts||{{}};

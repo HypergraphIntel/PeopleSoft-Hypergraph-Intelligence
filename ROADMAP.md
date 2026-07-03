@@ -330,9 +330,34 @@ comparison.
   {table_name}` page has the same latent bug, out of scope to fix here since it
   predates this work and isn't part of what broke).
 
+### Broader Diff Modes — ✅ Complete
+`envcompare_sqr()`/`envcompare_cobol()` gained a `diff_mode` parameter: `"exact"`
+(unchanged, raw `content_hash` equality) or `"normalized"` (ignore comment lines and
+insignificant whitespace). Normalized mode only re-checks pairs whose `content_hash`
+already differs — an extra `source_text` fetch + comparison for just those rows — so
+exact mode stays exactly as cheap as before. Comment-stripping reuses each parser's
+own existing convention rather than inventing a new one: SQR's `!`-prefixed comment
+lines (`sqrparser.py`'s `_RE_COMMENT_LINE`) and COBOL's fixed-format column-7 `*`
+(`cobolparser.py`'s `_RE_COMMENT_LINE`). `/admin/sqrcompare` and `/admin/cobolcompare`
+both got an "Exact match" / "Ignore whitespace/comments" toggle; the changed-files
+table now labels whitespace/comment-only diffs distinctly (`DIFFERS (whitespace/
+comments only)`) instead of just `DIFFERS`.
+
+Since HCM/FSCM are byte-identical in this environment for both SQR and COBOL (no real
+diffs to demonstrate against), verified correctness with scratch-DB tests (same
+methodology as SQR Override Intelligence): cloned a real program into the other
+environment's source tree with (a) an added comment line + trailing whitespace only
+— confirmed normalized mode correctly reports `changed: false`, `content_normalized_
+same: true`, while exact mode still reports `changed: true`; and (b) a genuine
+non-comment token inserted mid-file — confirmed normalized mode still catches it
+(`changed: true`, `content_normalized_same: false`). Repeated for both SQR (`!`
+comments) and COBOL (column-7 `*` comments) source. Also verified live in a headless
+browser: toggling to "Ignore whitespace/comments" on `/admin/sqrcompare` and calling
+`load()` correctly re-fetches with `diff_mode=normalized` and renders real counts.
+
 ### Remaining
-- Broader diff modes (syntax-aware, ignore whitespace/comments) are still "Planned"
-  — no concrete blocker, just not prioritized yet.
+- Syntax-aware diffing (AST-level comparison, not just comment/whitespace
+  normalization) — no concrete blocker, just a larger lift than this pass.
 - Runtime correlation (tie Process Scheduler executions back to SQR/COBOL source) is
   Planned; no work started.
 

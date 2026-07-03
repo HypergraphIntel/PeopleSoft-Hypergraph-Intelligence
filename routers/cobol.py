@@ -206,7 +206,8 @@ def cobol_deps(filename: str, max_depth: int = Query(6, ge=1, le=10)):
 
 
 @router.get("/envcompare")
-def cobol_envcompare(env_a: str = Query("HCM"), env_b: str = Query("FSCM")):
+def cobol_envcompare(env_a: str = Query("HCM"), env_b: str = Query("FSCM"),
+                      diff_mode: str = Query("exact", enum=["exact", "normalized"])):
     """Return side-by-side comparison of COBOL programs/copybooks across two environments."""
     import json
     from pathlib import Path
@@ -221,4 +222,5 @@ def cobol_envcompare(env_a: str = Query("HCM"), env_b: str = Query("FSCM")):
     keys_a = [s["key"] for s in all_sources if s.get("env", "").upper() == env_a.upper()]
     keys_b = [s["key"] for s in all_sources if s.get("env", "").upper() == env_b.upper()]
 
-    return cobol_db.envcompare_cobol(keys_a, keys_b, label_a=env_a.upper(), label_b=env_b.upper())
+    return cobol_db.envcompare_cobol(keys_a, keys_b, label_a=env_a.upper(), label_b=env_b.upper(),
+                                      diff_mode=diff_mode)

@@ -16,6 +16,19 @@ from pathlib import Path
 DATA_DIR = Path("/opt/deathstar-api/data")
 DB_PATH  = DATA_DIR / "cobol.db"
 
+# Same fixed-format comment convention cobolparser.py already relies on
+# (column 7 '*') — reused here so "ignore comments" means the same thing
+# everywhere.
+_RE_COMMENT_LINE = re.compile(r'^\s*\*.*$', re.MULTILINE)
+
+
+def _normalize_source(text: str) -> str:
+    """Strip comment lines and insignificant whitespace so two programs that
+    differ only in commentary/formatting hash the same."""
+    no_comments = _RE_COMMENT_LINE.sub('', text)
+    lines = [ln.strip() for ln in no_comments.splitlines()]
+    return "\n".join(ln for ln in lines if ln)
+
 
 def _conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -485,13 +498,19 @@ def source_index_status() -> dict:
 
 
 def envcompare_cobol(source_keys_a: list[str], source_keys_b: list[str],
-                      label_a: str = "A", label_b: str = "B") -> dict:
+                      label_a: str = "A", label_b: str = "B",
+                      diff_mode: str = "exact") -> dict:
     """Compare two sets of COBOL source keys and return a side-by-side diff.
 
     Same shape as sqrdb.envcompare_sqr() — a patch/drift-integrity check across
     environments, not because COBOL and SQR need parity, but because both are
     delivered-artifact trees where "did one environment get patched without the
     other" is the same real question.
+
+    diff_mode:
+        "exact"      — raw content_hash equality (default, unchanged behavior)
+        "normalized" — ignore comment lines and insignificant whitespace;
+                       only content_hash-differing pairs are re-checked.
 
     Returns:
         label_a, label_b — display labels
@@ -520,7 +539,6 @@ def envcompare_cobol(source_keys_a: list[str], source_keys_b: list[str],
 
     map_a = _fetch(source_keys_a)
     map_b = _fetch(source_keys_b)
-    c.close()
 
     keys_a = set(map_a)
     keys_b = set(map_b)
@@ -538,15 +556,19 @@ def envcompare_cobol(source_keys_a: list[str], source_keys_b: list[str],
         key=lambda x: x["filename"],
     )
     in_both = []
+    hash_diff_keys = []
     for k in sorted(keys_a & keys_b):
         ra, rb = map_a[k], map_b[k]
+        hash_diff = bool(ra.get("content_hash") and rb.get("content_hash")
+                          and ra["content_hash"] != rb["content_hash"])
+        if hash_diff:
+            hash_diff_keys.append(k)
         changed = (
             ra["table_count"] != rb["table_count"]
             or ra["copy_count"] != rb["copy_count"]
             or ra["call_count"] != rb["call_count"]
             or ra["description"] != rb["description"]
-            or (ra.get("content_hash") and rb.get("content_hash")
-                and ra["content_hash"] != rb["content_hash"])
+            or hash_diff
         )
         in_both.append({
             "filename": ra["filename"],
@@ -562,12 +584,51 @@ def envcompare_cobol(source_keys_a: list[str], source_keys_b: list[str],
             "content_hash_a": ra.get("content_hash"),
             "content_hash_b": rb.get("content_hash"),
             "changed": changed,
+            "content_normalized_same": None,
         })
+
+    if diff_mode == "normalized" and hash_diff_keys:
+        ph = ",".join("?" for _ in hash_diff_keys)
+        src_rows = c.execute(
+            f"SELECT lower(filename) AS fn, source_key, source_text "
+            f"FROM cobol_programs WHERE lower(filename) IN ({ph}) "
+            f"AND source_key IN ({','.join('?' for _ in source_keys_a + source_keys_b)})",
+            hash_diff_keys + source_keys_a + source_keys_b,
+        ).fetchall()
+        by_fn: dict[str, dict[str, str]] = {}
+        for r in src_rows:
+            by_fn.setdefault(r["fn"], {})[r["source_key"]] = r["source_text"]
+
+        norm_same = set()
+        for k in hash_diff_keys:
+            texts = by_fn.get(k, {})
+            text_a = next((texts[sk] for sk in source_keys_a if sk in texts and texts[sk] is not None), None)
+            text_b = next((texts[sk] for sk in source_keys_b if sk in texts and texts[sk] is not None), None)
+            if text_a is None or text_b is None:
+                continue
+            if _normalize_source(text_a) == _normalize_source(text_b):
+                norm_same.add(k)
+
+        for row in in_both:
+            fn_lower = row["filename"].lower()
+            if fn_lower in hash_diff_keys:
+                is_same = fn_lower in norm_same
+                row["content_normalized_same"] = is_same
+                if is_same:
+                    row["changed"] = (
+                        row["table_count_a"] != row["table_count_b"]
+                        or row["copy_count_a"] != row["copy_count_b"]
+                        or row["call_count_a"] != row["call_count_b"]
+                        or row["description_a"] != row["description_b"]
+                    )
+
+    c.close()
 
     changed_count = sum(1 for r in in_both if r["changed"])
     return {
         "label_a":      label_a,
         "label_b":      label_b,
+        "diff_mode":    diff_mode,
         "only_a":       only_a,
         "only_b":       only_b,
         "in_both":      in_both,

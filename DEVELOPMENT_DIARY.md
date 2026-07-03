@@ -6156,3 +6156,49 @@ Verified live against the real OpenAI-backed assistant at `/admin/assistant`
 
 Verification: `make check` 100/100 files + 11/11 tests; smoke test 73/73
 (unchanged — AI-tool-only change, no new admin pages).
+
+---
+
+### Broader SQR/COBOL Diff Modes (pending commit)
+
+Closed the "broader diff modes (syntax-aware, ignore whitespace/comments)"
+ROADMAP item (the "ignore whitespace/comments" half — full syntax-aware/AST
+diffing is a larger lift, left open). Added a `diff_mode` parameter
+(`"exact"` | `"normalized"`) to `envcompare_sqr()` / `envcompare_cobol()`:
+normalized mode strips comment lines and insignificant whitespace before
+re-comparing only the subset of file pairs whose raw `content_hash` already
+differs — exact mode's cost is unchanged. Comment stripping reuses each
+language's existing parser convention rather than inventing a third one:
+SQR's `!`-prefixed lines (`sqrparser.py`'s `_RE_COMMENT_LINE`) and COBOL's
+fixed-format column-7 `*` (`cobolparser.py`'s `_RE_COMMENT_LINE`).
+
+Both `/admin/sqrcompare` and `/admin/cobolcompare` got an "Exact match" /
+"Ignore whitespace/comments" toggle, and the changed-files table now
+distinguishes `DIFFERS (whitespace/comments only)` from a plain `DIFFERS`.
+
+**Verification methodology**: HCM and FSCM are byte-identical for both SQR
+and COBOL in this environment (established in earlier sessions), so there
+was nothing real to demonstrate against — used the same scratch-DB approach
+as SQR Override Intelligence. For each of SQR and COBOL:
+1. Cloned a real indexed program's row into the other environment's source
+   tree, adding only a comment line + trailing whitespace to its
+   `source_text`, with a distinct `content_hash` to simulate a real
+   content-hash mismatch. Confirmed exact mode reports `changed: true`
+   (byte-different) while normalized mode reports `changed: false`,
+   `content_normalized_same: true` — the comment/whitespace tweak is
+   correctly ignored.
+2. On a second variant, inserted a genuine non-comment token well past the
+   file's header-comment block (an earlier attempt inserted it inside the
+   license-header comment block by accident, which the normalizer correctly
+   stripped along with everything else — a good sign the normalizer works,
+   but not a valid test of "real change survives normalization"; moved the
+   insertion point past the header and got a true positive). Confirmed
+   normalized mode still reports `changed: true`,
+   `content_normalized_same: false` for a real logic change.
+3. Verified the UI toggle live in a headless Chrome instance (reusing
+   `smoke_admin_shell.py`'s DevTools helpers): switched `/admin/sqrcompare`
+   to "Ignore whitespace/comments", called `load()`, confirmed it re-fetches
+   with `diff_mode=normalized` and renders the real 179/0/0 counts.
+
+Verification: `make check` 100/100 files + 11/11 tests; smoke test 73/73
+(unchanged — modifies existing pages, no new routes).
