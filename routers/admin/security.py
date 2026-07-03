@@ -3129,3 +3129,257 @@ function toggleBlock(uid) {{
 }})();
 </script>
 </body></html>""")
+
+
+@router.get("/secaudit", response_class=HTMLResponse)
+def admin_secaudit():
+    return _shell("Security Audit", "secaudit", content="""
+<style>
+.sa-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+.sa-card{background:rgba(0,20,30,.7);border:1px solid rgba(0,229,255,.18);border-radius:6px;
+  padding:16px 20px;display:flex;flex-direction:column;gap:4px}
+.sa-card-val{font-size:28px;font-weight:700;color:#00e5ff;line-height:1}
+.sa-card-lbl{font-size:11px;color:#7faab2;text-transform:uppercase;letter-spacing:.5px}
+.sa-panels{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.sa-panel{background:rgba(0,20,30,.7);border:1px solid rgba(0,229,255,.18);border-radius:6px;
+  padding:14px 16px;overflow:hidden}
+.sa-panel-hdr{font-size:12px;font-weight:600;color:#00e5ff;letter-spacing:.3px;
+  margin-bottom:10px;text-transform:uppercase}
+.sa-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.sa-tbl th{text-align:left;padding:5px 8px;color:#7faab2;font-weight:500;
+  border-bottom:1px solid rgba(0,229,255,.12)}
+.sa-tbl td{padding:5px 8px;color:#d7faff;border-bottom:1px solid rgba(0,229,255,.06)}
+.sa-tbl tr:last-child td{border-bottom:none}
+.sa-tbl tr:hover td{background:rgba(0,229,255,.05)}
+.sa-link{color:#00e5ff;text-decoration:none}.sa-link:hover{text-decoration:underline}
+.sa-bar-wrap{display:flex;align-items:center;gap:8px}
+.sa-bar{height:8px;border-radius:4px;background:#00e5ff;flex-shrink:0;min-width:3px}
+.sa-badge{background:rgba(0,229,255,.14);color:#00e5ff;border-radius:3px;
+  padding:1px 7px;font-size:11px;font-weight:600;white-space:nowrap}
+.sa-full{grid-column:1/-1}
+.sa-env-bar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.sa-env-sel{background:rgba(0,20,30,.88);border:1px solid rgba(0,229,255,.25);
+  color:#d7faff;font-size:12px;padding:3px 8px;border-radius:4px}
+.sa-btn{background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);
+  color:#00e5ff;font-size:12px;padding:4px 14px;border-radius:4px;cursor:pointer}
+.sa-btn:hover{background:rgba(0,229,255,.2)}
+.sa-spinner{color:#7faab2;font-size:12px;font-style:italic}
+.sa-orphan-count{font-size:16px;font-weight:700;color:#ffb400}
+.sa-oprtype{font-size:10px;color:#7faab2;background:rgba(255,255,255,.06);
+  border-radius:3px;padding:1px 6px;display:inline-block}
+</style>
+
+<div class="sa-env-bar">
+  <span style="font-size:12px;color:#7faab2">Environment:</span>
+  <select id="env" class="sa-env-sel" onchange="loadAll()">
+    <option value="HCM">HCM</option>
+    <option value="FSCM">FSCM</option>
+    <option value="CS">CS</option>
+  </select>
+  <button class="sa-btn" onclick="loadAll()">Refresh</button>
+  <span id="status" class="sa-spinner" style="margin-left:8px"></span>
+</div>
+
+<div class="sa-grid" id="cards">
+  <div class="sa-card"><div class="sa-card-val" id="c-ops">—</div>
+    <div class="sa-card-lbl">Total Operators</div></div>
+  <div class="sa-card"><div class="sa-card-val" id="c-roles">—</div>
+    <div class="sa-card-lbl">Total Roles</div></div>
+  <div class="sa-card"><div class="sa-card-val" id="c-pls">—</div>
+    <div class="sa-card-lbl">Permission Lists</div></div>
+  <div class="sa-card"><div class="sa-card-val" id="c-recent">—</div>
+    <div class="sa-card-lbl">Active (30d)</div></div>
+</div>
+
+<div class="sa-panels">
+  <div class="sa-panel">
+    <div class="sa-panel-hdr">Top Roles by Member Count</div>
+    <div id="top-roles"><span class="sa-spinner">Loading…</span></div>
+  </div>
+  <div class="sa-panel">
+    <div class="sa-panel-hdr">Top Operators by Role Count</div>
+    <div id="top-ops"><span class="sa-spinner">Loading…</span></div>
+  </div>
+  <div class="sa-panel">
+    <div class="sa-panel-hdr">Recent Sign-ons (Last 30 Days)</div>
+    <div id="recent-signon"><span class="sa-spinner">Loading…</span></div>
+  </div>
+  <div class="sa-panel">
+    <div class="sa-panel-hdr">Orphaned Roles
+      <span style="font-size:11px;font-weight:400;color:#7faab2">(no members)</span></div>
+    <div id="orphan-roles"><span class="sa-spinner">Loading…</span></div>
+  </div>
+  <div class="sa-panel sa-full">
+    <div class="sa-panel-hdr">Operator Type Breakdown</div>
+    <div id="oprtype"><span class="sa-spinner">Loading…</span></div>
+  </div>
+</div>
+
+<script>
+const OPRTYPE_LABELS = {
+  '':'Unspecified','0':'PeopleSoft User','1':'SPS User',
+  'N':'Network User','S':'Service Account','G':'Guest',
+};
+function fmtDate(s) {
+  if (!s) return '—';
+  const m = String(s).match(/(\\d{4})[-/](\\d{2})[-/](\\d{2})/);
+  return m ? m[1]+'-'+m[2]+'-'+m[3] : String(s).substring(0,16);
+}
+function pick(row, ...keys) {
+  for (const k of keys) {
+    if (row[k] !== undefined && row[k] !== null) return row[k];
+  }
+  return '';
+}
+async function runSql(sql) {
+  const env = document.getElementById('env').value;
+  const r = await fetch('/api/sqlws/execute', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({sql, env, limit:200})
+  });
+  if (!r.ok) throw new Error(await r.text());
+  const d = await r.json();
+  return d.rows || [];
+}
+
+async function loadStats() {
+  const [opsR, rolesR, plsR, recentR] = await Promise.all([
+    runSql('SELECT COUNT(*) AS N FROM SYSADM.PSOPRDEFN'),
+    runSql('SELECT COUNT(*) AS N FROM SYSADM.PSROLEDEFN'),
+    runSql('SELECT COUNT(*) AS N FROM SYSADM.PSCLASSDEFN'),
+    runSql('SELECT COUNT(*) AS N FROM SYSADM.PSOPRDEFN WHERE LASTSIGNONDTTM > SYSDATE - 30'),
+  ]);
+  document.getElementById('c-ops').textContent    = pick(opsR[0]||{},    'N','n') || '—';
+  document.getElementById('c-roles').textContent  = pick(rolesR[0]||{},  'N','n') || '—';
+  document.getElementById('c-pls').textContent    = pick(plsR[0]||{},    'N','n') || '—';
+  document.getElementById('c-recent').textContent = pick(recentR[0]||{}, 'N','n') || '—';
+}
+
+async function loadTopRoles() {
+  const rows = await runSql(
+    'SELECT r.ROLENAME, r.DESCR, COUNT(u.OPRID) AS MEMBER_COUNT ' +
+    'FROM SYSADM.PSROLEDEFN r ' +
+    'LEFT JOIN SYSADM.PSROLEUSER u ON u.ROLENAME=r.ROLENAME ' +
+    'GROUP BY r.ROLENAME, r.DESCR ORDER BY MEMBER_COUNT DESC FETCH FIRST 20 ROWS ONLY'
+  );
+  if (!rows.length) { document.getElementById('top-roles').innerHTML='<span class="sa-spinner">No data</span>'; return; }
+  const max = Math.max(...rows.map(r=>+pick(r,'MEMBER_COUNT','member_count')||0));
+  let h='<table class="sa-tbl"><thead><tr><th>Role</th><th>Members</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    const n=+pick(r,'MEMBER_COUNT','member_count')||0;
+    const pct=max>0?Math.round(n/max*80):0;
+    const name=pick(r,'ROLENAME','rolename');
+    const desc=pick(r,'DESCR','descr');
+    h+=`<tr><td><a class="sa-link" href="/admin/role/${encodeURIComponent(name)}">${name}</a>`+
+      `<span style="color:#4a7a8a;font-size:11px;margin-left:6px">${desc}</span></td>`+
+      `<td><div class="sa-bar-wrap"><div class="sa-bar" style="width:${pct}px"></div>`+
+      `<span class="sa-badge">${n}</span></div></td></tr>`;
+  });
+  document.getElementById('top-roles').innerHTML=h+'</tbody></table>';
+}
+
+async function loadTopOps() {
+  const rows = await runSql(
+    'SELECT u.OPRID, o.OPRDEFNDESC, COUNT(*) AS ROLE_COUNT ' +
+    'FROM SYSADM.PSROLEUSER u ' +
+    'JOIN SYSADM.PSOPRDEFN o ON o.OPRID=u.OPRID ' +
+    'GROUP BY u.OPRID, o.OPRDEFNDESC ORDER BY ROLE_COUNT DESC FETCH FIRST 20 ROWS ONLY'
+  );
+  if (!rows.length) { document.getElementById('top-ops').innerHTML='<span class="sa-spinner">No data</span>'; return; }
+  const max = Math.max(...rows.map(r=>+pick(r,'ROLE_COUNT','role_count')||0));
+  let h='<table class="sa-tbl"><thead><tr><th>Operator</th><th>Roles</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    const n=+pick(r,'ROLE_COUNT','role_count')||0;
+    const pct=max>0?Math.round(n/max*80):0;
+    const oprid=pick(r,'OPRID','oprid');
+    const desc=pick(r,'OPRDEFNDESC','oprdefndesc');
+    h+=`<tr><td><a class="sa-link" href="/admin/operator/${encodeURIComponent(oprid)}">${oprid}</a>`+
+      `<span style="color:#4a7a8a;font-size:11px;margin-left:6px">${desc}</span></td>`+
+      `<td><div class="sa-bar-wrap"><div class="sa-bar" style="width:${pct}px"></div>`+
+      `<span class="sa-badge">${n}</span></div></td></tr>`;
+  });
+  document.getElementById('top-ops').innerHTML=h+'</tbody></table>';
+}
+
+async function loadRecentSignons() {
+  const rows = await runSql(
+    'SELECT OPRID, OPRDEFNDESC, LASTSIGNONDTTM FROM SYSADM.PSOPRDEFN ' +
+    'WHERE LASTSIGNONDTTM > SYSDATE - 30 ORDER BY LASTSIGNONDTTM DESC FETCH FIRST 25 ROWS ONLY'
+  );
+  const el=document.getElementById('recent-signon');
+  if (!rows.length) { el.innerHTML='<span class="sa-spinner">No sign-ons in last 30 days</span>'; return; }
+  let h='<table class="sa-tbl"><thead><tr><th>Operator</th><th>Last Sign-on</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    const oprid=pick(r,'OPRID','oprid');
+    const desc=pick(r,'OPRDEFNDESC','oprdefndesc');
+    const dt=pick(r,'LASTSIGNONDTTM','lastsignondttm');
+    h+=`<tr><td><a class="sa-link" href="/admin/operator/${encodeURIComponent(oprid)}">${oprid}</a>`+
+      `<span style="color:#4a7a8a;font-size:11px;margin-left:6px">${desc}</span></td>`+
+      `<td style="color:#7faab2;white-space:nowrap">${fmtDate(dt)}</td></tr>`;
+  });
+  el.innerHTML=h+'</tbody></table>';
+}
+
+async function loadOrphanRoles() {
+  const rows = await runSql(
+    'SELECT r.ROLENAME, r.DESCR, r.LASTUPDDTTM FROM SYSADM.PSROLEDEFN r ' +
+    'WHERE NOT EXISTS (SELECT 1 FROM SYSADM.PSROLEUSER u WHERE u.ROLENAME=r.ROLENAME) ' +
+    'ORDER BY r.ROLENAME FETCH FIRST 50 ROWS ONLY'
+  );
+  const el=document.getElementById('orphan-roles');
+  if (!rows.length) {
+    el.innerHTML='<span style="color:#4a9a4a;font-size:13px">&#x2713; No orphaned roles found</span>';
+    return;
+  }
+  let h=`<div style="margin-bottom:8px"><span class="sa-orphan-count">${rows.length}</span>`+
+    `<span style="font-size:12px;color:#7faab2;margin-left:6px">roles with no members</span></div>`;
+  h+='<table class="sa-tbl"><thead><tr><th>Role</th><th>Last Updated</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    const name=pick(r,'ROLENAME','rolename');
+    const desc=pick(r,'DESCR','descr');
+    const dt=pick(r,'LASTUPDDTTM','lastupddttm');
+    h+=`<tr><td><a class="sa-link" href="/admin/role/${encodeURIComponent(name)}">${name}</a>`+
+      `<span style="color:#4a7a8a;font-size:11px;margin-left:6px">${desc}</span></td>`+
+      `<td style="color:#7faab2;font-size:11px">${fmtDate(dt)}</td></tr>`;
+  });
+  el.innerHTML=h+'</tbody></table>';
+}
+
+async function loadOprTypes() {
+  const rows = await runSql(
+    'SELECT OPRTYPE, COUNT(*) AS N FROM SYSADM.PSOPRDEFN GROUP BY OPRTYPE ORDER BY N DESC'
+  );
+  if (!rows.length) { document.getElementById('oprtype').innerHTML='<span class="sa-spinner">No data</span>'; return; }
+  const total=rows.reduce((s,r)=>s+(+pick(r,'N','n')||0),0);
+  const max=Math.max(...rows.map(r=>+pick(r,'N','n')||0));
+  let h='<table class="sa-tbl"><thead><tr><th>Type</th><th>Label</th><th>Count</th><th>Share</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    const t=String(pick(r,'OPRTYPE','oprtype'));
+    const n=+pick(r,'N','n')||0;
+    const lbl=OPRTYPE_LABELS[t]||('Type '+t);
+    const pct=total>0?Math.round(n/total*100):0;
+    const bw=max>0?Math.round(n/max*120):0;
+    h+=`<tr><td><span class="sa-oprtype">${t||'(blank)'}</span></td><td>${lbl}</td>`+
+      `<td><span class="sa-badge">${n}</span></td>`+
+      `<td><div class="sa-bar-wrap"><div class="sa-bar" style="width:${bw}px"></div>`+
+      `<span style="font-size:11px;color:#7faab2">${pct}%</span></div></td></tr>`;
+  });
+  document.getElementById('oprtype').innerHTML=h+'</tbody></table>';
+}
+
+async function loadAll() {
+  const st=document.getElementById('status');
+  st.textContent='Loading…';
+  try {
+    await Promise.all([
+      loadStats(),loadTopRoles(),loadTopOps(),
+      loadRecentSignons(),loadOrphanRoles(),loadOprTypes(),
+    ]);
+    st.textContent='';
+  } catch(e) {
+    st.textContent='Error: '+e.message;
+  }
+}
+
+loadAll();
+</script>""")

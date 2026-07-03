@@ -892,6 +892,17 @@ def record_object(env, recname):
         if ae:
             r.setdefault("_links", {})["admin"] = f"/admin/object/application_engine/{ae}"
 
+    sqr_programs = []
+    try:
+        from connectors import sqrdb
+        sqrdb.init_db()
+        sqr_programs = sqrdb.get_programs_for_table(table_name) or []
+        for p in sqr_programs:
+            fname = p.get("filename", "")
+            p.setdefault("_links", {})["admin"] = f"/admin/sqr/{fname}"
+    except Exception:
+        pass
+
     relationships = {
         "fields":               [attach_object_links(r, env) for r in (fields or [])],
         "keys":                 keys or [],
@@ -907,6 +918,7 @@ def record_object(env, recname):
         "child_records":        child_records,
         "ae_state_records":     ae_state_records,
         "subrecord_derivations": subrecord_derivations,
+        "sqr_programs":         sqr_programs,
     }
 
     # Compact graph: record → fields, record ← parent, record → component
@@ -990,6 +1002,7 @@ def sections_for_record(rec):
     child_records = rels.get("child_records", [])
     ae_state_records = rels.get("ae_state_records", [])
     subrecord_derivations = rels.get("subrecord_derivations", [])
+    sqr_programs = rels.get("sqr_programs", [])
     ddl_text = meta.get("ddl")
     rectype = meta.get("rectype")
     graph_nodes = rec.get("_graph", {}).get("nodes", [])
@@ -1036,6 +1049,9 @@ def sections_for_record(rec):
         {"name": "AE State Records", "items": ae_state_records,
          "data": {"count": len(ae_state_records),
                   "note": "Application Engine programs using this as a state/work record"}},
+        {"name": "SQR Programs", "items": sqr_programs,
+         "data": {"count": len(sqr_programs),
+                  "note": "SQR/SQC programs referencing this table (from local SQR index — run re-index to populate)"}},
         {"name": "Graph Preview", "items": graph_nodes,
          "data": {"node_count": len(graph_nodes), "edge_count": len(graph_edges)}},
         {"name": "Warnings", "items": rec.get("warnings", []),

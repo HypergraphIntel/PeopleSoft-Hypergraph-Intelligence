@@ -38,11 +38,17 @@ _NAV_GROUPS = [
         ("ibrtng",    "IB Routings",   "/admin/ibrtng"),
         ("iboper",    "IB Operations", "/admin/iboper"),
     ]),
+    ("Security", [
+        ("secaudit",       "Security Audit",  "/admin/secaudit"),
+        ("security",       "Security",        "/admin/security"),
+        ("operator",       "Operators",       "/admin/operator"),
+        ("role",           "Roles",           "/admin/role"),
+        ("permissionlist", "Perm Lists",      "/admin/permissionlist"),
+    ]),
     ("Objects", [
         ("objects",        "Object Search",   "/admin/objects"),
         ("component",      "Components",      "/admin/component"),
         ("page",           "Pages",           "/admin/page"),
-        ("permissionlist", "Perm Lists",      "/admin/permissionlist"),
         ("ci",             "CIs",             "/admin/ci"),
         ("tree",     "Trees",          "/admin/tree"),
         ("menu",     "Menus",          "/admin/menu"),
