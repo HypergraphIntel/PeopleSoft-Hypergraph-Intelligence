@@ -6,6 +6,80 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — Processing Sequence: Record + Page-owned PeopleCode — 69/69
+
+### Extending v1 correctly, after being corrected on the scoping
+
+Asked "what should be built next," I initially proposed extending Processing
+Sequence Intelligence to Page and Record by mirroring Component's pattern —
+the user rightly pushed back twice: first on assuming SQR/COBOL should share
+feature parity just because they share plumbing (a separate, general
+correction, saved to memory), then specifically on Page: "Page Activate
+PeopleCode is independent of Component processing." That second correction
+was right and worth verifying properly rather than taking on faith — traced
+it all the way to a live query.
+
+**What research found**: `PSPCMPROG.OBJECTID1` values actually present in
+this environment are `1, 3, 9, 10, 60, 66, 74, 104` — no `8`. But
+`connectors/peoplecode.py`'s own `PEOPLECODE_OBJECT_TYPES` dict already maps
+`8: "Page"`, and `_OID1_PARENT_TYPES` already maps `8: "page"` too — the
+platform's own metadata already anticipated this category, but nothing
+anywhere ever queried it. `SELECT COUNT(*) FROM PSPCMPROG WHERE OBJECTID1=8`
+confirmed 0 rows in both HCM and FSCM — real, distinct, currently-unindexed,
+but unpopulated in every environment available here. Decided (with the user)
+to build it anyway, gracefully degrading — same category of decision as the
+existing 0-row stub providers, not the "genuinely no data exists anywhere"
+case that blocked browser session tracking.
+
+Record, by contrast, turned out to have a real, populated, independent
+event set: `OBJECTID1=1` (49,490 rows in HCM) — Record Field PeopleCode,
+owned by the record itself, using literally the same event vocabulary as
+Component's canonical sequence (FieldDefault, RowInit, FieldChange, etc.),
+just without the Component-only events that need a component context to
+exist (PreBuild/PostBuild/Activate/Workflow/SearchInit/SearchSave).
+
+**Changes**:
+- `connectors/peoplecode.py` — `record_sequence(env, recname)`: reuses
+  `CANONICAL_COMPONENT_SEQUENCE`'s event list, filtered by `scope in
+  ("Record/Field", "Record")`, slotted the same way `component_sequence()`
+  does (empty/delivered/custom). `page_owned_events(env, pnlname)`: flat
+  list (no phase ordering — Page-owned PeopleCode doesn't have a rich
+  lifecycle), gracefully empty on 0 rows.
+- `routers/peoplesoft.py` — `GET /api/peoplesoft/records/{rec}/sequence`,
+  `GET /api/peoplesoft/pages/{page}/owned-events`
+- `connectors/graphdb.py` — `record_sequences()` KG builder, mirroring
+  `component_sequences()`'s *shape* (not its data): `record_event` nodes,
+  `FIRES_BEFORE`/`FIRES_AFTER` edges. Applied the dedup-by-event-name fix
+  from `component_sequences()`'s earlier self-loop bug proactively this
+  time, rather than waiting to rediscover it — verified zero self-loops
+  from the first rebuild.
+- `routers/admin/security.py` — new "Processing Sequence" tab on the Record
+  Explorer. Also fixed a stale `OBJECTID1=2` comment (should say `1`) found
+  in two places while reading the existing "PeopleCode" tab's code — a
+  pre-existing doc typo, not something I introduced.
+- `routers/admin/platform.py` — new "Page-Owned PeopleCode" tab on the Page
+  Explorer, lazy-loaded, clearly distinct from the existing per-component
+  PeopleCode tab.
+
+**Bug found and fixed while writing the Page Explorer JS**: first draft
+used single-brace Python f-string interpolation (`{esc(name)}`) inside a
+block that's actually a JS template literal embedded in the f-string —
+needed the doubled-brace convention (`${{esc(name)}}`) the rest of the file
+already uses. Caught before testing by re-reading the diff against
+surrounding lines, not by a runtime error.
+
+**Verified**: `curl /api/peoplesoft/records/JOB/sequence?env=HCM` — real
+Build/Interaction/Save events slotted correctly, Search phase correctly
+empty except `SearchDefault` (the one Record/Field-scoped search event),
+zero Component-only events leaking in; `curl .../pages/JOB_DATA1/owned-
+events?env=HCM` → `{"events": []}`, no error; fresh graph rebuild — real
+`record_event` nodes and edges, zero self-loops. Both admin pages
+(`/admin/record/JOB`, `/admin/page`) render 200 with the new tabs present
+in the HTML. `make check` 91/91; smoke test 69/69 (additions to existing
+pages — no new routes needed smoke coverage).
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — ROADMAP.md Cleanup
 
 ### Docs-only: cut ROADMAP.md from 1738 → 360 lines

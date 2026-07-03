@@ -2004,6 +2004,23 @@ def peoplesoft_component_sequence(component: str, env: str = "HCM"):
     return pc.component_sequence(env, component)
 
 
+@router.get("/api/peoplesoft/records/{recname}/sequence")
+def peoplesoft_record_sequence(recname: str, env: str = "HCM"):
+    """Canonical ordered Record Field PeopleCode sequence (PSPCMPROG
+    OBJECTID1=1) — independent of any component."""
+    from connectors import peoplecode as pc
+    return pc.record_sequence(env, recname)
+
+
+@router.get("/api/peoplesoft/pages/{pnlname}/owned-events")
+def peoplesoft_page_owned_events(pnlname: str, env: str = "HCM"):
+    """Page-owned PeopleCode (PSPCMPROG OBJECTID1=8) — independent of
+    Component-level PeopleCode, which /api/peoplesoft/components/*/events
+    already covers."""
+    from connectors import peoplecode as pc
+    return pc.page_owned_events(env, pnlname)
+
+
 @router.get("/api/peoplesoft/components/{component}/event-source")
 def peoplesoft_component_event_source(
     component: str, env: str = "HCM",

@@ -2409,6 +2409,74 @@ def build(env="HCM", limit=50, persist=True):
 
         return added
 
+    def record_sequences():
+        """Add sequence-aware record_event nodes with FIRES_BEFORE/FIRES_AFTER
+        edges between consecutive non-empty canonical events for Record Field
+        PeopleCode (PSPCMPROG OBJECTID1=1) — genuinely independent of any
+        component, not a re-derivation of component_sequences() data.
+        """
+        try:
+            from connectors import peoplecode as _peoplecode
+        except Exception:
+            return 0
+
+        try:
+            rec_rows = psdb.query(env, f"""
+                SELECT DISTINCT OBJECTVALUE1 AS rec
+                  FROM SYSADM.PSPCMPROG
+                 WHERE OBJECTID1 = 1
+                   AND ROWNUM <= {limit}
+            """) or []
+        except Exception:
+            return 0
+
+        added = 0
+        for row in rec_rows:
+            rec = (row.get("rec") or "").strip()
+            if not rec:
+                continue
+            try:
+                seq = _peoplecode.record_sequence(env, rec)
+            except Exception:
+                continue
+
+            present = [
+                {**ev, "phase": ph["phase"]}
+                for ph in seq.get("phases", [])
+                for ev in ph["events"]
+                if ev["status"] != "empty"
+            ]
+            if not present:
+                continue
+
+            # Same dedup fix as component_sequences(): multiple raw rows can
+            # share one canonical event (e.g. FieldDefault firing for several
+            # fields) — collapse to one node per distinct event name so
+            # repeated rows don't produce self-loop FIRES_BEFORE/AFTER edges.
+            distinct_events = []
+            seen_names = set()
+            for ev in present:
+                if ev["name"] not in seen_names:
+                    seen_names.add(ev["name"])
+                    distinct_events.append(ev)
+
+            add_node(graph, "record", rec, rec, {})
+            prev_node = None
+            for ev in distinct_events:
+                node_name = f"{rec}.{ev['name']}"
+                meta = {"phase": ev["phase"], "ordinal": ev["ordinal"], "status": ev["status"]}
+                add_node(graph, "record_event", node_name, ev["name"], meta)
+                add_edge(graph, "record_event", node_name, "record", rec, "BELONGS_TO", meta)
+                added += 1
+                if prev_node is not None:
+                    add_edge(graph, "record_event", prev_node, "record_event", node_name,
+                              "FIRES_BEFORE", meta)
+                    add_edge(graph, "record_event", node_name, "record_event", prev_node,
+                              "FIRES_AFTER", meta)
+                prev_node = node_name
+
+        return added
+
     def cobol_programs():
         """Add COBOL program/copybook nodes with table-access, COPY, and CALL edges."""
         try:
@@ -2578,6 +2646,7 @@ def build(env="HCM", limit=50, persist=True):
         ("sqr_programs", sqr_programs),
         ("cobol_programs", cobol_programs),
         ("component_sequences", component_sequences),
+        ("record_sequences", record_sequences),
         ("ib_applications", ib_applications),
         ("app_packages", app_packages),
         ("app_classes", app_classes),

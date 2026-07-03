@@ -2112,21 +2112,38 @@ function renderPage(d, name, panel) {{
       <div class="tab" onclick="setTab('records',this)">Records (${{recItems.filter(r=>r.recname&&r.recname.trim()).length}})</div>
       <div class="tab" onclick="setTab('components',this)">Components (${{compItems.length}})</div>
       <div class="tab" onclick="setTab('peoplecode',this)">PeopleCode (${{pcItems.length}})</div>
+      <div class="tab" onclick="setTab('pageowned',this,'${{esc(name)}}')">Page-Owned PeopleCode</div>
       <div class="tab" onclick="setTab('security',this)">Security (${{whoItems.length}} PLs)</div>
     </div>
     <div id="pane-overview"   class="pane on">${{ovHtml}}</div>
     <div id="pane-records"    class="pane">${{recsHtml}}</div>
     <div id="pane-components" class="pane">${{compsHtml}}</div>
     <div id="pane-peoplecode" class="pane">${{pcHtml}}</div>
+    <div id="pane-pageowned"  class="pane"><span class="muted">Loading…</span></div>
     <div id="pane-security"   class="pane">${{secHtml}}</div>`;
 }}
 
-function setTab(name, el) {{
+let _pageOwnedLoaded = null;
+function setTab(name, el, pageName) {{
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
   document.querySelectorAll('.pane').forEach(p => p.classList.remove('on'));
   el.classList.add('on');
   const pane = document.getElementById('pane-' + name);
   if (pane) pane.classList.add('on');
+  if (name === 'pageowned' && pageName && _pageOwnedLoaded !== pageName) {{
+    _pageOwnedLoaded = pageName;
+    api(`/api/peoplesoft/pages/${{encodeURIComponent(pageName)}}/owned-events?env=${{ENV}}`).then(d => {{
+      const events = (d && d.events) || [];
+      if (!events.length) {{
+        pane.innerHTML = `<div class="muted">No Page-Owned PeopleCode (OBJECTID1=8, e.g. Page Activate) on <span style="font-family:monospace">${{esc(pageName)}}</span>.<br><span style="font-size:10px">This is a distinct, real PeopleTools category independent of Component-level PeopleCode (the PeopleCode tab above) — most pages have none; this environment has zero rows in this category.</span></div>`;
+        return;
+      }}
+      pane.innerHTML = events.map(e => {{
+        const modBadge = e.modified ? `<span style="color:#ffaa00;font-size:10px">&#9998; ${{esc(e.last_oprid)}}</span>` : '<span style="color:#556;font-size:10px">delivered</span>';
+        return `<div class="pc-row"><span style="font-family:monospace;color:#8888ff;font-weight:bold">${{esc(e.event)}}</span> ${{modBadge}}</div>`;
+      }}).join('');
+    }}).catch(() => {{ pane.innerHTML = '<div class="muted">Failed to load page-owned events.</div>'; }});
+  }}
 }}
 
 (function() {{

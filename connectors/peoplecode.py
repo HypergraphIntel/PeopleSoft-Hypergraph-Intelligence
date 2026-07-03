@@ -920,6 +920,170 @@ def component_sequence(env, comp):
     }
 
 
+# Record Field PeopleCode (PSPCMPROG OBJECTID1=1) is owned by the record
+# itself, independent of any component — a genuinely different PeopleSoft
+# object category from Component-scoped PeopleCode, not a re-skin of it.
+# It uses the same real event vocabulary as CANONICAL_COMPONENT_SEQUENCE
+# (these are literally the same PeopleCode event names), just without the
+# Component-only events (PreBuild/PostBuild/Activate/Workflow/SearchInit/
+# SearchSave) that require a component context to exist at all.
+_RECORD_OWNED_SCOPES = {"Record/Field", "Record"}
+
+
+def _record_field_events(env, recname):
+    """Query PSPCMPROG OBJECTID1=1 rows for a record — the record's own
+    Field PeopleCode, independent of any component."""
+    if not ptmetadata.has_table(env, "PSPCMPROG"):
+        return {"events": [], "warnings": ["PSPCMPROG not accessible."]}
+
+    try:
+        columns = psdb.select_existing_columns(env, "PSPCMPROG", [
+            "OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3", "OBJECTVALUE4",
+            "OBJECTVALUE5", "OBJECTVALUE6", "OBJECTVALUE7",
+            "PROGSEQ", "LASTUPDOPRID", "LASTUPDDTTM",
+        ])
+    except Exception as exc:
+        return {"events": [], "warnings": [str(exc)]}
+
+    try:
+        rows = psdb.query(env, f"""
+            SELECT {", ".join(columns)}
+              FROM SYSADM.PSPCMPROG
+             WHERE OBJECTID1 = 1
+               AND UPPER(OBJECTVALUE1) = UPPER(:recname)
+             ORDER BY OBJECTVALUE2, OBJECTVALUE3, PROGSEQ
+        """, {"recname": recname.upper()})
+    except Exception as exc:
+        return {"events": [], "warnings": [str(exc)]}
+
+    events = []
+    for row in rows:
+        r = {k.lower(): v for k, v in row.items()}
+        ev = extract_event(r)
+        if not ev:
+            continue
+        field = (r.get("objectvalue2") or "").strip() or None
+        oprid = (r.get("lastupdoprid") or "").strip()
+        dttm = r.get("lastupddttm")
+        modified = oprid.upper() not in _DELIVERED_OPRIDS
+        events.append({
+            "event": PEOPLECODE_EVENT_LABELS.get(ev.upper(), ev),
+            "field": field,
+            "modified": modified,
+            "last_oprid": oprid if modified else None,
+            "last_dttm": str(dttm)[:19] if dttm and modified else None,
+        })
+
+    return {"events": events, "warnings": []}
+
+
+def record_sequence(env, recname):
+    """Slot a record's own Field PeopleCode (OBJECTID1=1, independent of any
+    component) into the canonical event order, marking each slot
+    empty/delivered/custom — the same status semantics as
+    component_sequence(), but scoped to genuinely record-owned PeopleCode.
+
+    Returns:
+        {record, phases: [{phase, label, desc, events: [
+            {name, note, ordinal, status, field, last_oprid, last_dttm}
+        ]}], warnings}
+    """
+    result = _record_field_events(env, recname)
+    events_by_name: dict[str, list[dict]] = {}
+    for ev in result.get("events", []):
+        events_by_name.setdefault(ev["event"], []).append(ev)
+
+    ordinal = 0
+    phases = []
+    for phase_def in CANONICAL_COMPONENT_SEQUENCE:
+        phase_events = []
+        for ev_def in phase_def["events"]:
+            if ev_def["scope"] not in _RECORD_OWNED_SCOPES:
+                continue
+            matches = events_by_name.get(ev_def["name"], [])
+            if not matches:
+                phase_events.append({
+                    "name": ev_def["name"], "note": ev_def["note"],
+                    "ordinal": ordinal, "status": "empty",
+                    "field": None, "last_oprid": None, "last_dttm": None,
+                })
+            else:
+                for m in matches:
+                    phase_events.append({
+                        "name": ev_def["name"], "note": ev_def["note"],
+                        "ordinal": ordinal,
+                        "status": "custom" if m.get("modified") else "delivered",
+                        "field": m.get("field"),
+                        "last_oprid": m.get("last_oprid"), "last_dttm": m.get("last_dttm"),
+                    })
+            ordinal += 1
+        if not phase_events:
+            continue
+        phases.append({
+            "phase": phase_def["phase"], "label": phase_def["label"],
+            "desc": phase_def["desc"], "events": phase_events,
+        })
+
+    return {
+        "record": recname.upper(),
+        "phases": phases,
+        "warnings": result.get("warnings", []),
+    }
+
+
+def page_owned_events(env, pnlname):
+    """Return Page-owned PeopleCode (PSPCMPROG OBJECTID1=8) — a real,
+    distinct PeopleTools category (Page Activate etc.) independent of
+    Component-level PeopleCode, which is what /admin/page already shows.
+
+    No canonical ordering: unlike Component/Record, Page-owned PeopleCode
+    doesn't have a rich multi-phase lifecycle — just a flat set of
+    page-object-level events. Gracefully returns an empty list rather than
+    erroring when a PeopleTools version/environment has none (this
+    category is legitimately unpopulated in some environments).
+    """
+    if not ptmetadata.has_table(env, "PSPCMPROG"):
+        return {"page": pnlname.upper(), "events": [], "warnings": ["PSPCMPROG not accessible."]}
+
+    try:
+        columns = psdb.select_existing_columns(env, "PSPCMPROG", [
+            "OBJECTVALUE1", "OBJECTVALUE2", "OBJECTVALUE3", "OBJECTVALUE4",
+            "OBJECTVALUE5", "OBJECTVALUE6", "OBJECTVALUE7",
+            "PROGSEQ", "LASTUPDOPRID", "LASTUPDDTTM",
+        ])
+    except Exception as exc:
+        return {"page": pnlname.upper(), "events": [], "warnings": [str(exc)]}
+
+    try:
+        rows = psdb.query(env, f"""
+            SELECT {", ".join(columns)}
+              FROM SYSADM.PSPCMPROG
+             WHERE OBJECTID1 = 8
+               AND UPPER(OBJECTVALUE1) = UPPER(:pnlname)
+             ORDER BY OBJECTVALUE2, PROGSEQ
+        """, {"pnlname": pnlname.upper()})
+    except Exception as exc:
+        return {"page": pnlname.upper(), "events": [], "warnings": [str(exc)]}
+
+    events = []
+    for row in rows:
+        r = {k.lower(): v for k, v in row.items()}
+        ev = extract_event(r)
+        if not ev:
+            continue
+        oprid = (r.get("lastupdoprid") or "").strip()
+        dttm = r.get("lastupddttm")
+        modified = oprid.upper() not in _DELIVERED_OPRIDS
+        events.append({
+            "event": PEOPLECODE_EVENT_LABELS.get(ev.upper(), ev),
+            "modified": modified,
+            "last_oprid": oprid if modified else None,
+            "last_dttm": str(dttm)[:19] if dttm and modified else None,
+        })
+
+    return {"page": pnlname.upper(), "events": events, "warnings": []}
+
+
 def component_events(env, comp):
     """Return all PeopleCode events for a component, structured for the event flow UI."""
     caps = capabilities(env)

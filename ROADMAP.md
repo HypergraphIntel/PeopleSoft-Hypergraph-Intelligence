@@ -282,14 +282,16 @@ comparison.
 
 # Processing Sequence Intelligence
 
-**Status: v1 complete** (Component context only — see Remaining).
+**Status: v1 + Record extension complete** (Component and Record contexts — see
+Remaining for why Page was *not* given a mirrored "sequence").
 
-Teaches the platform how PeopleSoft component processing executes in order (Search →
-Build → Interaction → Save), not just which events exist.
+Teaches the platform how PeopleSoft component/record processing executes in order,
+not just which events exist.
 
-### Completed
+### Completed — Component (v1)
 - `/admin/compflow` (Component Event Flow) and `/admin/compseq` (PC Timeline): canonical
-  20-event sequence with delivered/custom detection and inline source viewing
+  20-event sequence (Search → Build → Interaction → Save) with delivered/custom
+  detection and inline source viewing
 - `connectors/peoplecode.py`: `CANONICAL_COMPONENT_SEQUENCE` + `component_sequence()` —
   moved the canonical sequence from a page-local JS array into a real, independently
   queryable backend artifact (`GET /api/peoplesoft/components/{comp}/sequence`)
@@ -300,9 +302,49 @@ Build → Interaction → Save), not just which events exist.
 - Incident RCA (`/admin/rca`): correlates Process Failures, Log Errors, Oracle ASH, and
   IB Errors into one timeline
 
+### Completed — Record + Page (extension, not a Component mirror)
+Extending this to Page/Record was initially scoped as "give them the same sequence
+Component has" — investigation (confirmed against live HCM/FSCM data) showed that's
+wrong for Page and right, but differently-shaped, for Record:
+
+- **Record** has a genuinely independent PeopleCode event set (`PSPCMPROG
+  OBJECTID1=1` — Record Field PeopleCode: FieldDefault, FieldFormula, RowInit,
+  RowSelect, FieldEdit, FieldChange, RowInsert, RowDelete, SaveEdit, SavePreChange,
+  SavePostChange — owned by the record itself, independent of any component).
+  `connectors/peoplecode.py`: `record_sequence()` reuses
+  `CANONICAL_COMPONENT_SEQUENCE`'s real event vocabulary/order, filtered to only the
+  events valid for record-owned code (excludes Component-only events like
+  PreBuild/PostBuild/Activate/Workflow/SearchInit/SearchSave, which require a
+  component context). `GET /api/peoplesoft/records/{rec}/sequence`. New "Processing
+  Sequence" tab on the Record Explorer (`routers/admin/security.py`). KG:
+  `record_event` node type with `FIRES_BEFORE`/`FIRES_AFTER` edges
+  (`connectors/graphdb.py:record_sequences()`).
+- **Page has no independent processing sequence** — `uom.py` already documents "Pages
+  do not own PeopleCode directly; it is attached at the component level" for the
+  events Component sequencing already covers. A synthetic "canonical Page sequence"
+  would have been fake. What Page *does* have is a real, separate, currently-unindexed
+  category: `OBJECTID1=8` ("Page" — already mapped in `peoplecode.py`'s
+  `PEOPLECODE_OBJECT_TYPES` dict, but nothing queried it before this). Confirmed via
+  live query this is 0 rows in both HCM and FSCM — real and queryable, just
+  unpopulated here (same class of gap as several existing 0-row stub providers).
+  `connectors/peoplecode.py`: `page_owned_events()` — a flat list (no multi-phase
+  ordering, since there's no rich lifecycle at this level), gracefully returns empty
+  rather than erroring. `GET /api/peoplesoft/pages/{page}/owned-events`. New
+  "Page-Owned PeopleCode" tab on the Page Explorer (`routers/admin/platform.py`),
+  clearly distinct from the existing per-component PeopleCode tab. **Not added to the
+  KG in this pass** — 0 rows everywhere means nothing to verify the edge-building
+  logic against; add a builder later if an environment has real `OBJECTID1=8` data.
+
+**Verified**: `record_sequence('HCM', 'JOB')` correctly slots real Build/Interaction/
+Save events and correctly excludes Search-phase Component-only events; graph rebuild
+produced `record_event` nodes/edges with zero self-loops from the start (applied the
+`component_sequences()` dedup fix proactively); `page_owned_events()` returns
+`{"events": []}` gracefully for a real page, not an error. `make check` 91/91; smoke
+test 69/69 (additions to existing pages, not new dedicated routes).
+
 ### Remaining
-- **Processing Path Explorer** for Page/Field/Record/Component-Interface/Transaction
-  contexts — only Component has this today (the one context with rich existing data)
+- **Processing Path Explorer** UI (ordered execution-flow visualization, not just
+  event-status tables) for Field/Component-Interface/Transaction-path contexts
 - **Delivered vs Custom Sequence Comparison** beyond the existing `LASTUPDOPRID`
   heuristic — PeopleCode has no delivered-source baseline to diff against (unlike
   SQR/COBOL, which have real parallel delivered+custom trees)

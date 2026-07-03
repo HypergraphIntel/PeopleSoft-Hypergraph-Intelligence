@@ -976,6 +976,7 @@ async function loadRecord(recname) {
     <div class="tab"      onclick="switchTab('pages');loadTab('pages')">Pages</div>
     <div class="tab"      onclick="switchTab('sqr');loadTab('sqr')">SQR Programs</div>
     <div class="tab"      onclick="switchTab('pc');loadTab('pc')">PeopleCode</div>
+    <div class="tab"      onclick="switchTab('sequence');loadTab('sequence')">Processing Sequence</div>
     <div class="tab"      onclick="switchTab('ddl');loadTab('ddl')">DDL</div>
     <div class="tab"      onclick="switchTab('data');loadTab('data')">Data</div>
   </div>
@@ -1009,6 +1010,7 @@ async function loadRecord(recname) {
   <div id="pane-pages"      class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-sqr"        class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-pc"         class="pane"><span class="empty">Loading…</span></div>
+  <div id="pane-sequence"   class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-ddl"        class="pane"><span class="empty">Loading…</span></div>
   <div id="pane-data"       class="pane"><span class="empty">Loading…</span></div>
   `;
@@ -1037,7 +1039,7 @@ async function loadRecord(recname) {
 }
 
 function switchTab(name) {
-  const tabs = ['overview','fields','keys','indexes','related','components','pages','sqr','pc','ddl','data'];
+  const tabs = ['overview','fields','keys','indexes','related','components','pages','sqr','pc','sequence','ddl','data'];
   tabs.forEach(t => {
     const p = $(`pane-${t}`); if (p) p.className = 'pane' + (t === name ? ' on' : '');
   });
@@ -1082,6 +1084,9 @@ async function loadTab(name) {
   } else if (name === 'pc') {
     const d = await api(`/api/record/${encodeURIComponent(currentRec)}/peoplecode?env=${env()}`);
     pane.innerHTML = renderRecordPC(d);
+  } else if (name === 'sequence') {
+    const d = await api(`/api/peoplesoft/records/${encodeURIComponent(currentRec)}/sequence?env=${env()}`);
+    pane.innerHTML = renderRecordSequence(d);
   } else if (name === 'ddl') {
     const d = await api(`/api/record/${encodeURIComponent(currentRec)}/ddl?env=${env()}`);
     pane.innerHTML = renderDDL(d);
@@ -1255,11 +1260,12 @@ function renderRecordPC(d) {
   const rowEvts   = d.row_events   || [];
   const fieldEvts = d.field_events || [];
   if (!rowEvts.length && !fieldEvts.length)
-    return `<div class="empty">No record-level PeopleCode programs on <span class="mono">${esc(d.recname||currentRec)}</span>.<br><span style="color:#445;font-size:10px">Record-level PC (OBJECTID=2) fires independent of component. Component-level PC is shown on the <a href="/admin/compflow" style="color:#00e5ff">Comp Event Flow</a> page.</span></div>`;
+    return `<div class="empty">No record-level PeopleCode programs on <span class="mono">${esc(d.recname||currentRec)}</span>.<br><span style="color:#445;font-size:10px">Record-level PC (OBJECTID1=1) fires independent of component. Component-level PC is shown on the <a href="/admin/compflow" style="color:#00e5ff">Comp Event Flow</a> page.</span></div>`;
 
   let html = `<div style="font-size:10px;color:#445;margin-bottom:10px">
     ${rowEvts.length} row-level event${rowEvts.length===1?'':'s'} · ${fieldEvts.length} field-level event${fieldEvts.length===1?'':'s'}
-    <span style="color:#334;margin-left:8px">· OBJECTID1=2 — fires at record/field definition level, all components</span>
+    <span style="color:#334;margin-left:8px">· OBJECTID1=1 — fires at record/field definition level, all components ·
+    see <a onclick="switchTab('sequence');loadTab('sequence')" style="color:#00e5ff;cursor:pointer">Processing Sequence tab</a> for canonical ordering</span>
   </div>`;
 
   // Row-level events (no field name)
@@ -1316,6 +1322,45 @@ function renderRecordPC(d) {
       html += `</tbody></table></details>`;
     });
   }
+  return html;
+}
+
+const _SEQ_STATUS_COLOR = { empty: '#334', delivered: '#00e5ff', custom: '#ffaa00' };
+
+function renderRecordSequence(d) {
+  const phases = d.phases || [];
+  if (!phases.length)
+    return `<div class="empty">No canonical Record Field PeopleCode events on <span class="mono">${esc(d.record||currentRec)}</span>.<br><span style="color:#445;font-size:10px">This shows only genuinely record-owned PeopleCode (OBJECTID1=1), independent of any component — not Component-scoped PeopleCode (see the <a href="/admin/compflow" style="color:#00e5ff">Comp Event Flow</a> page for that).</span></div>`;
+
+  const totalSlots = phases.reduce((s, ph) => s + ph.events.length, 0);
+  const present = phases.reduce((s, ph) => s + ph.events.filter(e => e.status !== 'empty').length, 0);
+  let html = `<div style="font-size:10px;color:#445;margin-bottom:12px">
+    ${present}/${totalSlots} canonical slots have PeopleCode ·
+    <span style="color:#334">record-owned only (OBJECTID1=1) — Component-only events (PreBuild/PostBuild/Activate/Workflow/SearchInit/SearchSave) don't apply here</span>
+  </div>`;
+
+  phases.forEach(ph => {
+    html += `<h2>${esc(ph.label)} <span style="color:#445;font-weight:normal;text-transform:none;letter-spacing:0">— ${esc(ph.desc)}</span></h2>`;
+    html += `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:14px">
+      <thead><tr style="color:#445;border-bottom:1px solid #0a2030">
+        <th style="text-align:left;padding:3px 6px">Event</th>
+        <th style="text-align:left;padding:3px 6px">Purpose</th>
+        <th style="text-align:left;padding:3px 6px">Field</th>
+        <th style="text-align:left;padding:3px 6px">Status</th>
+        <th style="text-align:left;padding:3px 6px">Last Updated By</th>
+      </tr></thead><tbody>`;
+    ph.events.forEach(e => {
+      const col = _SEQ_STATUS_COLOR[e.status] || '#8ab';
+      html += `<tr style="border-bottom:1px solid #08101a">
+        <td style="padding:3px 6px;color:${col};font-weight:bold">${esc(e.name)}</td>
+        <td style="padding:3px 6px;color:#556;font-size:10px">${esc(e.note||'')}</td>
+        <td style="padding:3px 6px">${e.field ? esc(e.field) : '<span style="color:#334">—</span>'}</td>
+        <td style="padding:3px 6px;color:${col}">${esc(e.status)}</td>
+        <td style="padding:3px 6px;color:#445;font-size:10px">${e.last_oprid ? esc(e.last_oprid) : '—'}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  });
   return html;
 }
 
