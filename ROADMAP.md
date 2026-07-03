@@ -838,8 +838,7 @@ SQR, COBOL, COPYBOOK, and SQC files become first-class UOM objects that fully pa
 
 ### Planned
 
-- COBOL Explorer
-- COPYBOOK Explorer
+(none remaining — see COBOL/Copybook Explorer below)
 
 ### ✅ Done (2026-07-03)
 
@@ -1266,7 +1265,51 @@ Runtime process panel: SQR Report/Process type links directly to source.
 - **Env-based filtering** in SQR Explorer: env selector dropdown populated from `/api/sqr/sources`; stats and search results scoped to selected env
 - **SQC Included By tab**: SQC detail pages show a third "Included By" tab listing programs that #include this SQC (lazy-loaded from `/api/sqr/sqc/{name}/users`)
 
-**Remaining:** COBOL Explorer, COPYBOOK Explorer, environment side-by-side SQR comparison.
+### ✅ Done (2026-07-03) — COBOL/Copybook Explorer
+
+- **`cobol_sources`** config block added: 4 entries (HCM/FSCM × delivered/custom),
+  each with `cbl_src_dir` and `cbl_compiled_dir`
+- **Discovery**: PeopleSoft COBOL "copybooks" are `.cbl` files distinguished by the
+  *absence* of `PROGRAM-ID` (they're pulled in via `COPY name.` — e.g. `COPY PTCLOGMS.`
+  targets `PTCLOGMS.cbl`), not a separate `.cpy` extension. No true `.cpy` files exist
+  in this environment. `connectors/cobolparser.py` classifies `file_type` as
+  `program`/`copybook` on that basis, and description extraction skips past the fixed
+  Oracle license preamble (bounded by an "All Rights Reserved." marker) plus decorative
+  box-border comment lines before taking the first real comment as description.
+  Also extracts static `CALL 'X'` targets and `EXEC SQL ... END-EXEC` PS_ table refs.
+- **`connectors/cobol_db.py`** (`data/cobol.db`): `cobol_programs`/`cobol_tables`/
+  `cobol_copies`/`cobol_calls`; recursive-CTE `get_copy_deps()` (forward + reverse
+  COPY closure, joining on filename-minus-extension since COPY names target files,
+  not parsed member names); MD5 `content_hash` for incremental scanning; full-text
+  `search_source()`
+- **`connectors/cobolingest.py`**: SSH scan of `cbl_src_dir` (`*.cbl`); best-effort
+  listing of `cbl_compiled_dir` to flag whether a compiled binary exists; per-file
+  `PermissionError` is counted as `denied` and never raised — most delivered `.cbl`
+  files are mode 700 (owner `ps_hcm`, not readable by the `oracle` SSH service
+  account) and this is expected, not an error
+  (confirmed: 862/977 denied, 115/977 indexed per environment)
+- **`routers/cobol.py`**: `/api/cobol/{stats,sources,programs,program/{f},
+  program/{f}/source,table/{t},deps/{f},search,search/status,ingest,ingest/status}`
+- **`/admin/cobol`** (Platform nav) list/search page + **`/admin/cobol/{filename}`**
+  detail page (Overview / COPY Dependency Graph / Source tabs)
+- **`hcm_cobol_src_custom`/`fscm_cobol_src_custom`** sources point at
+  `ps_cust_home/src/cbl`, which doesn't exist on this demo box (`ps_cust_home` only
+  has an `sqr` folder) — ingestor reports `cbl_src_dir not found` as a warning, not
+  a crash; will populate automatically once a real customer environment has custom
+  COBOL
+
+**Verified**: fresh ingest → 230 files indexed (88 programs, 142 copybooks) across
+HCM+FSCM delivered; `PTPCBLAE.cbl` → 8 direct COPY deps resolved correctly;
+`PTCALOGM.cbl` correctly classified as copybook (`ZM000-LOG-MESSAGE` SECTION, no
+PROGRAM-ID) with description "CALL THE MESSAGE LOGGER WITH A TRANSACTION EDIT
+MESSAGE." (license-preamble-skipping fix verified); `make check` 91/91;
+`python3 scripts/smoke_admin_shell.py` 68/68.
+
+**Remaining:** environment side-by-side SQR comparison (done — see `/admin/sqrcompare`
+above); COBOL EXEC SQL / CALL-graph cross-reference into the Knowledge Graph (not yet
+wired into `attach_graph_context`); no true copybook (`.cpy`) support was needed since
+none exist in this PeopleSoft install, but the schema's `file_type` column already
+generalizes to that case if a future customer environment has them.
 
 ## ✅ Phase 6 — Environment Intelligence (Substantially Complete as of 2026-07-01)
 

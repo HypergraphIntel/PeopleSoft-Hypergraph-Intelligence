@@ -33,8 +33,10 @@ from routers import role
 from routers import operator
 from routers import logs as logs_api
 from routers import sqr as sqr_api
+from routers import cobol as cobol_api
 from routers.admin import logs as admin_logs
 from routers.admin import sqr_view as admin_sqr
+from routers.admin import cobol_view as admin_cobol
 from routers.admin import compflow as admin_compflow
 from routers.admin import rca as admin_rca
 from routers.admin import incidents as admin_incidents
@@ -133,8 +135,10 @@ app.include_router(role.router)
 app.include_router(operator.router)
 app.include_router(logs_api.router)
 app.include_router(sqr_api.router)
+app.include_router(cobol_api.router)
 app.include_router(admin_logs.router)
 app.include_router(admin_sqr.router)
+app.include_router(admin_cobol.router)
 app.include_router(admin_compflow.router)
 app.include_router(admin_rca.router)
 app.include_router(admin_incidents.router)

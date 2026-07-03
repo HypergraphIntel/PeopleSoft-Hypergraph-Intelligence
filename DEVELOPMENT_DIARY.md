@@ -6,6 +6,76 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — COBOL Explorer — 68/68
+
+### New Feature: PeopleSoft COBOL Source Artifact Intelligence
+
+Addresses the last open Phase 10 roadmap item. Built end-to-end following the
+existing SQR trio's pattern (parser → SQLite store → SSH ingestor → API →
+admin UI), with one twist specific to this codebase's environment.
+
+**Discovery that shaped the design**: PeopleSoft's "copybooks" are not
+separate `.cpy` files — they're `.cbl` files distinguished only by the
+*absence* of `PROGRAM-ID`, pulled into programs via `COPY name.`
+(e.g. `COPY PTCLOGMS.` targets `PTCLOGMS.cbl`). Confirmed via SSH: zero
+`.cpy` files exist anywhere under `ps_home8.62.07`; of 977 delivered `.cbl`
+files, 45 have `PROGRAM-ID` and 70 are bare SECTIONs/records referenced only
+via COPY. `connectors/cobolparser.py` classifies `file_type` as
+`program`/`copybook` on that basis rather than by extension.
+
+**Second discovery, mid-build**: only 115/977 delivered `.cbl` files are
+world-readable (mode 755) on `hcm_appserver` — the other 862 are mode 700,
+owned by `ps_hcm`, unreadable by the `oracle` SSH service account. This is
+expected PeopleSoft filesystem behavior, not a config problem, so
+`cobolingest.py` counts `PermissionError` as a `denied` bucket distinct from
+real `errors`, exactly like the architecture's "warn, don't crash" rule for
+missing grants/tables.
+
+**Files added**:
+- `connectors/cobolparser.py` — PROGRAM-ID/SECTION extraction, COPY deps,
+  static `CALL 'X'` targets, `EXEC SQL...END-EXEC` PS_ table refs. Description
+  extraction skips the fixed Oracle license preamble (bounded by an "All
+  Rights Reserved." marker) and decorative box-border comment lines before
+  taking the first real comment.
+- `connectors/cobol_db.py` (`data/cobol.db`) — `cobol_programs`/`cobol_tables`/
+  `cobol_copies`/`cobol_calls`; `get_copy_deps()` recursive CTE (forward +
+  reverse COPY closure); MD5 `content_hash` incremental scan; `search_source()`
+- `connectors/cobolingest.py` — SSH scan of `cbl_src_dir`; best-effort listing
+  of `cbl_compiled_dir` to flag whether a compiled binary exists per program
+- `routers/cobol.py` — `/api/cobol/*` (stats, sources, programs, program
+  detail+source, table xref, deps, search, ingest)
+- `routers/admin/cobol_view.py` — `/admin/cobol` list/search + `/admin/cobol/
+  {filename}` detail (Overview / COPY Dependency Graph / Source tabs)
+- `config.json` — `cobol_sources` (gitignored, local-only): 4 entries
+  (HCM/FSCM × delivered/custom); custom entries point at `ps_cust_home/src/cbl`
+  which doesn't exist on this demo box (only an `sqr` folder there) — ingestor
+  reports `cbl_src_dir not found` as a warning
+
+**Bug found and fixed mid-session**: initial description regex matched any
+non-boilerplate-keyword comment line, which let a license-paragraph
+continuation line ("or allowed by law, you may not use, copy, reproduce,")
+through for `PTPCBLAE.cbl`. Fixed by requiring the "All Rights Reserved."
+marker be seen first, then skipping purely decorative lines.
+
+**Verified**:
+- Fresh ingest (cold `data/cobol.db`) — 230 files indexed (88 programs, 142
+  copybooks) across HCM+FSCM delivered; 862 denied, 0 other errors per env;
+  both custom sources correctly report `cbl_src_dir not found`
+- `PTPCBLAE.cbl` → 8 direct COPY deps (`ptclogms`, `ptcsqlrt`, etc.) resolved
+  correctly via `/api/cobol/deps/`
+- `PTCALOGM.cbl` → correctly classified `copybook` (member `ZM000-LOG-MESSAGE`,
+  no PROGRAM-ID), description "CALL THE MESSAGE LOGGER WITH A TRANSACTION EDIT
+  MESSAGE." (confirms the license-preamble fix)
+- `make check` — 91/91 files, 11/11 unit tests
+- `python3 scripts/smoke_admin_shell.py` — 68/68 OK
+
+**Blocker/next step**: COBOL EXEC SQL / CALL-graph data isn't wired into the
+Knowledge Graph yet (`attach_graph_context` in `routers/peoplesoft.py`) —
+straightforward follow-up once there's appetite, same pattern as the SQR
+`sqr_program → record` edges.
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — Message UOM Cross-References + IB Subscription Crash Fix — 67/67
 
 ### Message Cross-References in Object Explorer

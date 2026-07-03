@@ -60,6 +60,9 @@ All database/file/AI logic lives in `connectors/`. Key modules:
 | `sqrparser.py` | SQR/SQC file parser (description, tables, includes, procedures) |
 | `sqrdb.py` | SQLite SQR index (`data/sqr.db`); schema: `UNIQUE(filename, source_key)` + `source_type` column; `overrides(env_source_keys)` returns delivered+custom duplicates |
 | `sqringest.py` | SSH-based SQR filesystem indexer; reads `source["ssh_host"]` (was `alias`), passes `source_type` to `upsert_program()` |
+| `cobolparser.py` | PeopleSoft `.cbl` parser; classifies program vs copybook (COPY target, no separate `.cpy` file), COPY deps, static CALL targets, EXEC SQL table refs |
+| `cobol_db.py` | SQLite COBOL index (`data/cobol.db`); recursive-CTE `get_copy_deps()`; `content_hash` for incremental scan |
+| `cobolingest.py` | SSH-based COBOL filesystem indexer (`cobol_sources` in config.json); treats per-file `PermissionError` as `denied`, not a crash |
 | `sshclient.py` | Paramiko SSH/SFTP wrapper with per-host connection pooling |
 | `runtimedb.py` | SQLite runtime snapshot store |
 | `promotiondb.py` | SQLite promotion event log (`data/promotions.db`) |
@@ -126,11 +129,13 @@ Drawn from `ROADMAP.md` remaining sections — pick the highest-value slice:
 - Plugin SDK: custom object/graph/runtime providers, custom dashboards
 
 ### Phase 10 — Source Artifact Intelligence (remaining)
-- COBOL Explorer, COPYBOOK Explorer
-- SQR dependency graph (SQC include tree, visual)
-- SQR environment side-by-side comparison (HCM vs FSCM)
-- Incremental SQR scanning (checksum-based change detection)
-- **Note**: After any `sqr_sources` config change, a re-index is required to populate `source_type` in sqrdb (`POST /api/sqr/index`)
+- COBOL EXEC SQL / CALL-graph cross-reference into the Knowledge Graph
+  (`connectors/cobol_db.py` has the data; not yet wired into `attach_graph_context`)
+- **Note**: After any `sqr_sources` or `cobol_sources` config change, a re-index is
+  required (`POST /api/sqr/ingest` / `POST /api/cobol/ingest`)
+- **Note**: most delivered `.cbl` files are mode 700 on the PeopleSoft filesystem and
+  are not readable by the SSH service account — the COBOL ingestor reports these as
+  `denied`, not errors; this is expected (115/977 readable per environment on this box)
 
 ## Key pages added since last handoff (2026-07-02)
 
@@ -149,6 +154,7 @@ Drawn from `ROADMAP.md` remaining sections — pick the highest-value slice:
 | `/admin/secaudit` | `security.py` | Security Audit Dashboard: stats, orphan detection, sign-on history |
 | `/admin/sqrdeps` | `sqr_view.py` | SQR Include Dependency Graph: forward tree, reverse "Included By", force-directed canvas |
 | `/admin/sqrcompare` | `sqr_view.py` | SQR Environment Comparison: HCM vs FSCM side-by-side diff (Changed / Only A / Only B / Identical) |
+| `/admin/cobol` | `cobol_view.py` | COBOL Explorer: list/search programs & copybooks, COPY dependency graph, live source view |
 
 ---
 
