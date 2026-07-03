@@ -733,6 +733,21 @@ def build(env="HCM", limit=50, persist=True):
                 for recname in access["writes"]:
                     add_node(graph, "record", recname, recname, edge_meta)
                     add_edge(graph, "peoplecode", pc_node_name, "record", recname, "WRITES", edge_meta)
+            for statement in refs.get("dynamic_sql", []):
+                access = sql_record_access(statement.get("sql_text", ""))
+                edge_meta = {
+                    "peoplecode_reference": pc_reference,
+                    "call": statement.get("call"),
+                    "var": statement.get("var"),
+                    "source": "peoplecode_dynamic_sql",
+                    "confidence": "low",
+                }
+                for recname in access["reads"]:
+                    add_node(graph, "record", recname, recname, edge_meta)
+                    add_edge(graph, "peoplecode", pc_node_name, "record", recname, "READS", edge_meta)
+                for recname in access["writes"]:
+                    add_node(graph, "record", recname, recname, edge_meta)
+                    add_edge(graph, "peoplecode", pc_node_name, "record", recname, "WRITES", edge_meta)
             for call in refs.get("calls", []):
                 add_node(graph, "function", call.get("name"), call.get("name"), call)
                 add_edge(graph, "peoplecode", pc_node_name, "function", call.get("name"), "CALLS", call)

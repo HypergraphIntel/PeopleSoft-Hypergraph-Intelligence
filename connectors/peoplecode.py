@@ -88,6 +88,17 @@ LITERAL_SQL_CALL_RE = re.compile(
     re.I | re.S,
 )
 
+# SQLExec/CreateSQL called with a variable rather than an inline literal —
+# the actual SQL text lives in one or more prior `&var = ...` assignments.
+_VAR_SQL_CALL_RE = re.compile(
+    r"\b(?P<call>SQLExec|CreateSQL)\s*\(\s*(?P<var>&[A-Za-z_][A-Za-z0-9_]*)\s*[,)]",
+    re.I,
+)
+# `&var = <expr>;` or `&var = &var | <expr>;` (self-append) assignment,
+# single statement (PeopleCode statements are `;`-terminated, may wrap lines).
+_VAR_ASSIGN_RE_TMPL = r"&{var}\s*=\s*(?:&{var}\s*\|\s*)?(.*?);"
+_STRING_LITERAL_RE = re.compile(r"\"(?:\"\"|[^\"])*\"|'(?:''|[^'])*'")
+
 
 def encode_reference(reference):
     return quote(reference, safe="")
@@ -650,6 +661,54 @@ def extract_literal_sql(source):
     return statements
 
 
+def extract_dynamic_sql(source):
+    """
+    Best-effort recovery of SQL text for `SQLExec(&var, ...)` / `CreateSQL(&var)`
+    calls where the SQL is built via variable assignment/concatenation instead
+    of passed as an inline literal — e.g.:
+
+        &strSQL = "SELECT * FROM PS_JOB WHERE ...";
+        &strSQL = &strSQL | " AND EFFDT = (SELECT MAX(EFFDT) FROM PS_JOB ...";
+        SQLExec(&strSQL, %This.EmplId, &recJob);
+
+    This is a purely textual, best-effort reconstruction (no expression
+    evaluation): it concatenates every string *literal* fragment assigned to
+    the variable anywhere earlier in the same program, in source order, and
+    ignores non-literal fragments (other variables, function calls, %Table()
+    macros with bind-parameter table names, etc.). That means dynamically
+    chosen table names (`"FROM PS_" | &recname`) are silently dropped from
+    the reconstructed text rather than guessed — consistent with the rest of
+    this codebase's "conservative, no crash, best-effort" extraction rules.
+    """
+    if not source:
+        return []
+
+    statements = []
+    for match in _VAR_SQL_CALL_RE.finditer(source):
+        var = match.group("var")
+        call_start = match.start()
+        var_name = re.escape(var[1:])  # drop leading '&', escape for embedding
+        assign_re = re.compile(_VAR_ASSIGN_RE_TMPL.format(var=var_name), re.I | re.S)
+
+        literal_fragments = []
+        for assign in assign_re.finditer(source, 0, call_start):
+            rhs = assign.group(1)
+            for lit in _STRING_LITERAL_RE.finditer(rhs):
+                decoded = _decode_peoplecode_string_literal(lit.group(0)).strip()
+                if decoded:
+                    literal_fragments.append(decoded)
+
+        if not literal_fragments:
+            continue
+
+        statements.append({
+            "call": match.group("call"),
+            "var": var,
+            "sql_text": " ".join(literal_fragments),
+        })
+    return statements
+
+
 def references(reference, env):
     result = program(reference, env)
     source = result["item"].get("source")
@@ -658,6 +717,7 @@ def references(reference, env):
         "references": extract_references(source),
         "calls": extract_calls(source),
         "literal_sql": extract_literal_sql(source),
+        "dynamic_sql": extract_dynamic_sql(source),
         "warnings": result["warnings"],
     }
 
@@ -677,6 +737,7 @@ def references_for_program(env, program_row):
         "references": extract_references(source),
         "calls": extract_calls(source),
         "literal_sql": extract_literal_sql(source),
+        "dynamic_sql": extract_dynamic_sql(source),
         "warnings": warnings,
     }
 

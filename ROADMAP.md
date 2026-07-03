@@ -129,7 +129,21 @@ Domain-level enumeration (`psdb.app_server_domains`) only sees Oracle's
 - `routers/admin/runtime.py` — new "App Server Processes" card on the Runtime
   Monitor page, refreshed on every cycle alongside domains/servers
 
-**Remaining:** Browser session tracking, WebLogic session tracking.
+**Remaining — blocked on live traffic data (2026-07-03 investigation):**
+- **Browser session tracking**: would reconstruct sessions from `web_entries`
+  (PIA access log: ip/oprid/url/ts — plenty of columns to group into sessions
+  by idle-gap) but `PIA_access.log` is 0 bytes on this box — no HTTP access
+  logging is active in this lab's WebLogic domain, so there is nothing to
+  ingest or verify against. Triggered a full `/api/logs/ingest` and confirmed
+  `web_entries` stays empty.
+- **WebLogic session tracking**: `PIA_weblogic.log` does have 2.2MB of real
+  content, but it's exclusively startup/health/diagnostics noise (`<PIA>`,
+  `<WorkManager>`, `<Health>`, etc.) — zero session-lifecycle log lines
+  (`grep -i session` returns nothing). No live HTTP session activity to track
+  in this environment either.
+- Both would need either real end-user browser traffic hitting PIA, or
+  enabling WebLogic HTTP access + session-event logging on the domain, before
+  there's anything to build against.
 
 ---
 
@@ -293,7 +307,43 @@ Continue enriching graph relationships.
 ### Remaining
 
 - Continue aligning provider-specific Knowledge Graph ingestion with UOM `_relationships` / `_graph` relationship definitions
-- Broader READS/WRITES coverage for non-literal PeopleCode dynamic SQL
+
+### ✅ Completed (2026-07-03) — Dynamic SQL READS/WRITES coverage
+
+Closes the "non-literal PeopleCode dynamic SQL" gap. Previously,
+`extract_literal_sql()` only captured `SQLExec("...", ...)` /
+`CreateSQL("...")` calls whose *first argument* was an inline string
+literal — `SQLExec(&strSQL, ...)` (SQL built into a variable beforehand)
+produced zero READS/WRITES edges, silently dropping real table access.
+
+- `connectors/peoplecode.py` — new `extract_dynamic_sql()`: finds
+  `SQLExec(&var, ...)` / `CreateSQL(&var)` calls, then scans backward for
+  every `&var = ...` / `&var = &var | ...` (self-append) assignment earlier
+  in the same program, extracts the string *literal* fragments from each
+  assignment's RHS (ignoring variables, function calls, `%Table()` bind
+  placeholders), and concatenates them in source order into reconstructed
+  SQL text. Purely textual — no expression evaluation. Returned as
+  `dynamic_sql` alongside the existing `literal_sql` in `references()` /
+  `references_for_program()`.
+- `connectors/graphdb.py` — persisted KG ingestion loop now also processes
+  `refs["dynamic_sql"]` through the existing `sql_record_access()` table
+  scanner, adding `peoplecode → record` READS/WRITES edges tagged
+  `source: peoplecode_dynamic_sql, confidence: low` (vs. `peoplecode_literal_sql`
+  for the original single-literal-call path)
+- Dynamically-chosen table names (e.g. `"FROM PS_" | &recname`) are
+  correctly **not** guessed — the reconstructed text has a dangling `PS_`
+  with no adjacent word characters, which the existing `PS_[A-Z0-9_]+`
+  table-name regex simply doesn't match, so no edge is produced. Verified
+  this directly: `sql_record_access('SELECT ... FROM PS_ WHERE ...')` →
+  `{"reads": [], "writes": []}`, no false positive.
+
+**Verified against real PeopleCode from this environment**:
+`HR_JOBDATA_UTILITIES.ADDITIONALINFO.PERSONINFO.ONEXECUTE.0` builds its JOB
+lookup SQL across four `&strSQL = ...` / `&strSQL = &strSQL | ...`
+statements before calling `SQLExec(&strSQL, ...)` — previously invisible to
+KG ingestion entirely. `extract_dynamic_sql()` correctly reconstructs the
+full SQL text and `sql_record_access()` correctly derives `READS: JOB`.
+`make check` 91/91; smoke test 68/68.
 
 ---
 

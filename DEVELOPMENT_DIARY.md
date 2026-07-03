@@ -6,6 +6,57 @@ matters, and how it was verified.
 
 ------------------------------------------------------------------------
 
+## 2026-07-03 — Dynamic SQL READS/WRITES Coverage — 68/68
+
+### Closed the last open Phase 5 item: non-literal PeopleCode dynamic SQL
+
+Before this, `SQLExec`/`CreateSQL` calls only produced KG READS/WRITES edges
+when the SQL was passed as an inline string literal. Any program building
+SQL into a variable first — extremely common in PeopleCode — was invisible
+to the Knowledge Graph.
+
+**Investigation**: before writing anything, searched real PeopleCode source
+in this environment (`GET /api/peoplesoft/peoplecode/source-search?q=FROM PS_`)
+for programs calling `SQLExec(&var)`/`CreateSQL(&var)`. Found a clean real
+example in `HR_JOBDATA_UTILITIES.ADDITIONALINFO.PERSONINFO.ONEXECUTE.0`:
+
+```
+&strSQL = "SELECT * FROM PS_JOB JOB WHERE JOB.EMPLID = :1 ...";
+&strSQL = &strSQL | " FROM PS_JOB JOB_DT WHERE ...";
+&strSQL = &strSQL | " JOB.EFFSEQ = (SELECT MAX(JOB_SQ.EFFSEQ) FROM PS_JOB ...";
+SQLExec(&strSQL, %This.EmplId, %This.EmplRcd, %Date, &recJob);
+```
+
+Also found the harder, genuinely unsolvable case
+(`HR_JOB_TREE_BLDR.TREENODEKEYBASE`): `"... FROM PS_" | &iKeyRecName` — the
+table name itself is chosen at runtime. Decided up front that these should
+be silently dropped, not guessed, consistent with the rest of the codebase's
+conservative extraction philosophy.
+
+**Changes**:
+- `connectors/peoplecode.py` — `extract_dynamic_sql()`: finds
+  `SQLExec(&var,...)`/`CreateSQL(&var)` calls, walks backward through every
+  `&var = ...` / `&var = &var | ...` assignment earlier in the program,
+  pulls out string-literal fragments from each RHS (skipping variables/calls/
+  `%Table()` placeholders), concatenates in source order. Wired into
+  `references()` and `references_for_program()` as `dynamic_sql`.
+- `connectors/graphdb.py` — KG ingestion loop feeds `dynamic_sql` statements
+  through the existing `sql_record_access()` scanner, same as `literal_sql`,
+  tagged `source: peoplecode_dynamic_sql, confidence: low` for provenance.
+
+**Verified**:
+- Synthetic test confirming the split-table-name case produces zero false
+  positives: `sql_record_access('SELECT ... FROM PS_ WHERE ...')` →
+  `{"reads": [], "writes": []}` (the dangling `PS_` with no adjacent word
+  char doesn't match the existing `PS_[A-Z0-9_]+` regex)
+- Real-data test: `peoplecode.references_for_program()` on
+  `HR_JOBDATA_UTILITIES.ADDITIONALINFO.PERSONINFO.ONEXECUTE.0` correctly
+  reconstructs the full 4-statement JOB query and `sql_record_access()`
+  derives `READS: JOB` — previously zero edges for this program
+- `make check` 91/91; smoke test 68/68
+
+------------------------------------------------------------------------
+
 ## 2026-07-03 — App Server Process Tracking — 68/68
 
 ### New Feature: live App Server / Process Scheduler process tracking

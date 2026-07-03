@@ -118,8 +118,10 @@ Drawn from `ROADMAP.md` remaining sections — pick the highest-value slice:
   `routers/admin/incidents.py`)
 
 ### Phase 5 — Knowledge Graph (remaining)
-- Broader READS/WRITES coverage for non-literal PeopleCode dynamic SQL
-- Universal cross-reference sections across remaining UOM providers (message, tree, project, portal)
+- (Dynamic SQL READS/WRITES coverage and message/tree/project/portal
+  cross-references are done — see `peoplecode.extract_dynamic_sql()` and
+  `routers/peoplesoft.py` `attach_graph_context()`)
+- Continue aligning provider-specific KG ingestion with UOM `_relationships`
 
 ### Phase 6 — Environment Intelligence (remaining)
 - Auto-detect promotions from `PSPROJECTDEFN.LASTUPDDTTM` across environments
