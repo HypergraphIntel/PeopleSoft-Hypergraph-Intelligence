@@ -269,6 +269,12 @@ comparison.
 - `connectors/cobolparser.py`/`cobol_db.py`/`cobolingest.py`; `/admin/cobol` list +
   detail (Overview / COPY Dependency Graph / Source)
 - KG edges: `cobol_program → record` READS/WRITES, `→ cobol_program` COPIES/CALLS
+- `/admin/cobolcompare` (`cobol_db.envcompare_cobol()`, `GET /api/cobol/envcompare`) —
+  HCM vs FSCM side-by-side diff, same shape/UI language as `/admin/sqrcompare` (a
+  patch/drift-integrity check, not assumed feature parity — verified real data first:
+  in this environment HCM/FSCM's 115 delivered `.cbl` files are byte-identical by
+  content_hash, so it correctly reports 0 differences today; will surface real drift
+  automatically the moment one environment gets patched independently of the other)
 
 ### SQR Override Intelligence — ✅ Complete
 - `connectors/sqrdb.py`'s `override_summary()` classifies every configured delivered/

@@ -408,3 +408,146 @@ loadDetail();
 </script>
 """
     return HTMLResponse(_shell(f"COBOL: {filename}", "cobol", content))
+
+
+@router.get("/cobolcompare", response_class=HTMLResponse)
+def cobol_compare_page():
+    """COBOL environment side-by-side comparison (e.g. HCM vs FSCM)."""
+    content = f"""
+<style>
+*{{box-sizing:border-box}}
+.cmp-toolbar{{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
+.cmp-sel{{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:5px 8px;font-size:12px;border-radius:3px}}
+.cmp-btn{{background:#00e5ff;border:none;padding:5px 14px;cursor:pointer;font-size:11px;color:#000;font-weight:bold;border-radius:3px}}
+.cmp-btn:hover{{background:#33eeff}}
+.stat-row{{display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px}}
+.stat-card{{background:#0a161e;border:1px solid #00e5ff22;border-radius:4px;padding:8px 16px;min-width:110px}}
+.stat-num{{font-size:20px;font-weight:bold;font-family:monospace}}
+.stat-lbl{{font-size:10px;color:#445;margin-top:2px}}
+.stat-card.only-a .stat-num{{color:#ff8844}}
+.stat-card.only-b .stat-num{{color:#44aaff}}
+.stat-card.changed .stat-num{{color:#ffcc44}}
+.stat-card.same .stat-num{{color:#00cc66}}
+.tabs{{display:flex;gap:0;padding:0 16px;border-bottom:1px solid #00e5ff22}}
+.tab{{padding:7px 16px;cursor:pointer;font-size:12px;color:#445;border-bottom:2px solid transparent}}
+.tab.active{{color:#00e5ff;border-bottom-color:#00e5ff}}
+.tab-content{{display:none;padding:10px 16px}}
+.tab-content.active{{display:block}}
+table{{width:100%;border-collapse:collapse;font-size:12px}}
+th{{text-align:left;padding:5px 10px;border-bottom:1px solid #00e5ff22;color:#445;font-size:11px;text-transform:uppercase;letter-spacing:.04em}}
+td{{padding:5px 10px;border-bottom:1px solid #0a1c28;font-family:monospace;font-size:11px}}
+tr:hover td{{background:#0a161e}}
+.empty{{padding:24px;text-align:center;color:#334;font-size:12px}}
+.diff-val{{color:#ffcc44}}
+.same-val{{color:#445}}
+a{{color:#00e5ff;text-decoration:none}}a:hover{{text-decoration:underline}}
+#status{{font-size:11px;color:#445;margin-left:auto}}
+</style>
+
+<div class="cmp-toolbar">
+  <a href="/admin/cobol" style="color:#7faab2;font-size:12px;text-decoration:none">&larr; COBOL Explorer</a>
+  <select class="cmp-sel" id="envA"><option>HCM</option><option>FSCM</option></select>
+  <span style="color:#445;font-size:12px">vs</span>
+  <select class="cmp-sel" id="envB"><option>FSCM</option><option>HCM</option></select>
+  <button class="cmp-btn" onclick="load()">Compare</button>
+  <span id="status"></span>
+</div>
+
+<div class="stat-row" id="statRow" style="display:none"></div>
+
+<div class="tabs" id="tabBar" style="display:none">
+  <div class="tab active" onclick="switchTab('changed',this)">Changed</div>
+  <div class="tab" onclick="switchTab('onlyA',this)" id="tabOnlyA">Only in A</div>
+  <div class="tab" onclick="switchTab('onlyB',this)" id="tabOnlyB">Only in B</div>
+  <div class="tab" onclick="switchTab('same',this)">Identical</div>
+</div>
+<div id="tab-changed" class="tab-content active"></div>
+<div id="tab-onlyA"   class="tab-content"></div>
+<div id="tab-onlyB"   class="tab-content"></div>
+<div id="tab-same"    class="tab-content"></div>
+
+<script>
+{_ESC_JS}
+const $ = id => document.getElementById(id);
+
+function switchTab(name, el){{
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  $('tab-'+name).classList.add('active');
+}}
+
+function renderSingle(rows, env, emptyMsg){{
+  if(!rows.length) return `<div class="empty">${{emptyMsg}}</div>`;
+  return `<table><thead><tr>
+    <th>File</th><th>Type</th><th>PS_ Tables</th><th>Description</th>
+  </tr></thead><tbody>`+
+  rows.map(r=>`<tr>
+    <td><a href="/admin/cobol/${{encodeURIComponent(r.filename)}}">${{esc(r.filename)}}</a></td>
+    <td>${{esc(r.file_type||'')}}</td>
+    <td style="color:#00e5ff">${{r.table_count||0}}</td>
+    <td style="color:#7faab2">${{esc(r.description||'')}}</td>
+  </tr>`).join('')+'</tbody></table>';
+}}
+
+function renderChanged(rows, labelA, labelB){{
+  if(!rows.length) return '<div class="empty">No differences found between environments.</div>';
+  return `<table><thead><tr>
+    <th>File</th><th>Type</th>
+    <th>Tables (${{esc(labelA)}})</th><th>Tables (${{esc(labelB)}})</th>
+    <th>COPY (${{esc(labelA)}})</th><th>COPY (${{esc(labelB)}})</th>
+    <th>CALL (${{esc(labelA)}})</th><th>CALL (${{esc(labelB)}})</th>
+    <th>Content Hash</th>
+  </tr></thead><tbody>`+
+  rows.filter(r=>r.changed).map(r=>{{
+    const tDiff=r.table_count_a!==r.table_count_b;
+    const cDiff=r.copy_count_a!==r.copy_count_b;
+    const kDiff=r.call_count_a!==r.call_count_b;
+    const hDiff=r.content_hash_a&&r.content_hash_b&&r.content_hash_a!==r.content_hash_b;
+    return `<tr>
+      <td><a href="/admin/cobol/${{encodeURIComponent(r.filename)}}">${{esc(r.filename)}}</a></td>
+      <td>${{esc(r.file_type||'')}}</td>
+      <td class="${{tDiff?'diff-val':'same-val'}}">${{r.table_count_a||0}}</td>
+      <td class="${{tDiff?'diff-val':'same-val'}}">${{r.table_count_b||0}}</td>
+      <td class="${{cDiff?'diff-val':'same-val'}}">${{r.copy_count_a||0}}</td>
+      <td class="${{cDiff?'diff-val':'same-val'}}">${{r.copy_count_b||0}}</td>
+      <td class="${{kDiff?'diff-val':'same-val'}}">${{r.call_count_a||0}}</td>
+      <td class="${{kDiff?'diff-val':'same-val'}}">${{r.call_count_b||0}}</td>
+      <td style="font-size:10px;color:${{hDiff?'#ffcc44':'#445'}}">${{hDiff?'DIFFERS':r.content_hash_a?'SAME':'—'}}</td>
+    </tr>`;
+  }}).join('')+'</tbody></table>';
+}}
+
+async function load(){{
+  const envA=$('envA').value, envB=$('envB').value;
+  if(envA===envB){{$('status').textContent='Select different environments.';return;}}
+  $('status').textContent='Loading…';
+  $('statRow').style.display='none';
+  $('tabBar').style.display='none';
+  const data=await fetch(`/api/cobol/envcompare?env_a=${{encodeURIComponent(envA)}}&env_b=${{encodeURIComponent(envB)}}`).then(r=>r.json()).catch(e=>({{error:String(e)}}));
+  $('status').textContent='';
+  if(data.error){{$('status').textContent='Error: '+data.error;return;}}
+  const c=data.counts||{{}};
+  $('statRow').innerHTML=`
+    <div class="stat-card"><div class="stat-num">${{c.total_a||0}}</div><div class="stat-lbl">${{esc(data.label_a)}} total</div></div>
+    <div class="stat-card"><div class="stat-num">${{c.total_b||0}}</div><div class="stat-lbl">${{esc(data.label_b)}} total</div></div>
+    <div class="stat-card changed"><div class="stat-num">${{c.changed||0}}</div><div class="stat-lbl">Changed</div></div>
+    <div class="stat-card same"><div class="stat-num">${{c.identical||0}}</div><div class="stat-lbl">Identical</div></div>
+    <div class="stat-card only-a"><div class="stat-num">${{c.only_a||0}}</div><div class="stat-lbl">Only in ${{esc(data.label_a)}}</div></div>
+    <div class="stat-card only-b"><div class="stat-num">${{c.only_b||0}}</div><div class="stat-lbl">Only in ${{esc(data.label_b)}}</div></div>
+  `;
+  $('statRow').style.display='flex';
+  $('tabOnlyA').textContent=`Only in ${{data.label_a}} (${{c.only_a||0}})`;
+  $('tabOnlyB').textContent=`Only in ${{data.label_b}} (${{c.only_b||0}})`;
+  $('tab-changed').innerHTML=renderChanged(data.in_both||[],data.label_a,data.label_b);
+  $('tab-onlyA').innerHTML=renderSingle(data.only_a||[],data.label_a,`No files exist only in ${{data.label_a}}.`);
+  $('tab-onlyB').innerHTML=renderSingle(data.only_b||[],data.label_b,`No files exist only in ${{data.label_b}}.`);
+  $('tab-same').innerHTML=renderSingle((data.in_both||[]).filter(r=>!r.changed),'',' All shared files have differences.');
+  $('tabBar').style.display='flex';
+}}
+
+document.addEventListener('DOMContentLoaded',()=>load());
+window.onEnvChange=()=>{{}};
+</script>
+"""
+    return HTMLResponse(_shell("COBOL Environment Comparison", "cobolcompare", content=content))

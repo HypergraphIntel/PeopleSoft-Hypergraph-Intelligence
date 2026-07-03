@@ -421,3 +421,102 @@ def source_index_status() -> dict:
     indexed = c.execute("SELECT COUNT(*) FROM cobol_programs WHERE source_text IS NOT NULL").fetchone()[0]
     c.close()
     return {"total": total, "indexed": indexed, "pct": round(indexed * 100 / total, 1) if total else 0}
+
+
+def envcompare_cobol(source_keys_a: list[str], source_keys_b: list[str],
+                      label_a: str = "A", label_b: str = "B") -> dict:
+    """Compare two sets of COBOL source keys and return a side-by-side diff.
+
+    Same shape as sqrdb.envcompare_sqr() — a patch/drift-integrity check across
+    environments, not because COBOL and SQR need parity, but because both are
+    delivered-artifact trees where "did one environment get patched without the
+    other" is the same real question.
+
+    Returns:
+        label_a, label_b — display labels
+        only_a           — files present in A but not B
+        only_b           — files present in B but not A
+        in_both          — files in both with comparison columns
+        counts           — summary counts
+    """
+    c = _conn()
+
+    def _fetch(keys: list[str]) -> dict:
+        if not keys:
+            return {}
+        ph = ",".join("?" for _ in keys)
+        rows = c.execute(
+            f"SELECT lower(filename) AS fn, filename, file_type, description, "
+            f"table_count, copy_count, call_count, content_hash "
+            f"FROM cobol_programs WHERE source_key IN ({ph})",
+            list(keys),
+        ).fetchall()
+        seen = {}
+        for r in rows:
+            if r["fn"] not in seen:
+                seen[r["fn"]] = dict(r)
+        return seen
+
+    map_a = _fetch(source_keys_a)
+    map_b = _fetch(source_keys_b)
+    c.close()
+
+    keys_a = set(map_a)
+    keys_b = set(map_b)
+
+    only_a = sorted(
+        [{"filename": map_a[k]["filename"], "file_type": map_a[k]["file_type"],
+          "description": map_a[k]["description"], "table_count": map_a[k]["table_count"]}
+         for k in keys_a - keys_b],
+        key=lambda x: x["filename"],
+    )
+    only_b = sorted(
+        [{"filename": map_b[k]["filename"], "file_type": map_b[k]["file_type"],
+          "description": map_b[k]["description"], "table_count": map_b[k]["table_count"]}
+         for k in keys_b - keys_a],
+        key=lambda x: x["filename"],
+    )
+    in_both = []
+    for k in sorted(keys_a & keys_b):
+        ra, rb = map_a[k], map_b[k]
+        changed = (
+            ra["table_count"] != rb["table_count"]
+            or ra["copy_count"] != rb["copy_count"]
+            or ra["call_count"] != rb["call_count"]
+            or ra["description"] != rb["description"]
+            or (ra.get("content_hash") and rb.get("content_hash")
+                and ra["content_hash"] != rb["content_hash"])
+        )
+        in_both.append({
+            "filename": ra["filename"],
+            "file_type": ra["file_type"],
+            "description_a": ra["description"],
+            "description_b": rb["description"],
+            "table_count_a": ra["table_count"],
+            "table_count_b": rb["table_count"],
+            "copy_count_a": ra["copy_count"],
+            "copy_count_b": rb["copy_count"],
+            "call_count_a": ra["call_count"],
+            "call_count_b": rb["call_count"],
+            "content_hash_a": ra.get("content_hash"),
+            "content_hash_b": rb.get("content_hash"),
+            "changed": changed,
+        })
+
+    changed_count = sum(1 for r in in_both if r["changed"])
+    return {
+        "label_a":      label_a,
+        "label_b":      label_b,
+        "only_a":       only_a,
+        "only_b":       only_b,
+        "in_both":      in_both,
+        "counts": {
+            "only_a":    len(only_a),
+            "only_b":    len(only_b),
+            "in_both":   len(in_both),
+            "changed":   changed_count,
+            "identical": len(in_both) - changed_count,
+            "total_a":   len(map_a),
+            "total_b":   len(map_b),
+        },
+    }

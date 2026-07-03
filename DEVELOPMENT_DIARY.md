@@ -5966,3 +5966,37 @@ Verification:
 - `/admin/sqroverrides` renders, JS confirmed single-braced (`grep -c '{{'` → 0)
 - `python3 scripts/smoke_admin_shell.py` → 70/70 (was 69/69 before this page)
 - `make check` → 100/100 files, 11/11 tests
+
+---
+
+### COBOL Environment Comparison (pending commit)
+
+Added `/admin/cobolcompare` (HCM vs FSCM side-by-side diff), mirroring
+`/admin/sqrcompare`'s UI/shape — `connectors/cobol_db.py`'s new
+`envcompare_cobol(source_keys_a, source_keys_b, ...)` and `GET
+/api/cobol/envcompare?env_a=&env_b=` in `routers/cobol.py`.
+
+**Justified the use case before building, per earlier feedback about not assuming
+feature parity between SQR and COBOL just because they share plumbing.** Checked
+real data first: `SELECT filename FROM cobol_programs WHERE source_key='hcm_cobol_delivered'
+EXCEPT ... 'fscm_cobol_delivered'` → 0 rows either direction (same 115 filenames in
+both), and a content_hash join across all shared filenames → 0 rows differ. So in
+this environment a COBOL env-compare view has nothing to show — asked the user
+whether to build it anyway given that, since the value (a drift/patch-integrity
+check between environments) is real independent of today's data: it costs nothing
+to show "0 differences" and will surface the moment one environment's COBOL gets
+patched without the other. User confirmed build it.
+
+Reused the sibling `sqr_compare_page()`'s single-f-string convention (`{_ESC_JS}`
+interpolated inline, not the three-part `""" + _ESC_JS + """` concatenation that
+caused the brace-doubling bug in the SQR Overrides page) — avoids repeating that
+exact mistake.
+
+Verification:
+- `curl /api/cobol/envcompare?env_a=HCM&env_b=FSCM` → real result: 0 only_a,
+  0 only_b, all 115 shared files `changed: false` (confirms the "no drift" finding,
+  not a bug)
+- `/admin/cobolcompare` renders (200), added nav entry (Platform group) and smoke
+  test coverage
+- `python3 scripts/smoke_admin_shell.py` → 71/71 (was 70/70)
+- `make check` → 100/100 files, 11/11 tests

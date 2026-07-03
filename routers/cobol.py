@@ -196,3 +196,22 @@ def cobol_deps(filename: str, max_depth: int = Query(6, ge=1, le=10)):
     from connectors import cobol_db
     cobol_db.init_db()
     return cobol_db.get_copy_deps(filename, max_depth=max_depth)
+
+
+@router.get("/envcompare")
+def cobol_envcompare(env_a: str = Query("HCM"), env_b: str = Query("FSCM")):
+    """Return side-by-side comparison of COBOL programs/copybooks across two environments."""
+    import json
+    from pathlib import Path
+    from connectors import cobol_db
+    cobol_db.init_db()
+
+    cfg_path = Path(__file__).parent.parent / "config.json"
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+
+    all_sources = cfg.get("cobol_sources", [])
+    keys_a = [s["key"] for s in all_sources if s.get("env", "").upper() == env_a.upper()]
+    keys_b = [s["key"] for s in all_sources if s.get("env", "").upper() == env_b.upper()]
+
+    return cobol_db.envcompare_cobol(keys_a, keys_b, label_a=env_a.upper(), label_b=env_b.upper())
