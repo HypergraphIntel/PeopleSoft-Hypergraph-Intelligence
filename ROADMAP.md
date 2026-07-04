@@ -565,6 +565,32 @@ prove the correlation logic itself works. Verified live in a real headless Chrom
 session: the new tab renders correctly with zero console errors, and the
 pre-existing ASH/Exec Log tabs show no regression.
 
+### Sequence-Aware Graph Relationships — ✅ Partially complete (the semantically-groundable half)
+Added `VALIDATES_BEFORE_SAVE`, `MUTATES_DATABASE`, and `MUTATES_BUFFER` edges to
+`component_sequences()`/`record_sequences()`, alongside the existing `FIRES_BEFORE`/
+`FIRES_AFTER`/`BELONGS_TO`. `connectors/peoplecode.py`'s new `event_semantic_edges()`
+classifies each canonical event by its own already-documented PeopleTools semantics
+(the same meaning already captured in each event's `note` field, e.g. SavePreChange/
+SavePostChange are literally "before/after DB write") — not a new or fabricated
+classification, just wiring existing knowledge into the graph as edges: `SaveEdit` →
+`VALIDATES_BEFORE_SAVE`, `SavePreChange`/`SavePostChange` → `MUTATES_DATABASE`, and
+the Build/Interaction-phase buffer-mutating events (`RowInit`, `FieldDefault`,
+`FieldFormula`, `RowSelect`, `FieldEdit`, `FieldChange`, `RowInsert`, `RowDelete`) →
+`MUTATES_BUFFER`.
+
+`PART_OF_SEQUENCE`, `CALLS_DURING_EVENT`, `BLOCKS_PROCESSING`, and
+`TRIGGERS_RUNTIME_ACTION` remain unbuilt — each would need data this platform doesn't
+track (a real PeopleCode call graph, workflow-trigger detection, or save-failure/
+error-path data), not just a classification of what's already known, so they weren't
+attempted rather than faked.
+
+**Verified**: full graph rebuild (`env=HCM, limit=50, persist=true`) — both providers
+ran clean (`component_sequences`: 38 items, `record_sequences`: 29 items, zero
+errors); directly inspected the persisted graph (`data/knowledge_graph_HCM.json`) and
+confirmed 49 real semantic edges (38 `MUTATES_BUFFER`, 8 `VALIDATES_BEFORE_SAVE`, 3
+`MUTATES_DATABASE`) correctly connecting real `component_event` nodes to their real
+`component` nodes, zero self-loops.
+
 ### Remaining
 - **Delivered vs Custom Sequence Comparison** beyond the existing `LASTUPDOPRID`
   heuristic — PeopleCode has no delivered-source baseline to diff against (unlike
@@ -573,10 +599,9 @@ pre-existing ASH/Exec Log tabs show no regression.
   `PSAEMSGLOG` table being present in this environment; PeopleCode-component-level
   trace correlation remains blocked on the same missing-PIA-data issue as Phase 4's
   session tracking
-- Broader Sequence-Aware Graph Relationships (`PART_OF_SEQUENCE`, `CALLS_DURING_EVENT`,
-  `VALIDATES_BEFORE_SAVE`, `MUTATES_BUFFER`/`_DATABASE`, `BLOCKS_PROCESSING`,
-  `TRIGGERS_RUNTIME_ACTION`) — `FIRES_BEFORE`/`FIRES_AFTER` are done; these others
-  aren't started.
+- `PART_OF_SEQUENCE`, `CALLS_DURING_EVENT`, `BLOCKS_PROCESSING`,
+  `TRIGGERS_RUNTIME_ACTION` — blocked on call-graph/workflow-trigger/error-path data
+  this platform doesn't track (see above)
 
 ---
 

@@ -6421,3 +6421,52 @@ re-tested against the same instance.
 Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
 new tab on an existing panel, not a new admin route); `make check` →
 100/100 files, 11/11 tests.
+
+---
+
+### Broader Sequence-Aware Graph Relationships (pending commit)
+
+Closed the semantically-groundable half of the "Broader Sequence-Aware
+Graph Relationships" ROADMAP item — three new KG edge types beyond the
+existing `FIRES_BEFORE`/`FIRES_AFTER`/`BELONGS_TO`.
+
+`connectors/peoplecode.py`'s new `event_semantic_edges(event_name)` maps
+canonical event names to semantic relations, deliberately derived from each
+event's own already-documented meaning (the same text already sitting in
+each event's `note` field in `CANONICAL_COMPONENT_SEQUENCE` — e.g.
+SavePreChange/SavePostChange are literally documented as "before/after DB
+write"), not a new or invented classification:
+- `SaveEdit` → `VALIDATES_BEFORE_SAVE`
+- `SavePreChange`, `SavePostChange` → `MUTATES_DATABASE`
+- `RowInit`, `FieldDefault`, `FieldFormula`, `RowSelect`, `FieldEdit`,
+  `FieldChange`, `RowInsert`, `RowDelete` (Build/Interaction-phase buffer
+  operations) → `MUTATES_BUFFER`
+
+Wired into `graphdb.py`'s `component_sequences()`/`record_sequences()`
+builders — one extra edge per event that has a semantic classification,
+added right alongside the existing `BELONGS_TO` edge to the same
+component/record target.
+
+Deliberately did **not** attempt `PART_OF_SEQUENCE`, `CALLS_DURING_EVENT`,
+`BLOCKS_PROCESSING`, or `TRIGGERS_RUNTIME_ACTION` — each of those would
+require data this platform doesn't track (a real PeopleCode call graph to
+know what calls what during an event, workflow-trigger detection, or
+save-failure/error-path data to know what actually blocks processing), not
+just a classification of already-known event semantics. Faking those would
+mean inventing relationships the platform can't actually verify.
+
+**Verified**: ran a full graph rebuild (`env=HCM, limit=50, persist=true`)
+— `component_sequences` (38 items) and `record_sequences` (29 items) both
+completed with zero errors. Directly inspected the persisted graph
+(`data/knowledge_graph_HCM.json`, not just the build-summary counts) and
+confirmed 49 real semantic edges: 38 `MUTATES_BUFFER`, 8
+`VALIDATES_BEFORE_SAVE`, 3 `MUTATES_DATABASE` — e.g.
+`component_event:ABS_HOL_SCHD_TABLE.SAVEPOSTCHANGE ->
+component:ABS_HOL_SCHD_TABLE` with type `MUTATES_DATABASE`, all correctly
+connecting real component_event nodes to their real component nodes with
+zero self-loops (checked `source == target` directly across all 49 new
+edges).
+
+Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
+pure KG data addition, no admin UI or new routes); `make check` → 100/100
+files, 11/11 tests.

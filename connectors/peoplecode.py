@@ -866,6 +866,40 @@ CANONICAL_COMPONENT_SEQUENCE = [
 ]
 
 
+# Semantic classification of canonical events, for KG edge typing beyond plain
+# ordering (FIRES_BEFORE/FIRES_AFTER). Derived directly from each event's own
+# documented PeopleTools semantics — the same meaning already captured in the
+# "note" field above (e.g. SavePreChange/SavePostChange are literally "before/
+# after DB write") — not a new or fabricated classification.
+#   VALIDATES_BEFORE_SAVE — the event whose entire purpose is validating the
+#     buffer before the save commits.
+#   MUTATES_DATABASE      — events that fire immediately around the actual
+#     database write (as opposed to in-memory buffer changes).
+#   MUTATES_BUFFER        — Build/Interaction-phase events that change the
+#     in-memory component buffer (field values, row membership) but do not
+#     themselves touch the database.
+_EVENT_SEMANTIC_EDGES: dict[str, list[str]] = {
+    "SaveEdit":        ["VALIDATES_BEFORE_SAVE"],
+    "SavePreChange":   ["MUTATES_DATABASE"],
+    "SavePostChange":  ["MUTATES_DATABASE"],
+    "RowInit":         ["MUTATES_BUFFER"],
+    "FieldDefault":    ["MUTATES_BUFFER"],
+    "FieldFormula":    ["MUTATES_BUFFER"],
+    "RowSelect":       ["MUTATES_BUFFER"],
+    "FieldEdit":       ["MUTATES_BUFFER"],
+    "FieldChange":     ["MUTATES_BUFFER"],
+    "RowInsert":       ["MUTATES_BUFFER"],
+    "RowDelete":       ["MUTATES_BUFFER"],
+}
+
+
+def event_semantic_edges(event_name: str) -> list[str]:
+    """Return the semantic KG edge relations (beyond FIRES_BEFORE/AFTER) that
+    apply to a canonical event name, e.g. 'SaveEdit' -> ['VALIDATES_BEFORE_SAVE'].
+    Empty list for events with no additional semantic classification."""
+    return list(_EVENT_SEMANTIC_EDGES.get(event_name, []))
+
+
 def component_sequence(env, comp):
     """Slot a component's real PeopleCode events into the canonical ordered
     sequence, marking each slot empty/delivered/custom.

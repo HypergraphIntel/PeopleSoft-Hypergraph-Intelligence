@@ -2400,6 +2400,8 @@ def build(env="HCM", limit=50, persist=True):
                 add_node(graph, "component_event", node_name, ev["name"], meta)
                 add_edge(graph, "component_event", node_name, "component", comp, "BELONGS_TO", meta)
                 added += 1
+                for relation in _peoplecode.event_semantic_edges(ev["name"]):
+                    add_edge(graph, "component_event", node_name, "component", comp, relation, meta)
                 if prev_node is not None:
                     add_edge(graph, "component_event", prev_node, "component_event", node_name,
                               "FIRES_BEFORE", meta)
@@ -2468,6 +2470,8 @@ def build(env="HCM", limit=50, persist=True):
                 add_node(graph, "record_event", node_name, ev["name"], meta)
                 add_edge(graph, "record_event", node_name, "record", rec, "BELONGS_TO", meta)
                 added += 1
+                for relation in _peoplecode.event_semantic_edges(ev["name"]):
+                    add_edge(graph, "record_event", node_name, "record", rec, relation, meta)
                 if prev_node is not None:
                     add_edge(graph, "record_event", prev_node, "record_event", node_name,
                               "FIRES_BEFORE", meta)
