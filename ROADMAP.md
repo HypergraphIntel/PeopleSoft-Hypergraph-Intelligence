@@ -145,15 +145,31 @@ Pre-existing schema-version gap, not introduced by any work in this repo.
 **Status: Substantially complete.**
 
 ### Completed
-- 17-type environment comparison (records, fields, components, pages, permissions,
+- 23-type environment comparison (records, fields, components, pages, permissions,
   roles, AE, PeopleCode, SQL defs, portals, queries, menus, trees, IB routings, IB
-  messages, component interfaces, process definitions) with AE step-level body diff
+  messages, component interfaces, process definitions, operators, translate values,
+  IB nodes, style sheets, URL definitions, application packages) with AE step-level
+  body diff
 - Scheduled drift snapshots (SQLite `driftdb.py`) with threshold + growth-rate alerts
 - Point-in-time runtime snapshots and drift history time series (`/admin/drift`)
 - Deployment risk scoring (`/api/impact/risk`) and project impact reports
   (`/api/impact/project`, `/admin/impact`)
 - Promotion event log (Phase 1): manual `POST /api/promotions` + timeline UI
   (`/admin/promotions`)
+
+**Drift coverage expansion (17 → 23 types)**: `connectors/envcompare.py`'s `summary()`
+is a single literal `(label, sql)` tuple list — purely additive, no UI changes needed
+since `/admin/drift` renders whatever `/api/drift/latest` returns generically. Added
+Operators (`PSOPRDEFN`), Translate Values (`PSXLATITEM`), IB Nodes (`PSMSGNODEDEFN`),
+Style Sheets (`PSSTYLEDEFN`), URL Definitions (`PSURLDEFN`), and Application Packages
+(`PSPACKAGEDEFN`) — each verified queryable with real, differing HCM/FSCM counts
+before adding (e.g. Operators: 141 vs 398; Translate Values: 49,177 vs 60,749) rather
+than assumed from UOM's ~54-type provider list. Two other UOM-adjacent candidates,
+`PSFILELAYOUTDEFN` and `PSPRJDEFN`, were checked and don't exist under those names in
+this environment (`ORA-00942`) — skipped rather than guessed at the real table name.
+Since `/api/drift/latest` reads a **persisted** snapshot (not a live query), a fresh
+`POST /api/drift/snapshot` had to be triggered to pick up the new types — pre-existing
+snapshots only have the original 17.
 
 ### Remaining — blocked on real promotion-chain environments
 - **Promotion auto-detection** (Phase 2): snapshot `PSPROJECTDEFN.LASTUPDDTTM` per
@@ -536,7 +552,9 @@ Interaction Phase ends with RowDelete, Save Phase begins with SaveEdit).
 - Environment/security change history via drift time series (see Phase 6)
 
 ### Remaining
-- Full change history across all object types (drift covers 17 types, not universal)
+- Full change history across all object types (drift covers 23 types, not universal —
+  UOM has ~54; remaining types are either row-count-uninteresting or need real
+  table-name verification before adding, per the process used to add the last 6)
 - Deployment/configuration history beyond the promotion event log
 - Runtime replay beyond incident snapshots
 - Architecture Assistant: auto-generated dependency reports, sequence diagrams,

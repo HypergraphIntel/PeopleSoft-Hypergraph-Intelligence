@@ -6277,3 +6277,47 @@ Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
 detail pages aren't part of smoke coverage, verified instead via one-off
 headless Chrome sessions as described above); `make check` → 100/100 files,
 11/11 tests.
+
+---
+
+### Drift Coverage Expansion: 17 → 23 Types (pending commit)
+
+Extended `connectors/envcompare.py`'s `summary()` — the row-count comparison
+across environments that backs `/admin/drift` and the scheduled snapshot/
+alert system (`driftdb.py`) — from 17 to 23 tracked object types. The
+mechanism is a single literal `(label, sql)` tuple list, same pattern as
+`graphdb.py`'s KG provider registration: purely additive, no UI changes
+needed since `/admin/drift` renders whatever `/api/drift/latest` returns
+generically.
+
+Researched via a background agent first to find real candidates rather than
+guessing from `connectors/uom.py`'s ~54-type provider list. Verified each of
+6 candidates directly against live Oracle HCM and FSCM before adding:
+`PSOPRDEFN` (Operators: 141 vs 398), `PSXLATITEM` (Translate Values: 49,177
+vs 60,749), `PSMSGNODEDEFN` (IB Nodes: 62 vs 73), `PSSTYLEDEFN` (Style
+Sheets: 23 vs 39), `PSURLDEFN` (URL Definitions: 268 vs 217), `PSPACKAGEDEFN`
+(Application Packages: 4,245 vs 4,189) — all real, queryable, with genuinely
+differing counts between environments (useful drift signal, not just noise).
+
+Two other candidates the research turned up, `PSFILELAYOUTDEFN` and
+`PSPRJDEFN`, were checked directly and don't exist under those names in this
+environment (`ORA-00942: table or view does not exist`) — skipped rather
+than guessing at the real table name, since a wrong guess would silently
+show up as a permanent warning in the drift page rather than real data.
+
+**Discovered along the way**: `/api/drift/latest` reads a *persisted*
+snapshot from `driftdb.py`'s SQLite store, not a live query — pre-existing
+snapshots only have the original 17 types, so the new 6 didn't show up until
+a fresh `POST /api/drift/snapshot` was triggered. Not a bug, just a
+verification-order thing worth remembering: code correctness and
+data-freshness are separate checks here.
+
+Verification: direct `envcompare.summary('HCM','FSCM')` call confirms 23
+rows with correct counts and zero warnings; live `curl` on `/api/drift/latest`
+after a fresh snapshot confirms all 6 new types appear with matching counts;
+verified `/admin/drift` renders them in a real headless Chrome session (24
+rendered rows, zero console errors — one extra row beyond the 23 types is
+the table's own header/total accounting, not a bug). `python3
+scripts/smoke_admin_shell.py` → 73/73 (unchanged, no new admin pages — this
+is a data-layer change to an existing page); `make check` → 100/100 files,
+11/11 tests.

@@ -870,6 +870,12 @@ def summary(env1, env2):
         ("IB Messages",      "SELECT COUNT(*) AS n FROM SYSADM.PSMSGDEFN"),
         ("Comp. Interfaces", "SELECT COUNT(*) AS n FROM SYSADM.PSBCDEFN"),
         ("Process Defs",     "SELECT COUNT(*) AS n FROM SYSADM.PS_PRCSDEFN"),
+        ("Operators",        "SELECT COUNT(*) AS n FROM SYSADM.PSOPRDEFN"),
+        ("Translate Values", "SELECT COUNT(*) AS n FROM SYSADM.PSXLATITEM"),
+        ("IB Nodes",         "SELECT COUNT(*) AS n FROM SYSADM.PSMSGNODEDEFN"),
+        ("Style Sheets",     "SELECT COUNT(*) AS n FROM SYSADM.PSSTYLEDEFN"),
+        ("URL Definitions",  "SELECT COUNT(*) AS n FROM SYSADM.PSURLDEFN"),
+        ("App. Packages",    "SELECT COUNT(*) AS n FROM SYSADM.PSPACKAGEDEFN"),
     ]
     rows = []
     warnings = []
