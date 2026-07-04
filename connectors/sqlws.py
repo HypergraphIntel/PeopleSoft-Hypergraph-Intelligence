@@ -409,9 +409,15 @@ def execute_query(
     max_rows: int = None,
     timeout_secs: int = 0,
     cancel_check=None,
+    source: str = "human",
 ) -> dict:
     """
     Execute a read-only SELECT against the named PeopleSoft environment.
+
+    source: tags the audit/history entry ("human" for SQL Workspace UI use,
+    "ai" for AI-tool-originated executions — see connectors/ai_tools.py's
+    execute_sql tool) so the one audit trail (logs/sqlws_audit.jsonl)
+    distinguishes who/what ran a query without needing a second log.
 
     Parameters
     ----------
@@ -489,10 +495,12 @@ def execute_query(
             "status": "blocked",
             "blocked_reason": validation["blocked_reason"],
             "pinned": False,
+            "source": source,
         })
         audit_write("blocked", {
             "query_id": query_id,
             "env": env_name.upper(),
+            "source": source,
             "sql": sql[:500],
             "blocked_reason": validation["blocked_reason"],
         })
@@ -614,11 +622,13 @@ def execute_query(
         "pinned": False,
         "timed_out": timed_out,
         "cancelled": cancelled,
+        "source": source,
     })
 
     audit_write("execute", {
         "query_id": query_id,
         "env": env_name.upper(),
+        "source": source,
         "sql": sql[:500],
         "elapsed_ms": elapsed_ms,
         "row_count": row_count,

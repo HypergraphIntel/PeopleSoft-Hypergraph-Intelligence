@@ -6524,3 +6524,80 @@ tests.
 
 This closes out Phase 9 Platform Extensibility entirely — no v1 or v2
 candidates remain open.
+
+---
+
+### SQL Proxy: AI-Safe Data Access — Steps 2-3 (pending commit)
+
+Continuation of the SQL Proxy work (step 1, the masking engine, landed
+earlier this session — see the previous diary entry). Built the AI-facing
+execute path and the human reveal capability, closing the "AI sees masked
+data, human sees real data" loop the user asked for.
+
+`connectors/sqlws.py`'s `execute_query()` gained an optional `source`
+parameter (default `"human"`) threaded into its existing `audit_write()`/
+`_history_append()` calls — additive, backward-compatible, so the one
+`sqlws_audit.jsonl` audit trail now distinguishes who/what ran a query
+without needing a second logging path.
+
+`connectors/ai_tools.py`'s new `execute_sql(env, sql, max_rows=50)` tool
+calls `sqlws.execute_query()` with `source="ai"`, then runs the result
+through `sqlmask.mask_result()` before returning it to the AI. Tested the
+rejection path first (`DELETE FROM SYSADM.PS_JOB` → correctly blocked with
+`"DELETE statements are not allowed"`, same `validate_readonly()` logic the
+human SQL Workspace already uses), then the happy path against real HCM
+data — real `EMPLID`/`NAME` values came back as `EMP_xxxxxxxx`/
+`PERSON_xxxxxxxx` tokens, confirmed in the audit log tagged `source: "ai"`.
+
+New `routers/sql_proxy.py`: `POST /api/sql-proxy/reveal` (token → real
+value, audit-logged) and `GET /api/sql-proxy/stats` (vault counts by
+category, never values). Deliberately its own separate router, never
+imported by `ai_tools.py` — confirmed directly that `ai_tools._HANDLERS` has
+no entry reaching `sqlmask.reveal()`; the isolation is structural (no code
+path exists), not a runtime permission check that a clever prompt could
+route around.
+
+Added a "token chip" UI to `/admin/assistant` (`routers/admin/tools.py`):
+any masked token appearing in a chat response renders as a small clickable
+chip; clicking calls the reveal endpoint and swaps in the real value inline,
+for the human viewer only.
+
+**Full end-to-end verification against the real OpenAI-backed assistant**,
+not just dispatch-level unit tests: asked it (in a natural investigative
+framing — an overly blunt "show me raw values" framing made the model
+explain privacy constraints instead of calling the tool, which is itself a
+reasonable model behavior, not a bug) to investigate `PS_PERSONAL_DATA` via
+`execute_sql`. It executed the query and reported back tokens like
+`EMP_6ef9f65d`, explicitly noting they were masked for privacy — it never
+saw a real name or ID. Called `POST /api/sql-proxy/reveal` with that exact
+token from the response and got the real value back (`AA0001`) — the
+complete masked round-trip working against genuinely AI-originated queries,
+not scripted test fixtures.
+
+**Two bugs found and fixed while building the reveal-chip UI, both caught
+by headless-Chrome testing** (verifying the actual rendered/executing JS,
+not just that the Python compiled):
+1. `admin_assistant()`'s HTML/JS content is one continuous f-string — a
+   different convention than most admin pages' three-part
+   `f"""...""" + _ESC_JS + """..."""` split I'd already learned to watch for
+   earlier this session. Because of that, I wrote the new `TOKEN_PATTERN`
+   regex with unescaped `\b` and `{8}`, and Python silently mangled both
+   (`\b` is a real Python backspace escape character; `{8}` was evaluated
+   as an f-string expression, rendering the literal digit `8`) before the
+   string ever reached the browser. A headless-Chrome check
+   (`TOKEN_PATTERN.test('EMP_6ef9f65d')` returning `false`) caught it
+   immediately; fixed by escaping to `\\b`/`{{8}}`.
+2. Separately, a genuine JS closure bug (unrelated to the Python f-string
+   issue): `chip.onclick = () => revealToken(chip, m[0])` captured the
+   `while` loop's `m` variable by reference. By the time a user actually
+   clicked a chip, `m` held whatever the *last* `regex.exec()` call in the
+   loop returned — `null`, since that's what signals loop termination —
+   so every click threw `Cannot read properties of null (reading '0')`.
+   A headless-Chrome click-through test caught this the moment I fixed bug
+   #1 and could actually see the chip rendered. Fixed by copying `m[0]`
+   into a local `const` before the loop advanced, rather than deferring
+   the read to click time.
+
+Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
+API additions plus a UI enhancement to an existing page, no new admin
+route); `make check` → 100/100 files, 19/19 tests.

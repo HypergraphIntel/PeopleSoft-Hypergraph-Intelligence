@@ -452,6 +452,37 @@ TOOLS = [
             "required": ["env", "target_type", "name"],
         },
     },
+    {
+        "name": "execute_sql",
+        "description": (
+            "Execute a read-only ad-hoc SELECT against a PeopleSoft Oracle environment, when "
+            "the existing structured tools (search_objects, record_usage, etc.) aren't enough to "
+            "confirm a hypothesis — e.g. checking whether a specific error is caused by a bad or "
+            "missing DATA row (out-of-range value, orphaned foreign key, unexpected NULL) rather "
+            "than a program/code defect. Only SELECT/WITH statements are allowed; anything else "
+            "(INSERT/UPDATE/DELETE/DDL/PL-SQL/DBMS_*/UTL_*) is rejected before it ever reaches the "
+            "database — this is the same validation the human-facing SQL Workspace uses. "
+            "IMPORTANT: sensitive columns (EMPLID, NAME, EMAIL_ADDR, SSN, etc.) are automatically "
+            "replaced with masked tokens like 'EMP_9a41c2f0' before you see them — you will NEVER "
+            "see real employee names, IDs, emails, or other PII. The masking is deterministic: the "
+            "same real value always produces the same token everywhere, so you CAN still correlate "
+            "the same person/entity across multiple tables and queries using these tokens — you "
+            "just can't see who they really are. When reporting a finding, reference the masked "
+            "token (e.g. 'row EMP_9a41c2f0 in PS_JOB has a NULL DEPTID') — a human operator can "
+            "decode that specific token back to the real record on their end. "
+            "Examples: 'SELECT COUNT(*) FROM PS_JOB WHERE EMPLID=... AND DEPTID IS NULL', "
+            "'SELECT EMPLID, EFFDT, HR_STATUS FROM PS_JOB WHERE EMPLID IN (...) ORDER BY EFFDT'"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "sql": {"type": "string", "description": "A single read-only SELECT or WITH statement (no semicolons, no DML/DDL)"},
+                "max_rows": {"type": "integer", "description": "Max rows to return (default 50, max 200)"},
+            },
+            "required": ["env", "sql"],
+        },
+    },
 ]
 
 # Tool name → schema lookup
@@ -1118,6 +1149,30 @@ def _peoplecode_sequence(env: str, target_type: str, name: str) -> dict:
     return {"error": f"Unknown target_type: {target_type}"}
 
 
+def _execute_sql(env: str, sql: str, max_rows: int = 50) -> dict:
+    """AI-facing ad-hoc SQL execution — Phase 11 SQL Proxy.
+
+    Reuses connectors.sqlws.execute_query()'s validation/paging/audit path
+    unchanged (source="ai" tags the shared audit trail), then masks the
+    result through connectors.sqlmask before returning it. This function is
+    the ONLY path by which the AI dispatch table can reach live Oracle data
+    ad hoc; it never returns unmasked values and has no route to
+    sqlmask.reveal() — that stays human-only by construction, not by a
+    runtime permission check.
+    """
+    from connectors import sqlws, sqlmask
+
+    max_rows = max(1, min(int(max_rows or 50), 200))
+    result = sqlws.execute_query(
+        env.upper(), sql, page=1, page_size=max_rows, max_rows=max_rows, source="ai",
+    )
+    if result.get("blocked"):
+        return {"error": result.get("blocked_reason"), "blocked": True}
+    if result.get("status") == "error":
+        return {"error": result.get("error") or "Query execution failed", "warnings": result.get("warnings")}
+    return sqlmask.mask_result(result)
+
+
 _HANDLERS = {
     "search_objects":     _search_objects,
     "peoplecode_search":  _peoplecode_search,
@@ -1140,4 +1195,5 @@ _HANDLERS = {
     "cobol_program":           _cobol_program,
     "component_events":        _component_events,
     "peoplecode_sequence":     _peoplecode_sequence,
+    "execute_sql":             _execute_sql,
 }

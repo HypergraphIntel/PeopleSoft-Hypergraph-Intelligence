@@ -453,18 +453,18 @@ with zero console errors in a real headless Chrome session.
 
 # Phase 11 — SQL Proxy: AI-Safe Data Access
 
-**Status: 📋 Planned — design complete, implementation not started.**
+**Status: 🔶 Core loop complete (steps 1-3) — step 4 (workflow integration) open.**
 
 ## Why
 
-The AI Assistant (Phase 7) can today reason about *metadata* — object definitions,
-dependencies, log errors, runtime state — but every one of its 21 tools wraps a
-fixed, pre-written query. It cannot ask its own ad-hoc question of the data (e.g.
-"show me the actual JOB rows for employees where this Application Engine step
-failed"). That's a real gap: diagnosing whether an incident is *program-related*
-(a bug in delivered/custom code) or *data-related* (a bad row, an out-of-range
-value, a broken foreign key) usually requires looking at the data itself, not just
-the schema.
+The AI Assistant (Phase 7) could previously only reason about *metadata* — object
+definitions, dependencies, log errors, runtime state — but every one of its tools
+wrapped a fixed, pre-written query. It couldn't ask its own ad-hoc question of the
+data (e.g. "show me the actual JOB rows for employees where this Application
+Engine step failed"). That was a real gap: diagnosing whether an incident is
+*program-related* (a bug in delivered/custom code) or *data-related* (a bad row,
+an out-of-range value, a broken foreign key) usually requires looking at the data
+itself, not just the schema.
 
 The blocker to closing that gap isn't capability, it's exposure: PeopleSoft data
 is full of PII/PHI/financial data (`PS_PERSONAL_DATA`, `PS_JOB`, `PS_PAYCHECK`,
@@ -483,123 +483,92 @@ real value to act on the finding.
 needs to be built. It doesn't — `connectors/sqlws.py` (SQL Workspace, the existing
 human-facing query tool at `/admin/sqlws`) already implements almost the entire
 "Query Validation," "Read Only," "Automatic Row Limiting," and "Query Audit
-Logging" sections of `SQL_PROXY.md`, in production, today:
+Logging" sections of `SQL_PROXY.md`, in production:
 
-- `validate_readonly()` — blocks all DML/DDL/PL·SQL (`INSERT`/`UPDATE`/`DELETE`/
-  `MERGE`/`DROP`/`ALTER`/`CREATE`/`GRANT`/`COMMIT`/...), rejects `DBMS_*`/`UTL_*`
+- `validate_readonly()` — blocks all DML/DDL/PL·SQL, rejects `DBMS_*`/`UTL_*`
   package calls, `EXECUTE IMMEDIATE` dynamic SQL, `SYS.*` privilege-escalation
-  patterns, and multi-statement (`;`-separated) submissions — comment/string-
-  literal-stripped before keyword scanning, not naive substring matching.
+  patterns, and multi-statement submissions — comment/string-literal-stripped
+  before keyword scanning, not naive substring matching.
 - `execute_query()` — `ROW_NUMBER()`-wrapper paging (never loads unbounded result
   sets), bind-variable support, server-side timeout, cancellation.
 - `audit_write()` / `logs/sqlws_audit.jsonl` — every execution and every blocked
   attempt logged with timestamp, env, SQL text, elapsed time, row count, status.
-- `history_list()` / `data/sqlws_history.jsonl` — queryable execution history.
 
-**The genuinely new work is exactly the piece `SQL_PROXY.md` calls "Deterministic
-Data Masking"** — nothing else needs reinventing. This phase reuses
-`connectors/sqlws.py`'s validation/execution/audit path as-is and adds a masking
-layer between "query executed" and "AI sees the result."
+This phase reuses that validation/execution/audit path as-is and adds only a
+masking layer between "query executed" and "AI sees the result" — the piece
+`SQL_PROXY.md` calls "Deterministic Data Masking."
 
-## Design
+## What's built (steps 1-3)
 
-### 1. `connectors/sqlmask.py` — deterministic masking engine
+- **Step 1 — Deterministic masking engine** (`connectors/sqlmask.py`): a
+  configurable sensitive-column catalog (`config.json["sql_proxy"]`, seeded from
+  `SQL_PROXY.md`'s own Token Categories table) drives `TOKEN = PREFIX + "_" +
+  HMAC-SHA256(secret_salt, value)[:8]` — HMAC (not plain concatenation) so the
+  salt can't be brute-forced out of a leaked token set. Deterministic: the same
+  real value always produces the same token, so `PS_PERSONAL_DATA`/`PS_JOB`/
+  `PS_BENEFITS` rows for the same employee mask to the *same* `EMP_xxxxxxxx`
+  token — cross-table joins/reasoning stay possible for the AI, it just never
+  learns the real identity. A SQLite token vault (`data/sql_proxy_vault.db`,
+  mirroring the `data/*.db` side-store convention already used by
+  `driftdb.py`/`incidentdb.py`) stores the mapping, populated lazily. Non-
+  sensitive columns (dates, statuses, counts) pass through untouched.
+- **Step 2 — AI-facing `execute_sql` tool** (`connectors/ai_tools.py`): reuses
+  `sqlws.execute_query()` unchanged (same validation/paging, now with a
+  `source="ai"`/`"human"` tag threaded through so the one audit trail
+  distinguishes who/what ran a query), then masks the result before returning it
+  to the AI. Tighter `max_rows` cap (50 vs. the human Workspace's 100-1000
+  default) — the AI needs enough rows to spot a pattern, not a full dump.
+- **Step 3 — Human reveal capability** (`routers/sql_proxy.py`): `POST
+  /api/sql-proxy/reveal` decodes a token back to its real value (audit-logged);
+  `GET /api/sql-proxy/stats` for vault introspection (counts only, never values).
+  Structurally unreachable from AI — `ai_tools._HANDLERS` has no entry that
+  reaches `sqlmask.reveal()`, confirmed directly (not just a permission check
+  that could be bypassed by a prompt). A clickable "token chip" UI on
+  `/admin/assistant` lets a human reveal a masked token inline in the chat —
+  the concrete answer to "the AI reports where the problem is, the user sees
+  the actual data."
 
-- **Sensitive column catalog**: a configurable `{column_name_pattern: category}`
-  map (seeded from `SQL_PROXY.md`'s own Token Categories table — `EMPLID`→`EMP`,
-  `OPRID`→`USER`, `EMAIL_ADDR`→`EMAIL`, `NATIONAL_ID`/`SSN`→`SSN`, `NAME`/
-  `FIRST_NAME`/`LAST_NAME`→`PERSON`, `ADDRESS1`/`ADDRESS2`→`ADDR`, `PHONE`→`PHONE`,
-  `BANK_ACCOUNT`/`ACCOUNT_NUM`→`ACCT`, ...), stored in `config.json["sql_proxy"]`
-  so it's tunable per-deployment without a code change — matched by exact column
-  name and by regex (to catch `.*_SSN`, `.*_EMAIL` variants across custom fields).
-- **Token generation**: `TOKEN = PREFIX + "_" + HMAC-SHA256(secret_salt, value)[:8]`
-  (hex). HMAC (not plain `SHA256(salt+value)`) specifically so the salt can't be
-  brute-forced out of a leaked token set the way a naive concatenation can.
-  `secret_salt` lives in `config.json`, never logged, never returned to the AI.
-  Deterministic: the same real value always produces the same token, so
-  `PS_PERSONAL_DATA`, `PS_JOB`, and `PS_BENEFITS` rows for the same employee mask
-  to the *same* `EMP_xxxxxxxx` token — joins and cross-table reasoning stay
-  possible for the AI, it just never learns the real identity.
-- **Token vault** (`data/sql_proxy_vault.db`, new SQLite store, mirroring the
-  `data/*.db` side-store convention already used by `driftdb.py`/`incidentdb.py`/
-  etc.): `(category, real_value, masked_token, created_ts, last_used_ts)`,
-  populated lazily the first time a value is masked. This is what makes human
-  decode possible later — the mapping is stored once, not regenerated.
-- **Row masking**: given a result set (`columns`, `rows` — the exact shape
-  `sqlws.execute_query()` already returns) and the sensitive-column catalog, walk
-  each row and replace matched-column values with their token. Non-matched
-  columns (dates, statuses, counts, amounts *not* configured as sensitive) pass
-  through unmodified — per `SQL_PROXY.md`'s own stated goal, over-masking breaks
-  troubleshooting as badly as under-masking breaks privacy.
+**Verified end-to-end against the real OpenAI-backed assistant** (not just
+dispatch-level tests): asked it to investigate `PS_PERSONAL_DATA` via
+`execute_sql`; it correctly executed the query and reported back *only* masked
+tokens (`EMP_6ef9f65d`, `PERSON_...`), explicitly noting they were masked for
+privacy — it never saw a real name or EMPLID. Separately called `POST
+/api/sql-proxy/reveal` with that exact token and got the real value back
+(`AA0001`) — the full "AI sees masked, human sees real" loop working with real
+data, not synthetic test fixtures. Also verified: determinism/non-collision (8
+unit tests, `tests/test_sqlmask.py`), `validate_readonly()`'s existing blocked-
+statement test coverage unaffected (`tests/test_sqlws_timeout.py` still 19/19
+passing overall), and the AI dispatch table confirmed to have zero path to
+`sqlmask.reveal()`.
 
-### 2. AI-facing execute tool
+**Two bugs found and fixed while building the reveal-chip UI**, both caught by
+headless-Chrome testing rather than assumed correct:
+1. `routers/admin/tools.py`'s `admin_assistant()` content is one continuous
+   f-string (unlike most admin pages' three-part `f"""...""" + _ESC_JS + """..."""`
+   convention) — the new `TOKEN_PATTERN` regex used `\b` and `{8}` unescaped,
+   which Python silently mangled (`\b` is a real Python backspace escape;
+   `{8}` was evaluated as an f-string expression) before ever reaching the
+   browser. The regex simply never matched anything until fixed to `\\b`/`{{8}}`.
+2. A JS closure bug: `chip.onclick = () => revealToken(chip, m[0])` captured the
+   loop variable `m` by reference, not its value at chip-creation time — by
+   click time `m` was `null` (the last `regex.exec()` call in the `while` loop),
+   throwing `Cannot read properties of null`. Fixed by copying `m[0]` into a
+   local `const` before advancing the loop.
 
-- New `connectors/ai_tools.py` tool, `execute_sql(env, sql, max_rows=50)`:
-  calls `sqlws.execute_query()` (reusing its validation/paging/audit path
-  unchanged), then runs the result through `sqlmask.mask_result()` before
-  returning it to the AI. A tighter `max_rows` cap than the human SQL Workspace
-  default (50 vs. 100–1000) — the AI needs enough rows to spot a pattern, not a
-  full dump.
-- This is the actual capability the user asked for: the AI reviews an error
-  (via existing `log_errors`/`ae_steps`/`process_scheduler_health` tools), forms
-  a hypothesis about *which table/row* might explain it, and can now write and
-  run its own `SELECT` to check — getting back masked-but-structurally-real data
-  to reason from, rather than being stuck at "I'd need to look at the data to
-  confirm this."
-- Every AI-originated execution still lands in the *same* `sqlws_audit.jsonl`
-  audit trail as human executions (tagged distinctly, e.g. `source: "ai"` vs.
-  `source: "human"`), so there is one auditable trail of everything anyone (or
-  anything) has queried — not a second, separate logging path to keep in sync.
+## Remaining (step 4 + explicitly out of scope)
 
-### 3. Human reveal capability
-
-- New endpoint, e.g. `POST /api/sql-proxy/reveal {"token": "EMP_9a41c2f0"}` →
-  looks up the vault, returns the real value, updates `last_used_ts`, and is
-  itself audit-logged (who decoded what, when). This endpoint is **never**
-  registered as an AI tool — the AI dispatch table (`ai_tools._HANDLERS`) simply
-  has no path to it, which is a stronger guarantee than a permission check that
-  could be bypassed by a prompt.
-- Admin UI: when the AI Assistant's chat response contains a masked token
-  (`/admin/assistant`), render it as a small clickable chip; clicking calls the
-  reveal endpoint and swaps in the real value inline for the human viewer only —
-  this is the concrete answer to "the AI reports where the problem is, the user
-  sees the actual data."
-
-### 4. Verification plan (must pass before calling any part of this done)
-
-- Determinism: masking the same real value twice (same or different query)
-  produces the identical token; masking two different real values never
-  collides (birthday-bound check across a large sample, not just eyeballing a
-  few).
-- Real-data test: run a real `SELECT EMPLID, NAME, EMAIL_ADDR, LASTUPDDTTM FROM
-  PS_PERSONAL_DATA FETCH FIRST 20 ROWS ONLY` against live HCM/FSCM Oracle,
-  confirm `EMPLID`/`NAME`/`EMAIL_ADDR` come back masked and `LASTUPDDTTM` (not
-  configured as sensitive) comes back real and unmodified.
-- Cross-table join test: mask the same real `EMPLID` via two different queries
-  (e.g. one against `PS_PERSONAL_DATA`, one against `PS_JOB`) and confirm both
-  produce the identical token — proves cross-table correlation survives masking.
-- Reveal round-trip: mask a value, call the reveal endpoint with the resulting
-  token, confirm the original real value comes back exactly.
-- Negative test: confirm the AI dispatch table (`ai_tools._HANDLERS`) has no
-  entry that can reach the reveal endpoint or the vault directly — the isolation
-  is structural (no code path exists), not just a runtime permission check.
-- `validate_readonly()` regression: confirm the existing SQL Workspace blocked-
-  statement test coverage (`tests/test_sqlws_timeout.py` and friends) still
-  passes unchanged, since this phase must not touch that validation logic.
-
-## Explicitly out of scope for this phase (per `SQL_PROXY.md`'s "Future
-Enhancements," not needed for the core ask)
-
+- Integration with the actual error-investigation workflow: today `execute_sql`
+  is a general-purpose tool the AI can reach for; the next step is teaching the
+  assistant's system prompt / tool descriptions to reach for it specifically
+  when triaging an error (`log_errors`/`ae_steps`/`process_scheduler_health` →
+  hypothesis → `execute_sql` to confirm), rather than relying on the model to
+  make that connection unprompted.
 - Free-text field masking (`COMMENTS`/`DESCRLONG`/`MESSAGE_TEXT` — named-entity
-  masking is a materially harder problem than column-based tokenization; punt
-  until a real free-text-leak incident makes it a priority)
-- Numeric range-bucketing / date-shifting (salary → "100K–110K", dates shifted
-  by a consistent offset) — real but secondary to identity masking
-  for the stated use case (diagnosing errors), can layer on later
-  without changing the token-vault architecture
-- Dynamic Policy Engine / YAML-driven policies, AI Trust Levels (Observer/
-  Analyst/Engineer/Administrator), Oracle Data Safe integration — all listed as
-  "Future Enhancements" in `SQL_PROXY.md` itself, not required for v1
+  masking is materially harder than column-based tokenization), numeric range-
+  bucketing/date-shifting, Dynamic Policy Engine/YAML policies, AI Trust Levels
+  (Observer/Analyst/Engineer/Administrator), Oracle Data Safe integration — all
+  explicitly listed as "Future Enhancements" in `SQL_PROXY.md` itself, not
+  required for v1.
 
 ---
 

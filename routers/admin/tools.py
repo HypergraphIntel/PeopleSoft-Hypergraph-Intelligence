@@ -517,6 +517,12 @@ textarea#chatInput:focus{{outline:none;border-color:rgba(0,229,255,.6);}}
 a.obj-link{{color:#00e5ff;text-decoration:none;border-bottom:1px dotted rgba(0,229,255,.5);
   cursor:pointer;transition:border-bottom-style .1s;}}
 a.obj-link:hover{{border-bottom-style:solid;}}
+/* SQL Proxy masked-token reveal chip — the AI only ever sees the masked form */
+.token-chip{{display:inline-block;font-family:monospace;font-size:11px;padding:1px 6px;
+  border-radius:3px;background:rgba(255,180,0,.12);border:1px solid rgba(255,180,0,.4);
+  color:#ffb400;cursor:pointer;user-select:none;}}
+.token-chip:hover{{background:rgba(255,180,0,.22);}}
+.token-chip-revealed{{background:rgba(0,204,102,.12);border-color:rgba(0,204,102,.4);color:#00cc66;}}
 </style>
 
 <div class="chat-layout">
@@ -1078,6 +1084,73 @@ function applyLinks(rootEl, linkMap) {{
   }}
 }}
 
+// ── SQL Proxy: masked-token reveal chips ─────────────────────────────────────
+// The AI only ever sees masked tokens like EMP_9a41c2f0 (connectors/sqlmask.py);
+// this turns any such token appearing in a chat response into a clickable chip
+// a human can decode back to the real value via /api/sql-proxy/reveal — the AI
+// itself has no path to that endpoint.
+const TOKEN_PATTERN = /\\b(EMP|USER|PERSON|EMAIL|PHONE|ADDR|SSN|DOB|ACCT|DEPT|VENDOR|STUDENT|CUSTOMER|POS)_([0-9a-f]{{8}})\\b/g;
+
+function applyTokenReveal(rootEl) {{
+  const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, {{
+    acceptNode(node) {{
+      const p = node.parentElement;
+      if (!p) return NodeFilter.FILTER_REJECT;
+      if (p.closest('.token-chip')) return NodeFilter.FILTER_REJECT;
+      if (!node.textContent) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }}
+  }});
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+
+  for (const textNode of nodes) {{
+    const text = textNode.textContent;
+    TOKEN_PATTERN.lastIndex = 0;
+    if (!TOKEN_PATTERN.test(text)) continue;
+    TOKEN_PATTERN.lastIndex = 0;
+
+    const frag = document.createDocumentFragment();
+    let last = 0, m;
+    while ((m = TOKEN_PATTERN.exec(text)) !== null) {{
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const chip = document.createElement('span');
+      chip.className = 'token-chip';
+      const tokenText = m[0];
+      chip.textContent = tokenText;
+      chip.title = 'Click to reveal (masked from AI)';
+      chip.onclick = () => revealToken(chip, tokenText);
+      frag.appendChild(chip);
+      last = m.index + m[0].length;
+    }}
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    textNode.parentNode.replaceChild(frag, textNode);
+  }}
+}}
+
+async function revealToken(chipEl, token) {{
+  if (chipEl.dataset.revealed) {{
+    chipEl.classList.toggle('token-chip-open');
+    return;
+  }}
+  chipEl.textContent = 'decoding…';
+  try {{
+    const r = await fetch('/api/sql-proxy/reveal', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{token}}),
+    }});
+    if (!r.ok) {{ chipEl.textContent = token + ' (not found)'; return; }}
+    const d = await r.json();
+    chipEl.textContent = d.real_value;
+    chipEl.title = `${{token}} — revealed`;
+    chipEl.dataset.revealed = '1';
+    chipEl.classList.add('token-chip-revealed', 'token-chip-open');
+  }} catch(e) {{
+    chipEl.textContent = token + ' (error)';
+  }}
+}}
+
 // ── Examples ──────────────────────────────────────────────────────────────────
 const el = document.getElementById('exampleList');
 EXAMPLES.forEach(ex => {{
@@ -1139,6 +1212,7 @@ function appendMsg(role, content, toolLog) {{
     // Build link map from what the AI actually fetched, then annotate the text
     const linkMap = buildLinkMap(toolLog);
     if (Object.keys(linkMap).length) applyLinks(bubble, linkMap);
+    applyTokenReveal(bubble);
   }} else {{
     bubble.textContent = content;
   }}
