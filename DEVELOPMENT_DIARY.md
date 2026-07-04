@@ -6202,3 +6202,78 @@ as SQR Override Intelligence. For each of SQR and COBOL:
 
 Verification: `make check` 100/100 files + 11/11 tests; smoke test 73/73
 (unchanged — modifies existing pages, no new routes).
+
+---
+
+### SQR/COBOL Runtime Correlation (pending commit)
+
+Ties Process Scheduler executions back to SQR/COBOL source programs.
+`connectors/psdb.py`'s new `process_runs_for_program()` mirrors the existing
+`operator_processes()` pattern (same `_RUNSTATUS_LABEL` map, same
+column-existence detection for `ENDDTTM`/`SERVERNAMERUN`), querying
+`PSPRCSRQST` by `PRCSNAME` + `PRCSTYPE`. New `GET /api/sqr/program/
+{filename}/runs` and `GET /api/cobol/program/{filename}/runs` (deriving
+`PRCSNAME` from the filename's base name), plus a "Process Runs" tab on both
+program detail admin pages.
+
+**Verified this was worth building before writing code**: dispatched a
+research-only background agent first to check real feasibility, since the
+last time I built something speculative (Page-owned PeopleCode) it turned
+out to matter that the category was real-but-unpopulated rather than
+nonexistent. Findings: `PS_PRCSDEFN` confirms the join key (`PRCSNAME`) is
+real — 1510 SQR Report + 21 SQR Process + 52 COBOL SQL process definitions
+in HCM alone — but `PSPRCSRQST` (actual run history) has **zero rows** for
+those `PRCSTYPE` values in either HCM or FSCM; every real run-history row
+there is Application Engine only. Told the user this plainly before
+building and asked how to proceed; they chose to build it anyway,
+gracefully degrading — the same call as Page-owned PeopleCode.
+
+Verified two ways since there's no real SQR/COBOL data to check against:
+1. Confirmed the new endpoints gracefully return `{"items": [], "count": 0}`
+   for real indexed SQR/COBOL programs (not an error) — matches the
+   research finding exactly.
+2. Proved the SQL/dispatch logic itself isn't just silently broken by
+   running it against a real *populated* process name instead
+   (`PSPM_REAPER`, Application Engine, 512 real runs in `PSPRCSRQST`) —
+   confirmed it returns real rows with correct fields.
+
+**Bug found and fixed**: `duration_secs` was always `None`, even for
+completed runs with both `RUNDTTM` and `ENDDTTM` populated. Root cause:
+`psdb.query()` returns Oracle datetime columns as ISO strings, not Python
+`datetime` objects (confirmed directly: `type(row['rundttm'])` → `str`), so
+`end_dt - run_dt` raised `TypeError`, silently swallowed by a bare
+`except: pass`. Fixed by parsing both with `datetime.fromisoformat()`
+before subtracting. Re-verified against `PSPM_REAPER`'s real runs: durations
+now correctly compute (31.2s, 29.5s), and correctly stay `None` for the one
+still-running instance with no `end_dt` yet.
+
+**Bigger bug found and fixed — pre-existing, predates this session
+entirely**: while adding COBOL's new Process Runs tab, discovered
+`cobol_detail`'s *entire* JS block (not just my new code — the pre-existing
+Dependency Graph and Source tabs too) was already broken, in exactly the
+same shape as the SQR Overrides brace-doubling bug from earlier this
+session: the segment after `""" + _ESC_JS + """` is a plain (non-f) Python
+string, but the existing code used `{filename!r}` three times, which only
+evaluates inside an f-string. It never evaluated — the literal text
+`{filename!r}` was being emitted straight into the served JavaScript,
+which is invalid syntax and broke the whole script block. Confirmed via
+`git show HEAD:routers/admin/cobol_view.py` that this exact bug already
+existed before any of today's edits — it was simply never caught because
+individual object detail pages (`/admin/cobol/{filename}`) aren't part of
+the smoke test's page list (only list/search/compare pages are). Fixed by
+precomputing `filename_js = json.dumps(filename)` in Python and
+concatenating it in with the file's established `""" + variable + """`
+convention, and de-doubling every brace in that segment to match its actual
+(non-f-string) nature — rather than making it an f-string, which would have
+been inconsistent with how the rest of the file's three-part
+string-concatenation convention works. Verified live in headless Chrome:
+Dependency Graph tab now renders real COPY/CALL closure data, Source tab
+renders real source (3626 chars matching the indexed file length), and the
+new Process Runs tab renders its graceful-empty message — all with zero
+console errors, where before all three would have thrown
+`SyntaxError: Unexpected token '!'`.
+
+Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
+detail pages aren't part of smoke coverage, verified instead via one-off
+headless Chrome sessions as described above); `make check` → 100/100 files,
+11/11 tests.

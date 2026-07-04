@@ -355,11 +355,56 @@ comments) and COBOL (column-7 `*` comments) source. Also verified live in a head
 browser: toggling to "Ignore whitespace/comments" on `/admin/sqrcompare` and calling
 `load()` correctly re-fetches with `diff_mode=normalized` and renders real counts.
 
+### Runtime Correlation — ✅ Complete (gracefully degrading, no real data to verify against)
+Ties Process Scheduler executions back to SQR/COBOL source: `psdb.process_runs_for_program()`
+queries `PSPRCSRQST` by `PRCSNAME` (derived from the source filename's base name) and
+`PRCSTYPE` (`SQR Report`/`SQR Process` for SQR, `COBOL SQL` for COBOL), reusing the
+`_RUNSTATUS_LABEL` map and column-existence detection already established by
+`operator_processes()`. New `GET /api/sqr/program/{filename}/runs` and `GET
+/api/cobol/program/{filename}/runs`; new "Process Runs" tab on both program detail
+admin pages showing instance/run-control/start-time/duration/status/server/OPRID.
+
+**Verified this was worth building despite zero real data before writing any code**:
+researched via a background agent first — `PS_PRCSDEFN` confirms the join key
+(`PRCSNAME`) is real (1510 SQR Report + 21 SQR Process + 52 COBOL SQL defs in HCM
+alone), but `PSPRCSRQST` (actual run history) has **zero rows** for those `PRCSTYPE`
+values in either HCM or FSCM — every real run-history row there is Application
+Engine only. Confirmed with the user this is worth building anyway (same call as
+Page-owned PeopleCode): the query mechanics are real and will activate automatically
+the moment an environment has real SQR/COBOL run history, so it's verified two ways
+— (1) gracefully empty for real SQR/COBOL programs today (not an error), and (2)
+proven correct against a real *populated* process name (`PSPM_REAPER`, Application
+Engine, 512 real runs) to confirm the SQL/dispatch logic itself works, not just that
+it always returns nothing.
+
+**Bug found and fixed**: `duration_secs` (computed as `end_dt - run_dt`) was always
+`None` even for completed runs with both timestamps populated — `psdb.query()`
+returns Oracle datetimes as ISO strings, not Python `datetime` objects, so the
+subtraction silently raised `TypeError` inside a bare `except: pass`. Fixed by
+parsing both timestamps with `datetime.fromisoformat()` before subtracting;
+re-verified against `PSPM_REAPER`'s real runs (31.2s, 29.5s durations, correctly
+`None` for the still-running instance with no `end_dt`).
+
+**Bigger bug found and fixed, pre-existing before this session**: while wiring up
+COBOL's new tab, `cobol_detail`'s entire JS (not just the new tab — Dependency Graph
+and Source too) turned out to already be broken in a way identical to the SQR
+Overrides brace-doubling bug from earlier this session, just never caught: the
+segment after `""" + _ESC_JS + """` is a plain string, not an f-string, but the code
+used `{filename!r}` (three times) expecting f-string evaluation — it never
+evaluated, emitting the literal text `{filename!r}` into served JavaScript and
+breaking it outright. `git show HEAD` confirmed this predates all of today's
+session work; it was never caught because individual object detail pages
+(`/admin/cobol/{filename}`) aren't in the smoke test's page list, only list/compare
+pages are. Fixed by precomputing `filename_js = json.dumps(filename)` and
+concatenating it in (matching the established `+ variable +` convention used
+elsewhere in this file), and de-doubling every brace in that segment to match its
+actual plain-string nature. Verified all three previously-broken tabs (Overview
+was fine; Dependency Graph, Source, and the new Process Runs) now render real data
+with zero console errors in a real headless Chrome session.
+
 ### Remaining
 - Syntax-aware diffing (AST-level comparison, not just comment/whitespace
   normalization) — no concrete blocker, just a larger lift than this pass.
-- Runtime correlation (tie Process Scheduler executions back to SQR/COBOL source) is
-  Planned; no work started.
 
 ---
 

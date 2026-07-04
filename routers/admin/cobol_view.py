@@ -429,6 +429,8 @@ load();
 
 @router.get("/cobol/{filename}", response_class=HTMLResponse)
 def cobol_detail(filename: str):
+    import json as _json
+    filename_js = _json.dumps(filename)
     content = f"""
 <style>
 .cbl-detail-grid{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
@@ -472,77 +474,76 @@ def cobol_detail(filename: str):
 """ + _ESC_JS + """
 const $ = id => document.getElementById(id);
 
-function esc2(s) {{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }}
-
-async function loadDetail() {{
-  try {{
-    const r = await fetch('/api/cobol/program/' + encodeURIComponent({filename!r}));
-    if (!r.ok) {{
+async function loadDetail() {
+  try {
+    const r = await fetch('/api/cobol/program/' + encodeURIComponent(""" + filename_js + """));
+    if (!r.ok) {
       $('detailContent').innerHTML = '<div style="color:#f55;padding:24px">Not found in index. Try re-indexing from <a href="/admin/cobol" style="color:#0af">COBOL Explorer</a>.</div>';
       return;
-    }}
+    }
     const d = await r.json();
     render(d);
-  }} catch(e) {{
-    $('detailContent').innerHTML = `<div style="color:#f55;padding:24px">Error: ${{esc(String(e))}}</div>`;
-  }}
-}}
+  } catch(e) {
+    $('detailContent').innerHTML = `<div style="color:#f55;padding:24px">Error: ${esc(String(e))}</div>`;
+  }
+}
 
-function opBadges(ops) {{
-  return (ops||'').split(',').filter(Boolean).map(o => `<span class="op-badge op-${{esc(o)}}">${{esc(o)}}</span>`).join('');
-}}
+function opBadges(ops) {
+  return (ops||'').split(',').filter(Boolean).map(o => `<span class="op-badge op-${esc(o)}">${esc(o)}</span>`).join('');
+}
 
-function render(d) {{
+function render(d) {
   const badge = d.file_type === 'program'
     ? '<span style="color:#0f9;font-weight:700;font-size:11px">PROGRAM</span>'
     : '<span style="color:#fa0;font-weight:700;font-size:11px">COPYBOOK</span>';
 
   let tables = (d.tables && d.tables.length)
-    ? d.tables.map(t => `<li><a href="/admin/cobol?q=${{encodeURIComponent(t.table_name)}}">${{esc(t.table_name)}}</a>${{opBadges(t.operations)}}</li>`).join('')
+    ? d.tables.map(t => `<li><a href="/admin/cobol?q=${encodeURIComponent(t.table_name)}">${esc(t.table_name)}</a>${opBadges(t.operations)}</li>`).join('')
     : '<li style="color:#4a6a7a">No PS_ tables referenced (EXEC SQL)</li>';
 
   let copies = (d.copies && d.copies.length)
-    ? d.copies.map(c => `<li><a href="/admin/cobol/${{encodeURIComponent(c)}}.cbl">${{esc(c)}}</a></li>`).join('')
+    ? d.copies.map(c => `<li><a href="/admin/cobol/${encodeURIComponent(c)}.cbl">${esc(c)}</a></li>`).join('')
     : '<li style="color:#4a6a7a">No COPY dependencies</li>';
 
   let calls = (d.calls && d.calls.length)
-    ? d.calls.map(c => `<li><a href="/admin/cobol/${{encodeURIComponent(c)}}.cbl">${{esc(c)}}</a></li>`).join('')
+    ? d.calls.map(c => `<li><a href="/admin/cobol/${encodeURIComponent(c)}.cbl">${esc(c)}</a></li>`).join('')
     : '<li style="color:#4a6a7a">No static CALL targets</li>';
 
   $('detailContent').innerHTML = `
     <div class="cbl-hdr">
-      <div class="cbl-title">${{esc(d.filename)}} ${{badge}}</div>
-      <div class="cbl-desc">${{esc(d.description || 'No description available')}}</div>
+      <div class="cbl-title">${esc(d.filename)} ${badge}</div>
+      <div class="cbl-desc">${esc(d.description || 'No description available')}</div>
     </div>
 
     <div class="tab-row">
       <div class="tab on" onclick="switchTab('overview')">Overview</div>
       <div class="tab" onclick="switchTab('deps')">Dependency Graph</div>
       <div class="tab" onclick="switchTab('src')">Source</div>
+      <div class="tab" onclick="switchTab('runs')">Process Runs</div>
     </div>
 
     <div id="paneOverview">
       <div class="cbl-card" style="margin-bottom:16px">
         <h3>Metadata</h3>
         <div class="cbl-meta">
-          <span class="cbl-meta-lbl">Member</span><span class="cbl-meta-val">${{esc(d.member_name||'—')}}</span>
-          <span class="cbl-meta-lbl">Source</span><span class="cbl-meta-val">${{esc(d.source_key||'—')}} (${{esc(d.source_type||'—')}})</span>
-          <span class="cbl-meta-lbl">Compiled</span><span class="cbl-meta-val">${{d.compiled ? '✓ binary present' : '— not found in cblbin'}}</span>
-          <span class="cbl-meta-lbl">Indexed</span><span class="cbl-meta-val">${{esc((d.indexed_at||'—').replace('T',' ').replace('Z',''))}}</span>
+          <span class="cbl-meta-lbl">Member</span><span class="cbl-meta-val">${esc(d.member_name||'—')}</span>
+          <span class="cbl-meta-lbl">Source</span><span class="cbl-meta-val">${esc(d.source_key||'—')} (${esc(d.source_type||'—')})</span>
+          <span class="cbl-meta-lbl">Compiled</span><span class="cbl-meta-val">${d.compiled ? '✓ binary present' : '— not found in cblbin'}</span>
+          <span class="cbl-meta-lbl">Indexed</span><span class="cbl-meta-val">${esc((d.indexed_at||'—').replace('T',' ').replace('Z',''))}</span>
         </div>
       </div>
       <div class="cbl-detail-grid">
         <div class="cbl-card">
-          <h3>PS_ Tables Referenced (${{d.tables ? d.tables.length : 0}})</h3>
-          <ul class="cbl-list">${{tables}}</ul>
+          <h3>PS_ Tables Referenced (${d.tables ? d.tables.length : 0})</h3>
+          <ul class="cbl-list">${tables}</ul>
         </div>
         <div class="cbl-card">
-          <h3>COPY Dependencies (${{d.copies ? d.copies.length : 0}})</h3>
-          <ul class="cbl-list">${{copies}}</ul>
+          <h3>COPY Dependencies (${d.copies ? d.copies.length : 0})</h3>
+          <ul class="cbl-list">${copies}</ul>
         </div>
         <div class="cbl-card" style="grid-column:1/-1">
-          <h3>Static CALL Targets (${{d.calls ? d.calls.length : 0}})</h3>
-          <ul class="cbl-list" style="columns:3;column-gap:20px;max-height:280px">${{calls}}</ul>
+          <h3>Static CALL Targets (${d.calls ? d.calls.length : 0})</h3>
+          <ul class="cbl-list" style="columns:3;column-gap:20px;max-height:280px">${calls}</ul>
         </div>
       </div>
     </div>
@@ -560,54 +561,102 @@ function render(d) {{
         <div class="src-inner" id="srcContent">Loading&hellip;</div>
       </div>
     </div>
+
+    <div id="paneRuns" style="display:none">
+      <div class="cbl-card">
+        <h3>Recent Process Scheduler Runs</h3>
+        <div id="runsContent" style="color:#7faab2;font-size:12px;padding:8px">Loading&hellip;</div>
+      </div>
+    </div>
   `;
-}}
+}
 
-let _depsLoaded = false, _srcLoaded = false;
+let _depsLoaded = false, _srcLoaded = false, _runsLoaded = false;
 
-async function switchTab(tab) {{
+async function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
   event.target.classList.add('on');
   document.getElementById('paneOverview').style.display = tab === 'overview' ? '' : 'none';
   document.getElementById('paneDeps').style.display = tab === 'deps' ? '' : 'none';
   document.getElementById('paneSrc').style.display = tab === 'src' ? '' : 'none';
+  document.getElementById('paneRuns').style.display = tab === 'runs' ? '' : 'none';
 
-  if (tab === 'deps' && !_depsLoaded) {{
+  if (tab === 'runs' && !_runsLoaded) {
+    _runsLoaded = true;
+    const el = document.getElementById('runsContent');
+    try {
+      const env = document.getElementById('globalEnv')?.value || 'HCM';
+      const r = await fetch('/api/cobol/program/' + encodeURIComponent(""" + filename_js + """) + '/runs?env=' + encodeURIComponent(env));
+      const d = await r.json();
+      if (d.warning) {
+        el.innerHTML = `<div style="color:#7faab2">${esc(d.warning)}</div>`;
+      } else if (!d.items || !d.items.length) {
+        el.innerHTML = `<div style="color:#4a6a7a">No Process Scheduler runs found for process name <span style="color:#7faab2">${esc(d.prcsname)}</span> in the last ${d.days} days.
+          This program may not be invoked via Process Scheduler under this name, or hasn't run recently in this environment.</div>`;
+      } else {
+        let html = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="color:#7faab2;text-align:left">
+            <th style="padding:4px 8px">Instance</th><th style="padding:4px 8px">Run Control</th>
+            <th style="padding:4px 8px">Started</th><th style="padding:4px 8px">Duration</th>
+            <th style="padding:4px 8px">Status</th><th style="padding:4px 8px">Server</th><th style="padding:4px 8px">OPRID</th>
+          </tr></thead><tbody>`;
+        for (const it of d.items) {
+          const dur = it.duration_secs != null ? Math.round(it.duration_secs) + 's' : '—';
+          const statusColor = it.status_label === 'Error' ? '#f55' : (it.status_label === 'Success' || it.status_label === 'Posted' ? '#0f9' : '#7faab2');
+          html += `<tr style="border-bottom:1px solid #0e2030">
+            <td style="padding:4px 8px">${esc(it.instance)}</td>
+            <td style="padding:4px 8px">${esc(it.runcntlid)}</td>
+            <td style="padding:4px 8px">${esc((it.run_dt||'').replace('T',' '))}</td>
+            <td style="padding:4px 8px">${dur}</td>
+            <td style="padding:4px 8px;color:${statusColor}">${esc(it.status_label)}</td>
+            <td style="padding:4px 8px">${esc(it.server||'—')}</td>
+            <td style="padding:4px 8px">${esc(it.oprid||'—')}</td>
+          </tr>`;
+        }
+        html += '</tbody></table>';
+        el.innerHTML = html;
+      }
+    } catch(e) {
+      el.innerHTML = `<span style="color:#f55">Error: ${esc(String(e))}</span>`;
+    }
+  }
+
+  if (tab === 'deps' && !_depsLoaded) {
     _depsLoaded = true;
-    try {{
-      const r = await fetch('/api/cobol/deps/' + encodeURIComponent({filename!r}));
+    try {
+      const r = await fetch('/api/cobol/deps/' + encodeURIComponent(""" + filename_js + """));
       const d = await r.json();
       let html = '';
-      html += `<div style="margin-bottom:16px"><b style="color:#00e5ff">Direct COPY (${{d.direct_copies.length}})</b><ul class="cbl-list">` +
-        (d.direct_copies.length ? d.direct_copies.map(c => `<li><a href="/admin/cobol/${{encodeURIComponent(c)}}.cbl">${{esc(c)}}</a></li>`).join('') : '<li style="color:#4a6a7a">None</li>') + '</ul></div>';
-      html += `<div style="margin-bottom:16px"><b style="color:#fa0">Transitive COPY closure (${{d.all_copies.length}})</b><ul class="cbl-list">` +
-        (d.all_copies.length ? d.all_copies.map(c => `<li>${{esc(c)}}</li>`).join('') : '<li style="color:#4a6a7a">None</li>') + '</ul></div>';
-      html += `<div style="margin-bottom:16px"><b style="color:#0f9">Used By — Direct (${{d.used_by_direct.length}})</b><ul class="cbl-list">` +
-        (d.used_by_direct.length ? d.used_by_direct.map(u => `<li><a href="/admin/cobol/${{encodeURIComponent(u.fn)}}">${{esc(u.fn)}}</a></li>`).join('') : '<li style="color:#4a6a7a">Not COPY\\'d by any indexed program</li>') + '</ul></div>';
-      html += `<div><b style="color:#0f9">Used By — Transitive (${{d.used_by_all.length}})</b><ul class="cbl-list">` +
-        (d.used_by_all.length ? d.used_by_all.map(u => `<li>${{esc(u)}}</li>`).join('') : '<li style="color:#4a6a7a">None</li>') + '</ul></div>';
+      html += `<div style="margin-bottom:16px"><b style="color:#00e5ff">Direct COPY (${d.direct_copies.length})</b><ul class="cbl-list">` +
+        (d.direct_copies.length ? d.direct_copies.map(c => `<li><a href="/admin/cobol/${encodeURIComponent(c)}.cbl">${esc(c)}</a></li>`).join('') : '<li style="color:#4a6a7a">None</li>') + '</ul></div>';
+      html += `<div style="margin-bottom:16px"><b style="color:#fa0">Transitive COPY closure (${d.all_copies.length})</b><ul class="cbl-list">` +
+        (d.all_copies.length ? d.all_copies.map(c => `<li>${esc(c)}</li>`).join('') : '<li style="color:#4a6a7a">None</li>') + '</ul></div>';
+      html += `<div style="margin-bottom:16px"><b style="color:#0f9">Used By — Direct (${d.used_by_direct.length})</b><ul class="cbl-list">` +
+        (d.used_by_direct.length ? d.used_by_direct.map(u => `<li><a href="/admin/cobol/${encodeURIComponent(u.fn)}">${esc(u.fn)}</a></li>`).join('') : '<li style="color:#4a6a7a">Not COPY\\'d by any indexed program</li>') + '</ul></div>';
+      html += `<div><b style="color:#0f9">Used By — Transitive (${d.used_by_all.length})</b><ul class="cbl-list">` +
+        (d.used_by_all.length ? d.used_by_all.map(u => `<li>${esc(u)}</li>`).join('') : '<li style="color:#4a6a7a">None</li>') + '</ul></div>';
       document.getElementById('depsContent').innerHTML = html;
-    }} catch(e) {{
-      document.getElementById('depsContent').innerHTML = `<span style="color:#f55">Error: ${{esc(String(e))}}</span>`;
-    }}
-  }}
+    } catch(e) {
+      document.getElementById('depsContent').innerHTML = `<span style="color:#f55">Error: ${esc(String(e))}</span>`;
+    }
+  }
 
-  if (tab === 'src' && !_srcLoaded) {{
+  if (tab === 'src' && !_srcLoaded) {
     _srcLoaded = true;
-    try {{
-      const r = await fetch('/api/cobol/program/' + encodeURIComponent({filename!r}) + '/source');
-      if (!r.ok) {{
-        const err = await r.json().catch(() => ({{}}));
-        document.getElementById('srcContent').innerHTML = `<span style="color:#fa0">${{esc(err.detail || 'Could not load source (permission denied is common for delivered COBOL on this filesystem).')}}</span>`;
+    try {
+      const r = await fetch('/api/cobol/program/' + encodeURIComponent(""" + filename_js + """) + '/source');
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        document.getElementById('srcContent').innerHTML = `<span style="color:#fa0">${esc(err.detail || 'Could not load source (permission denied is common for delivered COBOL on this filesystem).')}</span>`;
         return;
-      }}
+      }
       const d = await r.json();
       document.getElementById('srcContent').textContent = d.source || '';
-    }} catch(e) {{
-      document.getElementById('srcContent').innerHTML = `<span style="color:#f55">Error: ${{esc(String(e))}}</span>`;
-    }}
-  }}
-}}
+    } catch(e) {
+      document.getElementById('srcContent').innerHTML = `<span style="color:#f55">Error: ${esc(String(e))}</span>`;
+    }
+  }
+}
 
 loadDetail();
 </script>

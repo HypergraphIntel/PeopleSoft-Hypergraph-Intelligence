@@ -4269,6 +4269,99 @@ def operator_processes(env_name, oprid_val, days: int = 7, limit: int = 100):
     return result
 
 
+def process_runs_for_program(env_name, prcsname_val, prcstypes: list[str] = None,
+                              days: int = 90, limit: int = 20):
+    """Return recent Process Scheduler runs (PSPRCSRQST) for a specific
+    process name — the runtime-correlation link between a SQR/COBOL source
+    program and its actual execution history.
+
+    prcsname is PeopleSoft's process identity (PS_PRCSDEFN.PRCSNAME), not
+    always identical to the indexed source filename — callers typically pass
+    the filename's base name (no extension, uppercased) as a best-effort
+    match; PRCSNAME values that don't correspond to any PS_PRCSDEFN row
+    simply return zero rows, which is a legitimate "not correlated" result,
+    not an error.
+    """
+    from connectors import ptmetadata
+    prcsname = prcsname_val.strip().upper()
+    days = max(1, min(int(days), 3650))
+    limit = max(1, min(int(limit), 200))
+    result = {"prcsname": prcsname, "days": days, "items": []}
+
+    if not ptmetadata.has_table(env_name, "PSPRCSRQST"):
+        result["warning"] = "PSPRCSRQST not accessible"
+        return result
+
+    _RUNSTATUS_LABEL = {
+        "0": "NA", "1": "Queued", "2": "Initiated", "3": "Processing",
+        "4": "Success", "5": "Error", "6": "Cancel", "7": "Delete",
+        "8": "Resend", "9": "Posted", "10": "Not Posted",
+        "12": "Scheduled", "13": "Blocked", "14": "Restart",
+    }
+
+    prcs_cols = table_columns(env_name, "PSPRCSRQST")
+    has_enddttm = "enddttm" in prcs_cols
+    has_srvrun  = "servernamerun" in prcs_cols
+    has_srvrqst = "servernamerqst" in prcs_cols
+    end_sel = ", ENDDTTM" if has_enddttm else ""
+    srv_col = "SERVERNAMERUN" if has_srvrun else ("SERVERNAMERQST" if has_srvrqst else None)
+    srv_sel = f", {srv_col} as server_name" if srv_col else ""
+
+    params = {"name": prcsname, "d": days, "lim": limit}
+    type_clause = ""
+    if prcstypes:
+        type_keys = [f"t{i}" for i in range(len(prcstypes))]
+        type_clause = f" AND UPPER(PRCSTYPE) IN ({','.join(':' + k for k in type_keys)})"
+        for k, t in zip(type_keys, prcstypes):
+            params[k] = t.strip().upper()
+
+    try:
+        rows = query(env_name, f"""
+            SELECT PRCSINSTANCE, PRCSNAME, PRCSTYPE,
+                   RUNCNTLID, OPRID, RUNDTTM, RUNSTATUS{end_sel}{srv_sel}
+              FROM SYSADM.PSPRCSRQST
+             WHERE UPPER(PRCSNAME) = :name
+               AND RUNDTTM >= SYSDATE - :d
+               {type_clause}
+             ORDER BY RUNDTTM DESC
+             FETCH FIRST :lim ROWS ONLY
+        """, params)
+    except Exception as exc:
+        result["error"] = str(exc)
+        return result
+
+    items = []
+    for r in rows:
+        status_code = str(r.get("runstatus") or "").strip()
+        run_dt = r.get("rundttm")
+        end_dt = r.get("enddttm") if has_enddttm else None
+        duration_secs = None
+        if run_dt and end_dt:
+            try:
+                from datetime import datetime as _dt
+                run_parsed = run_dt if hasattr(run_dt, "isoformat") and not isinstance(run_dt, str) else _dt.fromisoformat(str(run_dt))
+                end_parsed = end_dt if hasattr(end_dt, "isoformat") and not isinstance(end_dt, str) else _dt.fromisoformat(str(end_dt))
+                duration_secs = (end_parsed - run_parsed).total_seconds()
+            except Exception:
+                pass
+        items.append({
+            "instance":       r.get("prcsinstance"),
+            "prcsname":       (r.get("prcsname") or "").strip(),
+            "prcstype":       (r.get("prcstype") or "").strip(),
+            "runcntlid":      (r.get("runcntlid") or "").strip(),
+            "oprid":          (r.get("oprid") or "").strip(),
+            "run_dt":         _iso(run_dt),
+            "end_dt":         _iso(end_dt) if has_enddttm else None,
+            "duration_secs":  duration_secs,
+            "runstatus":      status_code,
+            "status_label":   _RUNSTATUS_LABEL.get(status_code, status_code),
+            "server":         (r.get("server_name") or "").strip() if srv_col else "",
+        })
+    result["items"] = items
+    result["count"] = len(items)
+    return result
+
+
 # ── Role Explorer ────────────────────────────────────────────────────────────
 
 ROLETYPE_LABELS = {

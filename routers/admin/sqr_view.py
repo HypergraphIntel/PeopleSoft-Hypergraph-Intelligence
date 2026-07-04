@@ -487,7 +487,15 @@ function render(d) {
       ${d.includes && d.includes.length ? `<div class="tab" onclick="switchTab('tree')">Include Tree</div>` : ''}
       <div class="tab" onclick="switchTab('src')">Source</div>
       <div class="tab" onclick="switchTab('records')">KG Records</div>
+      <div class="tab" onclick="switchTab('runs')">Process Runs</div>
       ${isSquc ? `<div class="tab" onclick="switchTab('inclby')">Included By <span id="inclByBadge" style="font-size:10px;opacity:.7"></span></div>` : ''}
+    </div>
+
+    <div id="paneRuns" style="display:none">
+      <div class="sqr-card">
+        <h3>Recent Process Scheduler Runs</h3>
+        <div id="runsContent" style="color:#7faab2;font-size:12px;padding:8px">Loading…</div>
+      </div>
     </div>
 
     <div id="paneTree" style="display:none">
@@ -552,7 +560,7 @@ function render(d) {
   _detail = d;
 }
 
-let _detail = null, _srcLoaded = false, _inclByLoaded = false, _treeLoaded = false, _kgRecLoaded = false;
+let _detail = null, _srcLoaded = false, _inclByLoaded = false, _treeLoaded = false, _kgRecLoaded = false, _runsLoaded = false;
 
 function switchTab(tab) {
   document.querySelectorAll('.tab-row .tab').forEach(t => {
@@ -564,10 +572,54 @@ function switchTab(tab) {
   $('paneSrc').style.display      = tab === 'src'    ? '' : 'none';
   const ip = $('paneIncludedBy'); if (ip) ip.style.display = tab === 'inclby'  ? '' : 'none';
   const rp = $('paneRecords');   if (rp) rp.style.display = tab === 'records' ? '' : 'none';
+  const runp = $('paneRuns');    if (runp) runp.style.display = tab === 'runs' ? '' : 'none';
   if (tab === 'src'     && !_srcLoaded)    loadSource();
   if (tab === 'inclby'  && !_inclByLoaded) loadInclBy();
   if (tab === 'tree'    && !_treeLoaded)   loadTree();
   if (tab === 'records' && !_kgRecLoaded)  loadKgRecords();
+  if (tab === 'runs'    && !_runsLoaded)   loadRuns();
+}
+
+async function loadRuns() {
+  _runsLoaded = true;
+  const el = $('runsContent');
+  try {
+    const env = document.getElementById('globalEnv')?.value || 'HCM';
+    const r = await fetch('/api/sqr/program/' + encodeURIComponent(""" + f'"{filename}"' + """) + '/runs?env=' + encodeURIComponent(env));
+    const d = await r.json();
+    if (d.warning) {
+      el.innerHTML = `<div style="color:#7faab2">${esc(d.warning)}</div>`;
+      return;
+    }
+    if (!d.items || !d.items.length) {
+      el.innerHTML = `<div style="color:#4a6a7a">No Process Scheduler runs found for process name <span style="color:#7faab2">${esc(d.prcsname)}</span> in the last ${d.days} days.
+        This program may not be invoked via Process Scheduler under this name, or hasn't run recently in this environment.</div>`;
+      return;
+    }
+    let html = `<table class="an-tbl" style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="color:#7faab2;text-align:left">
+        <th style="padding:4px 8px">Instance</th><th style="padding:4px 8px">Run Control</th>
+        <th style="padding:4px 8px">Started</th><th style="padding:4px 8px">Duration</th>
+        <th style="padding:4px 8px">Status</th><th style="padding:4px 8px">Server</th><th style="padding:4px 8px">OPRID</th>
+      </tr></thead><tbody>`;
+    for (const it of d.items) {
+      const dur = it.duration_secs != null ? Math.round(it.duration_secs) + 's' : '—';
+      const statusColor = it.status_label === 'Error' ? '#f55' : (it.status_label === 'Success' || it.status_label === 'Posted' ? '#0f9' : '#7faab2');
+      html += `<tr style="border-bottom:1px solid #0e2030">
+        <td style="padding:4px 8px">${esc(it.instance)}</td>
+        <td style="padding:4px 8px">${esc(it.runcntlid)}</td>
+        <td style="padding:4px 8px">${esc((it.run_dt||'').replace('T',' '))}</td>
+        <td style="padding:4px 8px">${dur}</td>
+        <td style="padding:4px 8px;color:${statusColor}">${esc(it.status_label)}</td>
+        <td style="padding:4px 8px">${esc(it.server||'—')}</td>
+        <td style="padding:4px 8px">${esc(it.oprid||'—')}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = `<span style="color:#f55">Error: ${esc(String(e))}</span>`;
+  }
 }
 
 async function loadSource() {

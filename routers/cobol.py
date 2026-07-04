@@ -116,6 +116,22 @@ def cobol_program(filename: str):
     return prog
 
 
+@router.get("/program/{filename}/runs")
+def cobol_program_runs(filename: str, env: str = Query("HCM"), days: int = Query(90, ge=1, le=3650),
+                        limit: int = Query(20, ge=1, le=200)):
+    """Runtime correlation: recent Process Scheduler runs (PSPRCSRQST) for this
+    COBOL program. PRCSNAME is derived from the filename's base name (no
+    extension) — a best-effort match, since PeopleSoft process identity and
+    indexed source filename are related but not guaranteed identical.
+    Legitimately returns zero rows when there's no correlated run history."""
+    from pathlib import Path
+    from connectors import psdb
+    prcsname = Path(filename).stem
+    return psdb.process_runs_for_program(env.upper(), prcsname,
+                                          prcstypes=["COBOL SQL"],
+                                          days=days, limit=limit)
+
+
 @router.get("/table/{table_name}")
 def cobol_table_users(table_name: str):
     from connectors import cobol_db
