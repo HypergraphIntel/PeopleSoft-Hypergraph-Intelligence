@@ -6803,3 +6803,63 @@ Root-Cause Diagnostics to the top-level "Platform Status" summary list
 (previously missing despite both being fully built). `make check` re-run as
 a sanity check (100/100 files, 19/19 tests) even though this was a docs-only
 change — nothing executable was touched.
+
+---
+
+### Phase 13 Theorized: Upgrade Automation — Customization Retrofit (planning only, nothing built)
+
+Asked to think through whether automating PeopleSoft upgrade customization
+retrofit (PeopleTools upgrades, application upgrades/PUM, or both) is
+something this platform could build for its user base, accounting for the
+fact that upstream delivered metadata structures change between releases,
+and that any real automation eventually needs to manipulate pages in a
+target environment. Asked to write this up in ROADMAP.md, not to build
+anything yet — this is a planning/theorizing request, not an implementation
+one, and I treated it that way rather than jumping to code.
+
+Grounded the plan in real PeopleSoft upgrade practice (Application
+Designer's Compare and Report, Change Assistant, the customer/delivered
+divergence problem every upgrade methodology has to solve) and in what this
+codebase already has: the `LASTUPDOPRID not in _DELIVERED_OPRIDS`
+customization-detection heuristic (`connectors/peoplecode.py`, already used
+for PeopleCode delivered/custom classification), the SQR/COBOL
+`overridden`/`custom-only`/`delivered-only` classification pattern
+(`sqrdb.override_summary()`), the 23-type environment comparison
+(`connectors/envcompare.py`), and the Phase 12 AI tool-calling pattern.
+
+Identified three genuinely distinct hard problems rather than treating this
+as one big feature: (1) customization detection is already fuzzy at a single
+point in time, and an upgrade needs it across every object type at once;
+(2) the upstream baseline moves too, so a 2-way diff (which is all this
+platform's existing compare infrastructure does) is the wrong shape — this
+needs a real 3-way diff (mine vs. old-delivered vs. new-delivered), the same
+shape a version-control merge uses; (3) "manipulate pages" means actually
+writing PeopleTools metadata, which is a fundamentally different risk
+category than anything this platform does today — every existing feature is
+deliberately read-only (`ARCHITECTURE.md`'s own "Read-only by default"
+principle), and raw SQL writes against `PSPNLFIELD`/`PSPNLDEFN`/`PSPCMPROG`
+would be unsupported and dangerous; the safe path is driving PeopleTools'
+own supported migration mechanics (Application Designer Compare/Copy,
+Project XML export/import), not reinventing metadata writes.
+
+Answered "is this buildable" honestly as a phased answer, not a single
+yes/no: Phase A (customization detection + 3-way compare + risk-ranked
+retrofit worklist) is high-confidence buildable now, entirely read-only,
+and reuses existing infrastructure directly — recommended as the concrete
+starting point regardless of whether the later phases are ever approved.
+Phase B (AI-assisted merge recommendations, advisory only, still no writes)
+extends the Phase 12 pattern. Phase C (actual automated retrofit
+application) is explicitly flagged as this platform's first deliberate
+exception to its read-only design principle, and scoped with mandatory
+guardrails: opt-in, sandbox-only initial targets, mandatory dry-run before
+any real write, writes only through PeopleTools' own object model (never
+raw metadata SQL), full audit/rollback via the project mechanism PeopleTools
+already provides, and starting with the simplest object types (isolated
+PeopleCode insertions) — page-layout retrofit (literally repositioning
+fields) called out as the hardest case in the whole plan and something to
+attempt last, not first, given how directly it maps to the user's own
+"metadata structures change in the upstream" concern.
+
+No code was written for this — the deliverable is the ROADMAP.md "Phase 13"
+section itself, marked "📋 Theorized" and explicitly described as a plan to
+review before any implementation starts.

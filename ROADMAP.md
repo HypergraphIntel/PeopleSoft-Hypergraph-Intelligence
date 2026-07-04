@@ -941,6 +941,181 @@ confirmed 49 real semantic edges (38 `MUTATES_BUFFER`, 8 `VALIDATES_BEFORE_SAVE`
 
 ---
 
+# Phase 13 — Upgrade Automation: Customization Retrofit
+
+**Status: 📋 Theorized — game plan below, nothing built yet. This section is a
+plan to be reviewed and approved before any implementation starts, not a
+description of existing capability.**
+
+## The real problem
+
+Every PeopleSoft shop periodically re-bases onto a newer PeopleTools release, a
+newer application release (a PUM/Update Image or a full upgrade), or both at
+once. Oracle delivers the new baseline; the customer's environment has
+diverged from the *old* baseline via customizations (custom fields on
+delivered pages, custom PeopleCode bolted onto delivered events, custom SQR/
+COBOL overrides, custom Application Engine steps, security customizations).
+Upgrading means reconciling three versions of every touched object — **my
+current customized object**, **the old delivered baseline it was customized
+from**, and **the new delivered baseline it must move to** — and deciding,
+per object, whether the customization still applies cleanly, needs to be
+re-positioned because the delivered structure shifted, or needs to be
+re-thought because Oracle solved the same problem differently upstream.
+
+Today this is done by hand with Oracle's own tools (Application Designer's
+Upgrade → Compare and Report, Change Assistant) plus a lot of institutional
+memory about which objects were customized and why. It's slow, expert-
+dependent, and error-prone — a missed retrofit silently reverts a
+customization; a wrong retrofit corrupts a delivered structure.
+
+## Why this is hard — three distinct hard problems, not one
+
+1. **Customization detection is already fuzzy today, at any single point in
+   time.** This platform already has to solve "is this delivered or
+   customized" for individual object types (the `LASTUPDOPRID not in
+   _DELIVERED_OPRIDS` heuristic in `connectors/peoplecode.py`, the SQR/COBOL
+   `overridden`/`custom-only`/`delivered-only` classification in
+   `sqrdb.override_summary()`). An upgrade retrofit needs this at *every*
+   customizable object type at once (pages, records, fields, PeopleCode,
+   Application Packages, Component Interfaces, permission lists/menus,
+   Application Engine, SQR, COBOL) — and the heuristic itself is imperfect
+   (a customer OPRID that happens to match a delivered pattern, or delivered
+   objects a customer re-saved without changing, both fool a naive check).
+2. **The upstream baseline moves too — a 2-way diff is the wrong shape.**
+   The user's framing is exactly right: "metadata structures change in the
+   upstream." A customer's custom field inserted at page-field position 15
+   is meaningless to blindly reapply if the new delivered page has 6 new
+   fields inserted before position 15 — positions shifted, occurs levels may
+   have changed, the field the customization was anchored to may have been
+   renamed or removed entirely. The only correct comparison is a **3-way
+   diff**: mine vs. old-delivered vs. new-delivered, the same shape a
+   version-control merge uses (common ancestor + two divergent branches) —
+   not the 2-way `envcompare.py`/SQR-COBOL-compare pattern this platform
+   already has, which only ever compares two live environments to each
+   other, never a customer environment against two different points in a
+   vendor's release timeline.
+3. **"Manipulate pages" means writing PeopleTools metadata, which is a
+   fundamentally different risk class than anything this platform does
+   today.** Every existing feature in this platform is deliberately read-only
+   (`ARCHITECTURE.md`'s "Read-only by default" principle, `connectors/sqlws.py`
+   and `connectors/sqlmask.py`'s entire design, the SQL Proxy's `validate_readonly()`
+   blocking all DML/DDL unconditionally). Automating retrofit means actually
+   *changing* page/record/PeopleCode definitions in a target environment — and
+   doing that via raw SQL `UPDATE`/`INSERT` against `PSPNLFIELD`/`PSPNLDEFN`/
+   `PSPCMPROG` would be unsupported and dangerous: PeopleTools metadata has
+   integrity constraints, cache invalidation, and versioning semantics that
+   only its own object model enforces correctly. The safe path is to drive
+   PeopleTools' *own* supported migration mechanics — Application Designer's
+   Compare/Copy and Project (XML) export/import, which already exist
+   specifically to move object definitions between environments — not to
+   reinvent metadata writes from scratch.
+
+## Honest feasibility assessment
+
+**Yes, with a phased answer, not a single yes/no.** The value in an upgrade
+retrofit isn't evenly distributed — most of it is in *knowing precisely what
+changed and what's at risk* (a detection/analysis problem this platform is
+already good at) rather than in the mechanical act of copying a field
+definition (which PeopleTools' own tools already do, just manually and
+per-object today). The game plan below is ordered by that value/risk curve,
+each phase useful on its own even if the ones after it are never built:
+
+### Phase A — Customization Detection & 3-Way Impact Analysis (read-only; high confidence; buildable now)
+
+Extends existing, proven infrastructure rather than inventing new mechanisms:
+
+- **Universal customization inventory**: generalize the `LASTUPDOPRID`
+  heuristic already used for PeopleCode (`peoplecode.py`) and the
+  `overridden`/`custom-only` classification already used for SQR/COBOL
+  (`sqrdb.override_summary()`) across every customizable UOM object type —
+  pages, records, fields, Application Packages, Component Interfaces,
+  permission lists, menus, Application Engine programs. Most of the plumbing
+  (UOM providers, KG nodes) already exists per object type from Phase 5;
+  this is a classification pass over data already being queried, not new
+  discovery.
+- **3-way compare**: register a **target environment** (a stood-up copy of
+  the new PeopleTools/application release, before the customer's
+  customizations are reapplied) the same way `sqr_sources`/`cobol_sources`/
+  `trace_sources` already register per-environment source locations in
+  `config.json`. For each customized object, compare: my-current-object vs.
+  old-delivered-baseline (already have this via the OPRID heuristic) vs.
+  new-delivered-baseline (a live query against the target environment). This
+  is the same "compare two environments" mechanism `connectors/envcompare.py`
+  already implements for 23 object types — extended to be object-instance-
+  level (not just row-count) and 3-way instead of 2-way.
+- **Risk-ranked retrofit worklist**: classify each customized object into a
+  small number of real, actionable buckets — *unchanged upstream* (safe,
+  no-op), *upstream changed but customization doesn't overlap* (likely safe
+  to reapply as-is), *upstream changed and customization overlaps* (needs
+  human review — this is the actual hard case), *upstream deleted/renamed
+  the object or anchor point* (needs a decision, not just a merge). Surface
+  this the same way the Change Risk Analyzer (`/admin/riskanalysis`, Phase
+  6) already surfaces blast-radius scoring, and make it walkable via the
+  Knowledge Graph so a reviewer can see what else depends on a
+  hard-to-retrofit object before deciding how to handle it.
+- **AI-reachable**: register this worklist as new AI tools (following the
+  Phase 12 pattern), so "what customizations are at risk in the HCM upgrade
+  to PeopleTools 8.63?" becomes an assistant question with a real, current
+  answer — not a report someone has to remember to regenerate and read.
+
+This phase requires no new write capability, no new risk category, and
+reuses `envcompare.py`, the KG, the delivered-OPRID heuristic, and the
+Phase 6 risk-scoring pattern directly. It is the recommended starting point
+if this plan is approved.
+
+### Phase B — AI-Assisted Merge Recommendations (advisory; medium risk; still no writes)
+
+For the subset of Phase A's worklist that's mechanically simple — a clean,
+isolated customization that doesn't structurally overlap with what changed
+upstream (e.g., a self-contained custom validation block appended to an
+otherwise-unchanged PeopleCode event) — use the AI (extending the Phase 12
+Universal Diagnostics tool-calling pattern) to *propose* a merged
+definition or a project-diff artifact, presented for human review — never
+auto-applied. This is the same posture Phase 11's SQL Proxy and Phase 12's
+diagnostics already take toward anything consequential: the AI reasons and
+recommends, a human decides. The deliverable here is a reviewable diff/patch,
+not a live change.
+
+### Phase C — Automated Retrofit Application (write-side; longer horizon; opt-in and gated)
+
+Only for the narrowest, best-understood subset of Phase B's recommendations,
+and only by driving PeopleTools' own supported migration mechanics (Project
+XML export/import, Application Designer's command-line compare/copy) —
+never raw metadata SQL. This is a deliberate, first-ever exception to this
+platform's "read-only by default" principle and must be treated as a
+different product, not a feature toggle:
+
+- **Opt-in per customer, off by default.**
+- **Sandbox/non-production target environments only**, at least initially —
+  never a customer's actual PRD or a shared UAT without explicit,
+  reconfirmed authorization for that specific run.
+- **Dry-run/simulation mode is mandatory before any real run** — show
+  exactly what would be written, in the same project-XML/diff form a human
+  reviewer would read, before ever touching a target environment.
+- **Every write goes through PeopleTools' own object model** (Application
+  Designer automation / project copy), preserving `LASTUPDOPRID`/
+  `LASTUPDDTTM`, referential integrity, and cache invalidation exactly as a
+  human using the tool would — not a shortcut around it.
+- **Full audit trail and rollback path** — reuse the project/backup
+  mechanics PeopleTools already provides (a project is inherently a
+  restorable unit) rather than inventing new rollback machinery.
+- Start with the lowest-risk object types (isolated PeopleCode block
+  insertions) and only consider structural page-layout changes — literally
+  moving/repositioning fields — after the simpler cases are proven reliable
+  in real use; page-layout retrofit is the single hardest case in this whole
+  plan and should be the last thing attempted, not the first.
+
+## Recommended starting point
+
+Build Phase A. It's squarely in this platform's existing strengths (read-only
+metadata comparison, KG-based impact analysis, AI tool integration), it's
+valuable standalone even if Phase B/C are never greenlit, and getting the
+3-way compare and risk-ranking right is the foundation everything else in
+this plan depends on — there's no responsible way to attempt Phase B or C
+without first getting Phase A's detection right.
+
+---
+
 # Digital Twin Persistence
 
 **Status: Foundational pieces complete; full vision open-ended.**
