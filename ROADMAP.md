@@ -242,19 +242,30 @@ retention. Session-chain correlation joins `PSACCESSLOG` → `web_entries` → `
 
 # Phase 9 — Platform Extensibility
 
-**Status: ✅ v1 complete.**
+**Status: ✅ v1 + custom health checks complete.**
 
 Every extension surface (object providers, KG builders, runtime providers, admin
-dashboards) was previously a hardcoded literal list/dict/if-chain only core code could
-append to. `connectors/plugins.py` adds one appendable registry per surface;
-`connectors/pluginloader.py` discovers and loads `plugins/*.py` at startup with
+dashboards, health checks) was previously a hardcoded literal list/dict/if-chain only
+core code could append to. `connectors/plugins.py` adds one appendable registry per
+surface; `connectors/pluginloader.py` discovers and loads `plugins/*.py` at startup with
 per-plugin isolation (a broken plugin logs a warning and is skipped — verified the rest
 of the platform keeps working). `plugins/example_hello.py` is a worked example
-exercising all four extension points. Full SDK documentation in `PLUGINS.md`.
+exercising all five extension points. Full SDK documentation in `PLUGINS.md`.
+
+**Custom health checks**: `register_health_check(name, check_fn, label)` — distinct
+from a runtime provider (raw status data for a human to read) in that a health check
+returns a judgment (`ok`/`warn`/`error`) a dashboard can roll up or alert on. New
+`GET /api/runtime/health-checks?env=` runs every registered check on demand (same
+isolation contract as the rest of the SDK — a check that raises is reported as its
+own `error` result, not a failed endpoint); new "Plugin Health Checks" card on
+`/admin/runtime` (no per-check UI work needed, same as the existing Plugin Providers
+card). `example_hello.py`'s worked example deliberately returns a real, non-trivial
+`warn` (one of its three demo widgets, `CHARLIE`, is genuinely marked degraded) rather
+than an always-`ok` stub — verified live via curl (`{"status": "warn", "message": "1
+widget(s) degraded: CHARLIE"}`) and in a real headless Chrome session (card renders
+correctly, zero console errors).
 
 ### Remaining (v2 candidates, not built)
-- Custom health checks (no dedicated registry yet — a plugin's runtime provider is a
-  reasonable stand-in today)
 - A dedicated "config-driven source" registration API for plugins that want to
   replicate the SQR/COBOL ingest pattern (object + graph provider registries are
   already sufficient building blocks; just not formalized into their own API)

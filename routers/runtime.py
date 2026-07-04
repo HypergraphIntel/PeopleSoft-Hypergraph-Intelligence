@@ -252,3 +252,28 @@ def runtime_plugin_status(name: str, env: str = "HCM"):
         from fastapi import HTTPException
         raise HTTPException(404, f"No runtime provider registered as '{name}'")
     return provider["fetch_fn"](env)
+
+
+@router.get("/health-checks")
+def runtime_health_checks(env: str = "HCM"):
+    """Run every registered plugin health check and return their results.
+
+    Each check is executed on demand (not polled/cached) — a broken check
+    (raises an exception) is reported as its own 'error' result rather than
+    failing the whole endpoint, same isolation philosophy as plugin loading
+    itself (connectors/pluginloader.py)."""
+    from connectors import plugins
+    results = []
+    for name, meta in plugins.get_health_checks().items():
+        try:
+            outcome = meta["check_fn"](env)
+        except Exception as exc:
+            outcome = {"status": "error", "message": f"Health check raised: {exc}"}
+        results.append({
+            "name": name,
+            "label": meta["label"],
+            "status": outcome.get("status", "unknown"),
+            "message": outcome.get("message", ""),
+            **{k: v for k, v in outcome.items() if k not in ("status", "message")},
+        })
+    return {"checks": results}

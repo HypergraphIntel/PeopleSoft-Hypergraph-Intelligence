@@ -9,6 +9,7 @@ Registers:
   - an object provider  ("hello_widget" — visible in Object/Graph Explorer)
   - a graph provider     (adds hello_widget nodes/edges to the Knowledge Graph)
   - a runtime provider   (static status, visible on /admin/runtime)
+  - a health check       (widgets-degraded check, visible on /admin/runtime)
   - a nav entry + admin page (/admin/plugin/hello, under a "Plugins" nav group)
 """
 
@@ -80,6 +81,18 @@ def _widget_runtime_status(env):
     }
 
 
+# ── health check ──────────────────────────────────────────────────────────────
+
+def _widget_health_check(env):
+    degraded = [name for name, w in _WIDGETS.items() if w["status"] != "OK"]
+    if not degraded:
+        return {"status": "ok", "message": f"All {len(_WIDGETS)} widgets healthy"}
+    return {
+        "status": "warn",
+        "message": f"{len(degraded)} widget(s) degraded: {', '.join(degraded)}",
+    }
+
+
 # ── admin page ────────────────────────────────────────────────────────────────
 
 _router = APIRouter()
@@ -121,5 +134,6 @@ def register(sdk):
     )
     sdk.register_graph_provider("hello_widgets", _widget_graph_loader)
     sdk.register_runtime_provider("hello", _widget_runtime_status, label="Hello Widgets")
+    sdk.register_health_check("hello_widgets", _widget_health_check, label="Hello Widgets Health")
     sdk.register_nav_entry("Plugins", "plugin_hello", "Hello Plugin", "/admin/plugin/hello")
     sdk.register_router(_router)

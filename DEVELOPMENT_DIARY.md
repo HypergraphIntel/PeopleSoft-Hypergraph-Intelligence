@@ -6321,3 +6321,45 @@ the table's own header/total accounting, not a bug). `python3
 scripts/smoke_admin_shell.py` → 73/73 (unchanged, no new admin pages — this
 is a data-layer change to an existing page); `make check` → 100/100 files,
 11/11 tests.
+
+---
+
+### Plugin SDK v2: Custom Health Checks (pending commit)
+
+Closed the "custom health checks" v2 candidate from Phase 9 Platform
+Extensibility — a fifth appendable registry alongside object/graph/runtime
+providers and nav entries, mirroring the exact same pattern established for
+the other four.
+
+- `connectors/plugins.py`: `register_health_check(name, check_fn, label)` /
+  `get_health_checks()`, added to `status()` introspection.
+- `GET /api/runtime/health-checks?env=` (`routers/runtime.py`) runs every
+  registered check on demand — same isolation contract as plugin loading
+  itself: a check that raises is caught and reported as its own `"error"`
+  result rather than failing the whole endpoint.
+- New "Plugin Health Checks" card on `/admin/runtime`
+  (`routers/admin/runtime.py`), mirroring the existing "Plugin Providers"
+  card's pattern exactly (generic rendering, no per-plugin UI code needed).
+- `plugins/example_hello.py` registers a real worked example — deliberately
+  not an always-`"ok"` stub. One of its three demo widgets (`CHARLIE`) is
+  already marked `"DEGRADED"` in the plugin's own fake data, so the health
+  check genuinely exercises the `"warn"` path, not just the happy path.
+- `PLUGINS.md` updated from "four extension points" to "five," with the
+  same explanation of health-check vs. runtime-provider distinction: a
+  runtime provider is raw status data for a human to read; a health check
+  is a judgment (`ok`/`warn`/`error`) a dashboard can roll up or alert on.
+
+Verification:
+- `curl /api/runtime/health-checks?env=HCM` → real result:
+  `{"status": "warn", "message": "1 widget(s) degraded: CHARLIE"}` — not a
+  fabricated "ok," a genuinely computed warn state from the plugin's own
+  data.
+- `plugins.status()` introspection confirms `health_checks: ['hello_widgets']`
+  registered correctly alongside the other four registries.
+- Verified live in a real headless Chrome session on `/admin/runtime`: the
+  new "Plugin Health Checks" card renders, visible (`display !== 'none'`),
+  showing "Hello Widgets Health / WARN / 1 widget(s) degraded: CHARLIE" —
+  zero console errors.
+- `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged — this adds a
+  card to an existing admin page, not a new route); `make check` → 100/100
+  files, 11/11 tests.

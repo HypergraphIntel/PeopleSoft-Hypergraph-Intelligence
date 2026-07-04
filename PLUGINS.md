@@ -6,8 +6,8 @@ automatically at server startup.
 
 A plugin is any module under `plugins/` exposing a `register(sdk)` function.
 `sdk` is `connectors/plugins.py` — call its `register_*` functions to plug
-into one or more of four extension points. See `plugins/example_hello.py`
-for a complete, minimal, working example that exercises all four; the
+into one or more of five extension points. See `plugins/example_hello.py`
+for a complete, minimal, working example that exercises all five; the
 snippets below are extracted from it.
 
 ## Loading
@@ -23,7 +23,7 @@ snippets below are extracted from it.
 - Nothing is hot-reloaded — changes require an app restart, same as every
   other config-driven source in this codebase (`sqr_sources`, `cobol_sources`).
 
-## The four extension points
+## The five extension points
 
 ### 1. Object provider — new object type in Object/Graph Explorer
 
@@ -78,7 +78,32 @@ Reachable at `GET /api/runtime/plugins/hello?env=HCM`, and shown as a
 generic JSON block in the "Plugin Providers" card on `/admin/runtime` (no
 UI work required — that card renders any registered provider automatically).
 
-### 4. Admin page + nav entry
+### 4. Health check — operational status on `/admin/runtime`
+
+```python
+def _widget_health_check(env):
+    degraded = [n for n, w in _WIDGETS.items() if w["status"] != "OK"]
+    if not degraded:
+        return {"status": "ok", "message": "All widgets healthy"}
+    return {"status": "warn", "message": f"{len(degraded)} widget(s) degraded"}
+
+sdk.register_health_check("hello_widgets", _widget_health_check, label="Hello Widgets Health")
+```
+
+`check_fn(env)` returns `{"status": "ok"|"warn"|"error", "message": str}` —
+any extra keys are passed through too. Reachable at `GET
+/api/runtime/health-checks?env=HCM` (runs every registered check on demand,
+not polled/cached), and shown in the "Plugin Health Checks" card on
+`/admin/runtime` (no UI work required). Same isolation contract as the other
+registries: a check that raises is reported as its own `"error"` result
+rather than failing the whole endpoint.
+
+Distinct from a runtime provider: a runtime provider returns raw status data
+for a human to read; a health check returns a judgment (`ok`/`warn`/`error`)
+a dashboard can roll up or alert on. Use a runtime provider for "here's what's
+happening," a health check for "is this OK."
+
+### 5. Admin page + nav entry
 
 ```python
 _router = APIRouter()

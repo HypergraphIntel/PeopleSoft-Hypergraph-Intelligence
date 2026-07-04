@@ -147,6 +147,12 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
   <div id="pluginProcArea"><span class="muted" style="font-size:12px">Loading…</span></div>
 </div>
 
+<!-- ── Plugin Health Checks (Phase 9 Plugin SDK) ── -->
+<div class="card" id="pluginHealthCard" style="display:none">
+  <h2>Plugin Health Checks <span class="muted" style="font-size:11px;font-weight:normal">registered via connectors/plugins.py</span></h2>
+  <div id="pluginHealthArea"><span class="muted" style="font-size:12px">Loading…</span></div>
+</div>
+
 <!-- ── Process Scheduler Servers ── -->
 <div class="card">
   <h2>Process Scheduler Servers</h2>
@@ -631,6 +637,29 @@ async function loadPluginProviders() {
   }
 }
 
+async function loadPluginHealth() {
+  const env = $('envSel').value;
+  try {
+    const data = await api(`/api/runtime/health-checks?env=${env}`);
+    const checks = data.checks || [];
+    if (!checks.length) { $('pluginHealthCard').style.display = 'none'; return; }
+    $('pluginHealthCard').style.display = '';
+    const statusColor = { ok: '#0f9', warn: '#fa0', error: '#f55', unknown: '#7faab2' };
+    let html = '';
+    for (const c of checks) {
+      const col = statusColor[c.status] || statusColor.unknown;
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+        <span style="color:#8ab">${esc(c.label)}</span>
+        <span style="color:${col};font-size:11px;font-weight:bold;text-transform:uppercase">${esc(c.status)}</span>
+      </div>
+      <div style="font-size:11px;color:#556;margin:2px 0 8px">${esc(c.message||'')}</div>`;
+    }
+    $('pluginHealthArea').innerHTML = html;
+  } catch(e) {
+    $('pluginHealthCard').style.display = 'none';
+  }
+}
+
 async function loadServers() {
   const env = $('envSel').value;
   if (!env) { $('srvArea').innerHTML = '<span class="muted" style="font-size:12px">No environment selected.</span>'; return; }
@@ -1079,7 +1108,7 @@ async function loadHistory() {
 
 async function refresh() {
   $('lastTs').textContent = 'Refreshing…';
-  await Promise.allSettled([loadAlerts(), loadStatus(), loadDomains(), loadAppProcesses(), loadPluginProviders(), loadServers(), loadProcesses(), loadOracle(), loadAsh(), loadHistory()]);
+  await Promise.allSettled([loadAlerts(), loadStatus(), loadDomains(), loadAppProcesses(), loadPluginProviders(), loadPluginHealth(), loadServers(), loadProcesses(), loadOracle(), loadAsh(), loadHistory()]);
   $('lastTs').textContent = 'Last: ' + new Date().toLocaleTimeString();
   if (autoR) {
     clearTimeout(arTimer);
