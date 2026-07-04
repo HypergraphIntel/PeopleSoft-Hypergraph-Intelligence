@@ -6863,3 +6863,41 @@ attempt last, not first, given how directly it maps to the user's own
 No code was written for this — the deliverable is the ROADMAP.md "Phase 13"
 section itself, marked "📋 Theorized" and explicitly described as a plan to
 review before any implementation starts.
+
+---
+
+### Phase 13 Reframed: Directive-Then-Verify, Not Automated Writes (docs-only)
+
+The user reframed the just-theorized upgrade-retrofit plan: rather than
+building toward automated write-side retrofit application (the original
+Phase C), the actual near-term ask is narrower and much lower-risk — the AI
+should direct the user to exactly what specific object/change needs
+modification, the human makes the change themselves, and the AI re-verifies
+whether that closes the loop (resolved / still divergent / new issue
+introduced).
+
+Recognized this immediately as the same shape already proven twice this
+session: Phase 12's trace-escalation step (tell the user precisely what to
+enable/do → they act → the AI checks the result and continues) and the
+Universal Diagnostics investigation method generally (reach an explicit
+verdict, don't leave the user with just facts). Applying that exact pattern
+to retrofit — instead of "the AI eventually writes the metadata fix" — means
+this initiative needs **zero new write capability**, so none of the
+original Phase C risk category (raw metadata writes, sandbox-only targets,
+mandatory dry-run, rollback machinery) applies to it at all.
+
+Restructured `ROADMAP.md`'s Phase 13: kept Phase A (customization detection
++ 3-way compare) as the necessary foundation — you can't give specific
+retrofit instructions without first knowing precisely what changed and
+where. Replaced the old "Phase B — AI-assisted merge recommendations,
+produces a diff artifact" framing with the actual reframed deliverable:
+**Phase B — AI-Directed Retrofit Guidance & Closure Verification**, a
+concrete two-turn conversation shape (specific instruction, then a
+post-modification verdict), with three new read-only AI tools sketched
+(`retrofit_worklist`, `retrofit_guidance`, `retrofit_verify`). Demoted the
+old automated-write Phase C to an explicitly-out-of-scope note at the end —
+retained as an idea, not part of this initiative, revisit only later and
+separately if ever warranted.
+
+No code written yet — this is still a planning/reframing pass, same as the
+original Phase 13 write-up.

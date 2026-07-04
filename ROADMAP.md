@@ -1017,8 +1017,22 @@ retrofit isn't evenly distributed — most of it is in *knowing precisely what
 changed and what's at risk* (a detection/analysis problem this platform is
 already good at) rather than in the mechanical act of copying a field
 definition (which PeopleTools' own tools already do, just manually and
-per-object today). The game plan below is ordered by that value/risk curve,
-each phase useful on its own even if the ones after it are never built:
+per-object today).
+
+**Reframed starting point (this is the actual initiative, not a stepping
+stone to something bigger):** rather than building toward automated writes
+at all, the near-term goal is a **directive-then-verify loop** — the AI
+tells the user exactly what object and what specific change needs to happen,
+the human makes the change themselves (in Application Designer, as they
+already do today), and the AI re-checks and gives an explicit "resolved /
+still divergent / new issue introduced" verdict. This is not a new
+interaction pattern for this platform — it's the exact shape Phase 12's
+trace-escalation step already uses (tell the user precisely what to do →
+they act → the AI checks the result and continues) applied to retrofit
+instead of trace files. It requires **zero new write capability**, so
+none of Phase C's risk category applies to this initiative at all — Phase C
+is retained below only as a possible, much later, separately-evaluated
+idea, not part of this plan.
 
 ### Phase A — Customization Detection & 3-Way Impact Analysis (read-only; high confidence; buildable now)
 
@@ -1053,66 +1067,78 @@ Extends existing, proven infrastructure rather than inventing new mechanisms:
   6) already surfaces blast-radius scoring, and make it walkable via the
   Knowledge Graph so a reviewer can see what else depends on a
   hard-to-retrofit object before deciding how to handle it.
-- **AI-reachable**: register this worklist as new AI tools (following the
-  Phase 12 pattern), so "what customizations are at risk in the HCM upgrade
-  to PeopleTools 8.63?" becomes an assistant question with a real, current
-  answer — not a report someone has to remember to regenerate and read.
 
 This phase requires no new write capability, no new risk category, and
 reuses `envcompare.py`, the KG, the delivered-OPRID heuristic, and the
-Phase 6 risk-scoring pattern directly. It is the recommended starting point
-if this plan is approved.
+Phase 6 risk-scoring pattern directly. It is the necessary foundation the
+directive-then-verify loop below is built on — there's no way to tell a
+user precisely what needs modification without this detection layer
+existing first.
 
-### Phase B — AI-Assisted Merge Recommendations (advisory; medium risk; still no writes)
+### Phase B — AI-Directed Retrofit Guidance & Closure Verification (read-only; the actual initiative; buildable now)
 
-For the subset of Phase A's worklist that's mechanically simple — a clean,
-isolated customization that doesn't structurally overlap with what changed
-upstream (e.g., a self-contained custom validation block appended to an
-otherwise-unchanged PeopleCode event) — use the AI (extending the Phase 12
-Universal Diagnostics tool-calling pattern) to *propose* a merged
-definition or a project-diff artifact, presented for human review — never
-auto-applied. This is the same posture Phase 11's SQL Proxy and Phase 12's
-diagnostics already take toward anything consequential: the AI reasons and
-recommends, a human decides. The deliverable here is a reviewable diff/patch,
-not a live change.
+This is the reframed core deliverable. For each object in Phase A's
+worklist that needs human review, the assistant (extending the Phase 12
+Universal Diagnostics / Phase 12 trace-escalation pattern) does two things,
+in two separate turns of a conversation — not one shot:
 
-### Phase C — Automated Retrofit Application (write-side; longer horizon; opt-in and gated)
+1. **Direct the user to exactly what needs modification.** Not "this object
+   is at risk" — the specific, concrete delta. E.g.: *"Page `JOB_DATA1`:
+   your custom field `CUST_FLAG` sits at field position 15. The new
+   delivered page inserted 2 fields before position 12, shifting everything
+   after it — reposition `CUST_FLAG` to position 17 to preserve its
+   placement immediately after `DEPTID`."* Or: *"PeopleCode event
+   `SavePreChange` on record `JOB`: your custom validation block (lines
+   40-52) checks `FIELD_X` against a hardcoded list. The new delivered code
+   added validation logic at line 30 that changes what `FIELD_X` means
+   after a status change — move your block after the new delivered logic
+   and re-check against the new `FIELD_X` semantics."* This has to come
+   from the real 3-way diff data (old-delivered vs. new-delivered structural
+   delta, applied to where the customization actually sits), not a generic
+   "something changed" — genuinely specific instructions are the entire
+   point of this phase.
+2. **Verify closure after the user acts.** Once the user reports the change
+   is made (the same "user reproduces, AI checks" shape as trace escalation),
+   the assistant re-runs the object-level compare for that specific object
+   and gives an explicit verdict: **RESOLVED** (now correctly reconciled with
+   the new baseline), **STILL DIVERGENT** (the described change wasn't fully
+   applied, or wasn't enough), or **NEW ISSUE INTRODUCED** (the change
+   created a fresh divergence from what was actually needed). Never leave
+   the user wondering whether they're done — the same "reach an explicit
+   verdict" discipline the Phase 12 investigation method already mandates
+   for root-cause diagnosis applies here to retrofit closure.
 
-Only for the narrowest, best-understood subset of Phase B's recommendations,
-and only by driving PeopleTools' own supported migration mechanics (Project
-XML export/import, Application Designer's command-line compare/copy) —
-never raw metadata SQL. This is a deliberate, first-ever exception to this
-platform's "read-only by default" principle and must be treated as a
-different product, not a feature toggle:
-
-- **Opt-in per customer, off by default.**
-- **Sandbox/non-production target environments only**, at least initially —
-  never a customer's actual PRD or a shared UAT without explicit,
-  reconfirmed authorization for that specific run.
-- **Dry-run/simulation mode is mandatory before any real run** — show
-  exactly what would be written, in the same project-XML/diff form a human
-  reviewer would read, before ever touching a target environment.
-- **Every write goes through PeopleTools' own object model** (Application
-  Designer automation / project copy), preserving `LASTUPDOPRID`/
-  `LASTUPDDTTM`, referential integrity, and cache invalidation exactly as a
-  human using the tool would — not a shortcut around it.
-- **Full audit trail and rollback path** — reuse the project/backup
-  mechanics PeopleTools already provides (a project is inherently a
-  restorable unit) rather than inventing new rollback machinery.
-- Start with the lowest-risk object types (isolated PeopleCode block
-  insertions) and only consider structural page-layout changes — literally
-  moving/repositioning fields — after the simpler cases are proven reliable
-  in real use; page-layout retrofit is the single hardest case in this whole
-  plan and should be the last thing attempted, not the first.
+New AI tools needed: something like `retrofit_worklist(env, target_env)` (Phase
+A's ranked list), `retrofit_guidance(env, object_type, object_name)` (the
+specific per-object instruction), and `retrofit_verify(env, target_env,
+object_type, object_name)` (the closure check, re-running the same compare
+against the object's current state). All three are read-only, all three
+follow the existing tool-registration and system-prompt patterns from
+Phase 11/12 directly — no new architecture, just new tools plus a new
+system-prompt section describing the two-turn directive-then-verify shape.
 
 ## Recommended starting point
 
-Build Phase A. It's squarely in this platform's existing strengths (read-only
-metadata comparison, KG-based impact analysis, AI tool integration), it's
-valuable standalone even if Phase B/C are never greenlit, and getting the
-3-way compare and risk-ranking right is the foundation everything else in
-this plan depends on — there's no responsible way to attempt Phase B or C
-without first getting Phase A's detection right.
+Build Phase A, then Phase B, as one initiative — Phase A alone (a worklist)
+isn't the thing that was actually asked for; the directive-then-verify loop
+in Phase B is. Both are entirely read-only and reuse existing infrastructure
+directly (no new risk category, no write capability, nothing that departs
+from this platform's "read-only by default" principle). This is now the
+complete near-term plan for this initiative.
+
+## Phase C (retained only as a note; not part of this initiative)
+
+The earlier draft of this plan also sketched an eventual automated-write
+retrofit (driving Application Designer's own migration mechanics rather than
+raw metadata SQL). That remains true as an idea, but is explicitly **not**
+part of this initiative — the reframing above replaces "the AI writes the
+fix" with "the AI tells you precisely what to write, then confirms you got
+it right," which delivers the practical value (turning a slow, expert-
+dependent manual process into a directed, verified one) without taking on
+any write-side risk at all. Revisit Phase C only as a separate, much later
+decision, if the directive-then-verify loop below proves itself in real use
+and an automated-write capability is deliberately requested on its own
+merits.
 
 ---
 
