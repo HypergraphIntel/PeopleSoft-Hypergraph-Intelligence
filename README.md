@@ -27,11 +27,11 @@ PeopleSoft Hypergraph Intelligence provides:
 -   nginx / reverse proxy visibility
 -   Multi-environment support for HCM, FSCM, and future PeopleSoft
     pillars
--   AI-assisted PeopleSoft troubleshooting (Claude / OpenAI / Ollama, 19+ tools)
+-   AI-assisted PeopleSoft troubleshooting (Claude / OpenAI / Ollama, 21+ tools)
 -   Filesystem source artifact intelligence (SQR, SQC, COBOL/copybook) alongside
     database metadata
--   A Plugin SDK for adding custom object/graph/runtime providers and admin
-    pages without editing core files
+-   A Plugin SDK for adding custom object/graph/runtime providers, health checks,
+    config-driven ingest sources, and admin pages without editing core files
 
 ------------------------------------------------------------------------
 
@@ -52,7 +52,7 @@ PeopleSoft-Hypergraph-Intelligence/
 ├── config/
 │   └── role_mapping.yml            # PeopleSoft role → Authelia group mapping
 ├── plugins/
-│   └── example_hello.py            # Worked Plugin SDK example (object/graph/runtime provider + admin page)
+│   └── example_hello.py            # Worked Plugin SDK example (all six extension points)
 ├── connectors/
 │   ├── ae.py                       # Application Engine metadata/runtime helpers
 │   ├── ai.py                       # AI provider abstraction (AIProvider ABC + get_provider factory)
@@ -80,7 +80,7 @@ PeopleSoft-Hypergraph-Intelligence/
 │   ├── oracle.py                   # Oracle connectivity helpers
 │   ├── peoplecode.py               # PeopleCode decoding/source helpers; canonical processing sequence
 │   ├── peoplesoft.py               # PeopleSoft environment helpers
-│   ├── plugins.py                  # Plugin SDK registries (object/graph/runtime providers, nav/routers)
+│   ├── plugins.py                  # Plugin SDK registries (object/graph/runtime providers, health checks, source types, nav/routers)
 │   ├── pluginloader.py             # Discovers and loads plugins/*.py at startup, per-plugin isolation
 │   ├── promotiondb.py              # SQLite promotion event log (data/promotions.db)
 │   ├── psdb.py                     # Core PeopleSoft DB metadata access
@@ -110,11 +110,11 @@ PeopleSoft-Hypergraph-Intelligence/
 │   │   ├── portal.py               #   /admin/navcoll, /relcontent, /efmapping, /dropzone, /pivotgrid, /srchdef, /srchcat, /xpub, /stylesheet, /pcsearch
 │   │   ├── platform.py             #   /admin/prcsdefn, /filelayout, /xlat, /project, /msgcat, /archobj, /timezone, /locale, /ptftest, /ae, /component, /page, /riskanalysis
 │   │   ├── perf.py                 #   /admin/pmmetric, /pmtrans, /pmevent
-│   │   ├── compflow.py             #   /admin/compflow (Component Event Flow), /admin/compseq (PC Timeline)
+│   │   ├── compflow.py             #   /admin/compflow (Component Event Flow), /admin/compseq (PC Timeline; Component/Record mode toggle)
 │   │   ├── rca.py                  #   /admin/rca (Incident RCA)
 │   │   ├── incidents.py            #   /admin/incidents (list + detail/replay)
-│   │   ├── sqr_view.py             #   /admin/sqr, /sqrsearch, /sqrdeps, /sqrcompare
-│   │   ├── cobol_view.py           #   /admin/cobol (list + detail)
+│   │   ├── sqr_view.py             #   /admin/sqr, /sqrsearch, /sqrdeps, /sqrcompare (+ diff-mode toggle), /sqroverrides
+│   │   ├── cobol_view.py           #   /admin/cobol (list + detail, Process Runs tab), /cobolcompare, /cobol/analytics, /cobol/table/{name}
 │   │   └── tools.py                #   /admin/reports, /tools, /impact, /assistant, /docs
 │   ├── assistant.py                # AI Assistant API (/api/assistant/*)
 │   ├── authelia_admin.py           # Authelia user/group administration
@@ -135,10 +135,11 @@ PeopleSoft-Hypergraph-Intelligence/
 │   ├── operator.py                 # Operator/OPRID API
 │   ├── oracle.py                   # Oracle connectivity API
 │   ├── peoplesoft.py               # PeopleSoft environment API
+│   ├── plugin_sources.py           # Plugin SDK config-driven source API (/api/plugins/sources/*)
 │   ├── promotions.py               # Promotion event log API (/api/promotions/*)
 │   ├── record.py                   # Record metadata API
 │   ├── role.py                     # Role/security API
-│   ├── runtime.py                  # Runtime Monitor, ASH, domains, alerts, app server processes, plugin providers
+│   ├── runtime.py                  # Runtime Monitor, ASH, domains, alerts, app server processes, plugin providers/health checks, AE process trace
 │   ├── sqlws.py                    # SQL Workspace API
 │   ├── sqr.py                      # SQR Source Artifact Intelligence API (/api/sqr/*)
 │   ├── system.py                   # Infrastructure/service/container API
@@ -700,7 +701,7 @@ Chat request body:
 Set `"stream": true` to receive a Server-Sent Events stream with `tool_start`,
 `tool_result`, `content`, and `done` events.
 
-The assistant has access to 19 tools backed by live PeopleSoft Hypergraph Intelligence connectors:
+The assistant has access to 21 tools backed by live PeopleSoft Hypergraph Intelligence connectors:
 
 | Tool | Purpose |
 |------|---------|
@@ -722,7 +723,9 @@ The assistant has access to 19 tools backed by live PeopleSoft Hypergraph Intell
 | `ib_diagnostics` | Integration Broker queue/routing diagnostics |
 | `process_scheduler_health` | Process Scheduler queue/error health |
 | `component_events` | Canonical processing-sequence events for a component (search/build/interaction/save phases) |
-| `sqr_program` | Look up an SQR/SQC program's tables, includes, and dependencies |
+| `sqr_program` | Look up an SQR/SQC program's tables, includes, dependencies, and (if indexed) source for explain/summarize questions |
+| `cobol_program` | Look up a COBOL program/copybook's tables, COPY deps, calls, and (if indexed) source |
+| `peoplecode_sequence` | Canonical ordered processing sequence for a component, record, or page — for "what fires before X" ordering questions |
 
 ### Log Intelligence
 
@@ -963,22 +966,25 @@ Output:
 
 ## Plugin SDK
 
-Add custom object providers, Knowledge Graph builders, runtime status providers, and
-admin dashboard pages without editing any core file. Drop a Python module into
-`plugins/` (e.g. `plugins/my_plugin.py`) exposing a `register(sdk)` function; it's
-discovered and loaded automatically at startup, with per-plugin failure isolation — a
-broken plugin is logged and skipped, never crashes the server or other plugins.
+Add custom object providers, Knowledge Graph builders, runtime status providers,
+health checks, config-driven ingest sources, and admin dashboard pages without
+editing any core file. Drop a Python module into `plugins/` (e.g.
+`plugins/my_plugin.py`) exposing a `register(sdk)` function; it's discovered and
+loaded automatically at startup, with per-plugin failure isolation — a broken plugin
+is logged and skipped, never crashes the server or other plugins.
 
 ```python
 def register(sdk):
     sdk.register_object_provider("my_type", my_object_fn, my_payload_fn, registry_meta={...})
     sdk.register_graph_provider("my_provider", my_graph_loader)
     sdk.register_runtime_provider("my_status", my_fetch_fn, label="My Status")
+    sdk.register_health_check("my_check", my_check_fn, label="My Health Check")
+    sdk.register_source_type("my_source", "my_sources", my_ingest_fn, status_fn=my_status_fn)
     sdk.register_nav_entry("My Group", "my_page", "My Page", "/admin/plugin/my-page")
     sdk.register_router(my_fastapi_router)
 ```
 
-See `PLUGINS.md` for the full walkthrough of all four extension points and
+See `PLUGINS.md` for the full walkthrough of all six extension points and
 `plugins/example_hello.py` for a complete worked example.
 
 ------------------------------------------------------------------------

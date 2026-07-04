@@ -25,14 +25,17 @@ verification steps, and design tradeoffs — see `DEVELOPMENT_DIARY.md`.
 - Unified Object Model (UOM) covering ~54 PeopleSoft object types
 - Object Explorer, Graph Explorer (List / Visual / Impact / Drift)
 - Knowledge Graph with scheduled snapshots, drift detection, and impact analysis
-- Environment Compare (17 object types) with scheduled drift alerts
-- Runtime Monitor: Oracle ASH, runtime alerts, App Server domain + live process tracking
+- Environment Compare (23 object types) with scheduled drift alerts
+- Runtime Monitor: Oracle ASH, runtime alerts, App Server domain + live process tracking,
+  AE-focused process trace correlation
 - SQL Workspace with autocomplete, typed binds, timeout/cancellation
 - Integration Broker, Identity/Security, Portal, SQL/Query/Tree/Menu/Component Interface explorers
-- AI Engineering Assistant (Claude/OpenAI/Ollama) with 17+ tools
+- AI Engineering Assistant (Claude/OpenAI/Ollama) with 21+ tools
 - Log Intelligence: PIA/APPSRV/Tuxedo/nginx/F5/IGW/PRCS-AE ingestion pipeline
-- SQR + COBOL source artifact intelligence (index, search, dependency graphs, env comparison)
-- Plugin SDK v1 (object/graph/runtime providers, admin pages)
+- SQR + COBOL source artifact intelligence (index, search, dependency graphs, env
+  comparison with normalized diff mode, analytics, override intelligence)
+- Plugin SDK v1 + v2 (object/graph/runtime providers, health checks, config-driven
+  sources, admin pages) — no open candidates
 - Admin shell smoke test harness (69 pages)
 
 ---
@@ -186,14 +189,16 @@ snapshots only have the original 17.
 
 3-provider architecture (`connectors/ai.py` abstract interface; `ai_claude.py`/
 `ai_openai.py`/`ai_ollama.py` implementations) so provider swaps require only a new
-`ai_<name>.py` file. 17+ tools in `connectors/ai_tools.py`, each a thin adapter over an
+`ai_<name>.py` file. 21+ tools in `connectors/ai_tools.py`, each a thin adapter over an
 existing connector (no new SQL): `search_objects`, `peoplecode_search`,
 `graph_dependencies`, `graph_impact`, `who_has_access`, `ae_steps`, `sql_lookup`,
 `envcompare_summary`, `project_impact`, `active_sessions`, `record_usage`,
 `log_search`, `log_errors`, `session_log_chain`, `environment_health`,
 `ib_diagnostics`, `process_scheduler_health`, `component_events` (now enriched with
-canonical processing-sequence context). Streaming chat UI at `/admin/assistant` with
-an agentic tool loop (up to 8 rounds).
+canonical processing-sequence context), `sqr_program`, `cobol_program` (source-aware,
+truncated to 12,000 chars — feeds "explain this program" questions), and
+`peoplecode_sequence` (unified Component/Record/Page ordering questions). Streaming
+chat UI at `/admin/assistant` with an agentic tool loop (up to 8 rounds).
 
 Config: `config.json["ai"]`, provider selection + per-provider settings; env var
 overrides (`CLAUDE_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_BASE_URL`) take precedence.

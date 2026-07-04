@@ -214,13 +214,15 @@ offers a second path for providers 4, 5, 7, and 9 that doesn't require touching
 | UOM Provider | `if object_type == "x":` branch in `routers/peoplesoft.py` | `plugins.register_object_provider(type, object_fn, payload_fn, registry_meta)` |
 | Graph Provider | closure inside `graphdb.py`'s `build()`, added to its literal tuple | `plugins.register_graph_provider(name, loader)` — `loader(graph, env, limit)` |
 | Runtime Provider | new endpoint in `routers/runtime.py` + hand-written admin card | `plugins.register_runtime_provider(name, fetch_fn, label)` — surfaces automatically on the generic "Plugin Providers" `/admin/runtime` card |
+| Health Check | ad hoc status logic, no dedicated surface | `plugins.register_health_check(name, check_fn, label)` — surfaces automatically on the generic "Plugin Health Checks" `/admin/runtime` card; runs on demand via `GET /api/runtime/health-checks` |
+| Config-Driven Source | dedicated ingest module + router, the `sqringest.py`/`cobolingest.py` pattern | `plugins.register_source_type(name, config_key, ingest_fn, status_fn)` — generic `GET/POST /api/plugins/sources/*` endpoints, SDK handles background-thread/lock/status-tracking |
 | Admin Page + Nav | route in `routers/admin/<group>.py` + entry in `_core.py`'s `_NAV_GROUPS` | `plugins.register_router(router)` + `plugins.register_nav_entry(group, key, label, href)` |
 
 A module dropped into `plugins/` and exposing `register(sdk)` is discovered and loaded
 automatically at startup (`connectors/pluginloader.py`), with per-plugin failure
 isolation — a broken plugin is logged and skipped, never crashes the server or other
 plugins. See `PLUGINS.md` for the full walkthrough and `plugins/example_hello.py` for
-a working reference implementation of all four extension points.
+a working reference implementation of all six extension points.
 
 Use the plugin path for organization-specific extensions that shouldn't live in this
 repo's core files; use the core-file path (table above) for anything meant to become a
@@ -332,6 +334,11 @@ Before a migration or deployment, evaluate risk:
 
 ## Processing Sequence Intelligence
 
+**Status: ✅ substantially implemented — see ROADMAP.md's "Processing Sequence
+Intelligence" section for exact scope/verification.** The prose below is the original
+vision statement; implementation notes are inlined per subsection rather than
+rewriting the vision itself.
+
 PHI must understand not only what PeopleSoft objects exist, but also the order in which PeopleSoft evaluates and executes them.
 
 PeopleSoft logic is sequence-sensitive. Component behavior is shaped by event order across search processing, component buffer construction, page activation, field interaction, row operations, and save processing. PHI will model this as first-class platform knowledge so analysis can answer questions like:
@@ -343,7 +350,15 @@ PeopleSoft logic is sequence-sensitive. Component behavior is shaped by event or
 - Which custom PeopleCode, Application Packages, SQRs, COBOLs, Integration Broker handlers, or Application Engine programs participate in the same processing path?
 - Where does delivered logic differ from custom override behavior?
 
-### PeopleCode Event Sequence Model
+### PeopleCode Event Sequence Model — ✅ implemented (Component + Record; Page differently-shaped)
+
+`connectors/peoplecode.py`'s `CANONICAL_COMPONENT_SEQUENCE` + `component_sequence()`
+implement exactly the event list below for components. `record_sequence()` reuses the
+same canonical vocabulary/order for genuinely record-owned PeopleCode (`PSPCMPROG
+OBJECTID1=1`), filtered to the events that apply without a component context.
+`page_owned_events()` covers Page-owned PeopleCode (`OBJECTID1=8`) as a flat list, not
+a mirrored sequence — Pages don't have a rich multi-phase lifecycle the way
+Components/Records do.
 
 PHI will maintain a canonical PeopleCode event sequence model for component processing.
 
@@ -370,9 +385,19 @@ Initial sequence coverage includes:
 - Workflow
 - SavePostChange
 
-This model is based on standard PeopleSoft component processing behavior, where events fire in a defined order as users search, load a component buffer, interact with fields and rows, and save data. :contentReference[oaicite:0]{index=0}
+This model is based on standard PeopleSoft component processing behavior, where events fire in a defined order as users search, load a component buffer, interact with fields and rows, and save data.
 
-### Sequence-Aware Object Graph
+### Sequence-Aware Object Graph — ✅ partially implemented (semantically-groundable edges only)
+
+`FIRES_BEFORE`/`FIRES_AFTER` (ordering) and `VALIDATES_BEFORE_SAVE`/`MUTATES_BUFFER`/
+`MUTATES_DATABASE` (semantic classification, derived from each event's own documented
+PeopleTools meaning — see `peoplecode.event_semantic_edges()`) are implemented in
+`graphdb.py`'s `component_sequences()`/`record_sequences()`. `PART_OF_SEQUENCE` (largely
+redundant with the existing `BELONGS_TO` edge), `CALLS_DURING_EVENT`,
+`BLOCKS_PROCESSING`, and `TRIGGERS_RUNTIME_ACTION` remain unimplemented — each would
+need data this platform doesn't track (a real PeopleCode call graph, workflow-trigger
+detection, or save-failure/error-path data), not just a classification of what's
+already known, so they weren't faked.
 
 The Unified Object Model will be extended with processing-sequence relationships.
 
@@ -402,7 +427,12 @@ PeopleCode definitions should no longer be treated only as isolated code artifac
 - Save phase
 - Runtime interaction phase
 
-### Processing Path Explorer
+### Processing Path Explorer — ✅ implemented (Component + Record)
+
+`/admin/compseq` ("PC Timeline") — ordered phase-card visualization (not just a
+table) with a Component/Record mode toggle, delivered/custom/empty coloring, and
+click-to-expand slot detail. Field/Component-Interface/Transaction-path contexts are
+not covered — no concrete UOM object type maps cleanly onto those yet.
 
 PHI should provide a Processing Path Explorer that can display the expected execution flow for a component, page, field, or transaction.
 
@@ -426,7 +456,15 @@ For a selected component, PHI should show:
 
 The goal is to make PHI capable of explaining PeopleSoft behavior in terms of ordered execution, not just static dependencies.
 
-### Delivered vs Custom Sequence Behavior
+### Delivered vs Custom Sequence Behavior — 📋 planned, not built for PeopleCode
+
+Implemented for SQR/COBOL (real parallel delivered+custom source trees exist — see
+Source Artifact Intelligence's Override Detection/Source Comparison sections). Not
+implemented for PeopleCode: there's no delivered-source baseline to diff a component's
+PeopleCode against (delivered PeopleCode isn't distributed as separate comparable
+source files the way SQR/COBOL are) — the existing `LASTUPDOPRID`-based
+delivered/custom heuristic in `component_sequence()`/`record_sequence()` is the
+practical substitute today.
 
 For delivered PeopleCode, SQRs, COBOLs, Application Engine programs, and Application Packages, PHI should identify whether custom logic overrides, extends, or changes the delivered processing path.
 
@@ -443,7 +481,16 @@ The platform should be able to show:
 
 This is especially important for events such as `SearchSave`, `FieldEdit`, `FieldChange`, `SaveEdit`, and `SavePostChange`, where misplaced or modified logic can alter validation, persistence, integration behavior, or downstream processing.
 
-### Runtime Correlation
+### Runtime Correlation — ✅ implemented for Application Engine; PeopleCode/Component-level blocked
+
+`execution.instance_trace()` (`GET /api/runtime/process/{instance}/trace`) composes
+AE program definitions + Oracle ASH wait events/top SQL correlated to a process
+instance's run window + log errors in-window — real data, real correlation, verified
+against a genuine multi-hour AE run. Does not claim step-by-step AE execution timing
+(no `PSAERUNCNTL`/`PS_AE_TRACE`/`PSAEMSGLOG` table present in this environment).
+Full PeopleCode/Component-level trace correlation (PIA request/session activity,
+PeopleCode trace output) remains blocked on missing PIA browser-traffic data — see
+Phase 4's Runtime Intelligence section in ROADMAP.md.
 
 Processing-sequence intelligence should eventually correlate static metadata with runtime evidence.
 
@@ -590,24 +637,28 @@ two distinct rows, not one merged `SQR:PAY003` logical object with a resolved
 "effective version." There is no custom-over-delivered layering/precedence — delivered
 and custom are peers you compare, not a stack you resolve.
 
-## Override Detection — ✅ implemented (narrower than originally planned)
+## Override Detection — ✅ implemented (overridden / custom-only / delivered-only)
 
 `sqrdb.overrides()` / `GET /api/sqr/overrides` finds filenames present in *both* a
-delivered and custom source for the same env — i.e. genuine customizations of a
-delivered program. Not implemented: delivered-only / custom-only / "missing delivered
-source" / "orphaned custom program" as distinct categorized states, and no per-object
-"Effective Version" field on the UOM object. If finer-grained override categorization
-is wanted later, `overrides()` is the place to extend.
+delivered and custom source for the same env — genuine customizations of a delivered
+program. `sqrdb.override_summary()` / `GET /api/sqr/override-summary` (and
+`/admin/sqroverrides`) extends this to the full picture: **overridden** (in both),
+**custom-only** (net-new custom code, or a former override whose delivered baseline
+was later removed — a single snapshot can't distinguish these), and
+**delivered-only** (count only, not a browsable list — can be tens of thousands of
+rows). No per-object "Effective Version" field on the UOM object — delivered and
+custom remain distinct comparable rows, not resolved into one merged view.
 
-## Source Comparison — ✅ implemented for SQR only
+## Source Comparison — ✅ implemented for SQR and COBOL, with a normalized diff mode
 
-`/admin/sqrcompare` (`GET /api/sqr/envcompare`) compares two environments' SQR
-libraries side-by-side (Changed / Only A / Only B / Identical tabs), using MD5
-`content_hash` to detect changes. **Not implemented**: delivered-vs-custom diff view,
-syntax-aware/whitespace/comment-ignoring diff modes, or any comparison UI for COBOL.
-COBOL has the ingestion/indexing infrastructure to support the same comparison
-pattern later (`cobol_db.py` already stores `content_hash`) but the compare endpoint/
-page itself hasn't been built.
+`/admin/sqrcompare` and `/admin/cobolcompare` (`GET /api/sqr/envcompare` / `GET
+/api/cobol/envcompare`) compare two environments' libraries side-by-side (Changed /
+Only A / Only B / Identical tabs). Two diff modes: `exact` (raw MD5 `content_hash`
+equality) and `normalized` (ignore comment lines and insignificant whitespace,
+reusing each language's own parser comment convention — SQR's `!` lines, COBOL's
+column-7 `*` — so a whitespace/comment-only edit doesn't register as a real change).
+**Not implemented**: delivered-vs-custom diff view, or syntax-aware (AST-level)
+diffing beyond comment/whitespace normalization.
 
 ## Source Relationships — ✅ implemented, different edge names than originally planned
 
@@ -642,13 +693,14 @@ delivered and custom detail pages side-by-side, or using the override/comparison
 endpoints above. A dedicated effective-view page (showing resolved implementation with
 delivered/custom provenance inline) remains open work if wanted.
 
-## Source Analytics — ✅ implemented for SQR only, narrower than originally planned
+## Source Analytics — ✅ implemented for SQR and COBOL, narrower than originally planned
 
 `/admin/sqr/analytics` (`GET /api/sqr/analytics`): top 30 PS_ tables by reference count,
 top 20 most complex SQR programs, top 20 most-included SQC files, release breakdown.
+`/admin/cobol/analytics` (`GET /api/cobol/analytics`): the same shape for COBOL — top
+tables, most-complex programs, most-COPYd copybooks, delivered/custom breakdown.
 **Not implemented**: customization/override percentage metrics, cyclomatic complexity,
-dead-include detection, duplicate-source detection, dependency fan-out/fan-in metrics,
-or any analytics page for COBOL.
+dead-include detection, duplicate-source detection, dependency fan-out/fan-in metrics.
 
 ---
 
@@ -695,21 +747,23 @@ Priority 5 — Intelligence (✅ complete)
   Drift (scheduled snapshots + alerts) · Dependency Graph (Knowledge Graph,
   full UOM/KG alignment audit closed)
 
-Priority 6 — Source Artifact Intelligence (✅ core complete)
+Priority 6 — Source Artifact Intelligence (✅ complete)
   SQR + COBOL discovery, indexing, dependency graphs, full-text search;
-  SQR environment comparison. Remaining: override-detection depth, COBOL
-  comparison/analytics, effective-source view — see Source Artifact
-  Intelligence section above.
+  SQR + COBOL environment comparison (with whitespace/comment-normalized
+  diff mode) and analytics dashboards; override intelligence
+  (delivered/custom/overridden classification). Remaining: syntax-aware
+  (AST-level) diffing — see ROADMAP.md.
 
 Priority 7 — Automation & Reporting (not started)
   Deployment Center · Automation
 
 Priority 8 — AI (✅ complete)
-  AI Assistant (3 providers, 17+ tools). Remaining: Predictive Analysis —
+  AI Assistant (3 providers, 21+ tools). Remaining: Predictive Analysis —
   not started.
 
-Priority 9 — Platform Extensibility (✅ v1 complete)
-  Plugin SDK — see Provider Contract → Plugin path, above.
+Priority 9 — Platform Extensibility (✅ v1 + v2 complete)
+  Plugin SDK, six extension points — see Provider Contract → Plugin path,
+  above. No open candidates.
 ```
 
 ---
