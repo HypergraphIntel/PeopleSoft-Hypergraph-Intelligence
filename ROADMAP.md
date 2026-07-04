@@ -537,14 +537,42 @@ immediately before SaveEdit?" for component JOB_DATA — correctly answered RowD
 (independently confirmed against `component_sequence('HCM','JOB_DATA')` directly:
 Interaction Phase ends with RowDelete, Save Phase begins with SaveEdit).
 
+### AE-Focused Runtime Trace Slice — ✅ Complete
+The narrower, unblocked half of "Runtime Trace Correlation": `execution.instance_trace()`
+composes what's already real and queryable for a single Process Scheduler instance —
+`PSPRCSRQST` run detail, the AE program definition (`ae.program()`, if this instance is
+an Application Engine run), Oracle ASH wait events/top SQL correlated to the run window
+(reusing the existing `oracle_ash_for_process()`, which already filters by PSAE
+module/action), and log errors within the run window (`logdb.query_errors()`). New
+`GET /api/runtime/process/{instance}/trace`; new "AE / Log Errors" tab on the process
+detail panel (`/admin/runtime`), alongside the pre-existing Oracle ASH and Exec Log
+tabs (left untouched — the ASH view there already covered that ground well; this adds
+the AE program description and correlated log errors that weren't shown anywhere).
+
+**Deliberately does not claim step-by-step AE execution timing** — no
+`PSAERUNCNTL`/`PS_AE_TRACE`/`PSAEMSGLOG` table is present or queryable in this
+environment (confirmed via research before building), so that narrower "which step
+ran when" view isn't attempted or faked; this composes what's real, not a simulation
+of what isn't.
+
+**Verified live** against a real 6.6-hour Application Engine run (`PRCSYSPURGE`,
+instance 606596): correct AE program description ("Prcs Rqst & Rpt Mgr Purge"), real
+ASH wait events (`db file sequential read`, 100%) with real top SQL text (`SELECT
+AE_MESSAGE_PARMS FROM PSAESTEPMSGDEFN...`) correlated to the run window — a short
+~15s `PSPM_REAPER` run was tried first and correctly showed 0 ASH samples (thin
+sample density for short runs, not a bug), so a longer-running instance was used to
+prove the correlation logic itself works. Verified live in a real headless Chrome
+session: the new tab renders correctly with zero console errors, and the
+pre-existing ASH/Exec Log tabs show no regression.
+
 ### Remaining
 - **Delivered vs Custom Sequence Comparison** beyond the existing `LASTUPDOPRID`
   heuristic — PeopleCode has no delivered-source baseline to diff against (unlike
   SQR/COBOL, which have real parallel delivered+custom trees)
-- **Runtime Trace Correlation** tying processing sequence to live traces — blocked on
-  the same missing-PIA-data issue as Phase 4's session tracking. Oracle ASH and
-  AE/Process-Scheduler logs *are* populated and already power `/admin/rca`, so a
-  narrower AE-focused (not PeopleCode-component-focused) trace slice is viable later.
+- True step-by-step AE execution timing — blocked on no `PSAERUNCNTL`/`PS_AE_TRACE`/
+  `PSAEMSGLOG` table being present in this environment; PeopleCode-component-level
+  trace correlation remains blocked on the same missing-PIA-data issue as Phase 4's
+  session tracking
 - Broader Sequence-Aware Graph Relationships (`PART_OF_SEQUENCE`, `CALLS_DURING_EVENT`,
   `VALIDATES_BEFORE_SAVE`, `MUTATES_BUFFER`/`_DATABASE`, `BLOCKS_PROCESSING`,
   `TRIGGERS_RUNTIME_ACTION`) — `FIRES_BEFORE`/`FIRES_AFTER` are done; these others

@@ -874,6 +874,77 @@ def oracle_ash_for_process(db_name, env, instance_id):
     }
 
 
+def instance_trace(env, instance_id, db_name=None):
+    """AE-focused runtime trace for a single Process Scheduler instance.
+
+    Composes what's real and already queryable today into one view: the
+    PSPRCSRQST run detail, the AE program/section definitions (if this
+    instance is an Application Engine run), Oracle ASH wait events/top SQL
+    correlated to the run window (via oracle_ash_for_process(), which
+    already filters by PSAE module/action), and log errors within the run
+    window. Does NOT claim step-by-step execution timing — no AE trace/
+    runtime-log table (PSAERUNCNTL/PS_AE_TRACE/PSAEMSGLOG) is present or
+    queried in this environment, so that narrower "which step ran when"
+    view isn't attempted; this is a correlation of what's real, not a
+    simulation of what isn't.
+    """
+    from connectors import logdb, ae
+
+    warnings = []
+    prcs = process_instance(env, instance_id)
+    item = prcs.get("item")
+    if not item:
+        return {
+            "instance": instance_id, "env": env.upper(), "process": None,
+            "ae_program": None, "ash": None, "log_errors": [],
+            "warnings": prcs.get("warnings", []) +
+            [ptmetadata.warning("PROCESS_NOT_FOUND", f"Instance {instance_id} not found in {env}")],
+        }
+
+    prcstype = str(item.get("prcstype") or "")
+    prcsname = str(item.get("prcsname") or "")
+    begin_dt = item.get("begindttm")
+    end_dt   = item.get("enddttm")
+
+    ae_program = None
+    if prcstype.strip().lower() == "application engine":
+        try:
+            prog_result = ae.program(env, prcsname)
+            ae_program = prog_result.get("item") if isinstance(prog_result, dict) else prog_result
+        except Exception as exc:
+            warnings.append(f"ae_program: {exc}")
+
+    ash = None
+    if db_name:
+        try:
+            ash = oracle_ash_for_process(db_name, env, instance_id)
+        except Exception as exc:
+            warnings.append(f"ash: {exc}")
+
+    log_errors = []
+    if begin_dt:
+        try:
+            end_for_query = end_dt or begin_dt
+            log_errors = logdb.query_errors(
+                env=env.upper(),
+                start=str(begin_dt).replace("T", " ")[:19],
+                end=str(end_for_query).replace("T", " ")[:19],
+                limit=50,
+            )
+        except Exception as exc:
+            warnings.append(f"log_errors: {exc}")
+
+    return {
+        "instance": instance_id,
+        "env": env.upper(),
+        "process": item,
+        "ae_program": ae_program,
+        "ash": ash,
+        "log_errors": log_errors,
+        "warnings": warnings,
+    }
+
+
 def _runtime_node(node_type, name, label=None, data=None, links=None):
     name = str(name or "").strip()
     return {

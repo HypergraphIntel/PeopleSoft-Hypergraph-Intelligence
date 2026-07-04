@@ -6363,3 +6363,61 @@ Verification:
 - `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged — this adds a
   card to an existing admin page, not a new route); `make check` → 100/100
   files, 11/11 tests.
+
+---
+
+### AE-Focused Runtime Trace Slice (pending commit)
+
+Built the narrower, unblocked half of the previously-scoped "Runtime Trace
+Correlation" item — full PeopleCode-component-level trace correlation
+remains blocked on missing PIA browser-traffic data (same issue as Phase
+4's session tracking), but Oracle ASH and AE/Process-Scheduler data are
+real and populated, so an AE-focused slice is buildable now.
+
+Dispatched a research-only background agent first to map what's actually
+real before designing anything. Key findings that shaped the design:
+- AE step *definitions* (program/section/step, static SQL text via
+  `PSAESTMTDEFN`/`PSSQLTEXTDEFN`) are real and queried by `connectors/ae.py`
+  already, but there is no real per-step *execution timing* data anywhere —
+  `PSAERUNCNTL`, `PS_AE_TRACE`, `PSAEMSGLOG` are all inaccessible in this
+  environment. So "which step ran when" genuinely isn't buildable here;
+  decided not to fake or approximate it.
+- `execution.py`'s `rca_snapshot()` already correlates process failures/log
+  errors/ASH/IB errors, but generically across all process types, not tied
+  to one instance.
+- `oracle_ash_for_process()` (execution.py:751) already exists and already
+  correlates ASH activity to a specific process instance's run window,
+  filtered by PSAE module/action for AE processes — this was the key
+  reusable piece.
+
+`execution.instance_trace(env, instance_id, db_name=None)` composes:
+`process_instance()` (run detail), `ae.program()` (AE program description,
+only if this instance's PRCSTYPE is Application Engine), the existing
+`oracle_ash_for_process()` (ASH wait events/top SQL for the run window, if
+a db is given), and `logdb.query_errors()` scoped to the run window. New
+`GET /api/runtime/process/{instance}/trace`.
+
+For the admin UI, discovered the process detail panel on `/admin/runtime`
+already has a well-built "Oracle ASH" tab (`loadProcAsh()`) covering that
+ground — duplicating it would have been wasted, overlapping work. Instead
+added a new "AE / Log Errors" tab showing exactly the two things not shown
+anywhere: the AE program's description/last-updated/restart-disabled
+metadata, and log errors within the process's run window. Left the
+pre-existing ASH and Exec Log tabs untouched.
+
+**Verification methodology**: tried the short-lived `PSPM_REAPER` AE run
+first (~15s duration) and correctly got 0 ASH samples — thin sample density
+for a short run is expected, not a bug, but it doesn't prove the
+correlation logic works. Found a real long-running instance instead
+(`PRCSYSPURGE`, instance 606596, a genuine 6.6-hour run) and confirmed real
+correlated data: AE program description "Prcs Rqst & Rpt Mgr Purge", real
+ASH wait event `db file sequential read` (100% of 2 samples) with real top
+SQL text (`SELECT AE_MESSAGE_PARMS FROM PSAESTEPMSGDEFN WHERE AE_APPLID =
+:1...`) — genuinely correlated Oracle activity, not placeholder data.
+Verified live in a real headless Chrome session: the new tab renders with
+zero console errors, and the pre-existing ASH tab shows no regression when
+re-tested against the same instance.
+
+Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged —
+new tab on an existing panel, not a new admin route); `make check` →
+100/100 files, 11/11 tests.

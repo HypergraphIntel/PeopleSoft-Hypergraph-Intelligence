@@ -917,9 +917,11 @@ ${d.prcsservername ? `<div class="p-field"><span class="p-label">Process Server<
 <div class="tab-row" id="procDetailTabs" style="margin-top:16px">
   <div class="tab on" onclick="switchProcTab('ash')">Oracle ASH</div>
   <div class="tab" onclick="switchProcTab('execlog')">Exec Log</div>
+  <div class="tab" onclick="switchProcTab('trace')">AE / Log Errors</div>
 </div>
 <div id="procAshSection"><div style="color:#334;font-size:11px;margin-top:8px">Loading Oracle activity…</div></div>
 <div id="procExecSection" style="display:none"></div>
+<div id="procTraceSection" style="display:none"></div>
 `;
     // Async ASH enrichment — only for processes with a start time
     if (d.begindttm) {
@@ -986,9 +988,52 @@ function switchProcTab(tab) {
   });
   $('procAshSection').style.display = tab === 'ash' ? '' : 'none';
   $('procExecSection').style.display = tab === 'execlog' ? '' : 'none';
+  $('procTraceSection').style.display = tab === 'trace' ? '' : 'none';
   if (tab === 'execlog' && !$('procExecSection').dataset.loaded) {
     $('procExecSection').dataset.loaded = '1';
     loadProcExecLog(_curProcInst);
+  }
+  if (tab === 'trace' && !$('procTraceSection').dataset.loaded) {
+    $('procTraceSection').dataset.loaded = '1';
+    loadProcTrace(_curProcInst);
+  }
+}
+
+async function loadProcTrace(instance) {
+  const env = $('envSel').value;
+  const el = $('procTraceSection');
+  el.innerHTML = '<div style="color:#334;font-size:11px;margin-top:8px">Loading AE program detail and log errors…</div>';
+  try {
+    const r = await api(`/api/runtime/process/${instance}/trace?env=${encodeURIComponent(env)}`);
+    let html = '';
+    if (r.ae_program) {
+      const p = r.ae_program;
+      html += `<h2>AE Program</h2>
+        <div class="p-field"><span class="p-label">Description</span><span class="p-value">${esc(p.descr||'—')}</span></div>
+        <div class="p-field"><span class="p-label">Last Updated</span><span class="p-value">${esc((p.lastupddttm||'').replace('T',' ').substring(0,19))} by ${esc(p.lastupdoprid||'—')}</span></div>
+        <div class="p-field"><span class="p-label">Restart Disabled</span><span class="p-value">${p.ae_disable_restart === 'Y' ? 'Yes' : 'No'}</span></div>`;
+    } else if (r.process && r.process.prcstype && r.process.prcstype.includes('Engine')) {
+      html += '<div style="color:#334;font-size:11px;margin:8px 0">AE program definition not found.</div>';
+    }
+    html += `<h2 style="margin-top:14px">Log Errors In Run Window</h2>`;
+    const errs = r.log_errors || [];
+    if (!errs.length) {
+      html += '<div style="color:#334;font-size:11px">No log errors recorded during this process\\'s run window.</div>';
+    } else {
+      errs.slice(0, 20).forEach(e => {
+        html += `<div style="margin:4px 0;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px">
+          <span style="color:#f55;font-weight:bold">${esc(e.source||e.level||'')}</span>
+          <span style="color:#556;margin-left:6px">${esc((e.ts||'').replace('T',' ').substring(0,19))}</span>
+          <div style="color:#9ab;margin-top:2px">${esc((e.message||'').substring(0,200))}</div>
+        </div>`;
+      });
+    }
+    if ((r.warnings||[]).length) {
+      html += (r.warnings||[]).map(w => `<div class="warn-msg">&#9888; ${esc(typeof w === 'string' ? w : (w.message||''))}</div>`).join('');
+    }
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = `<div style="color:#334;font-size:11px;margin-top:8px">Trace unavailable: ${esc(e.message)}</div>`;
   }
 }
 

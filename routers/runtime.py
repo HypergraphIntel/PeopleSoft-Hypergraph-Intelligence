@@ -47,6 +47,17 @@ def runtime_process_detail(instance: int, env: str = "HCM"):
     return execution.process_instance(env, instance)
 
 
+@router.get("/process/{instance}/trace")
+def runtime_process_trace(instance: int, env: str = "HCM", db: str = None):
+    """AE-focused runtime trace for a single process instance: PSPRCSRQST
+    detail + AE program definition (if applicable) + Oracle ASH wait events/
+    top SQL correlated to the run window (if db is given) + log errors in
+    that window. A narrower, buildable slice of the blocked full Runtime
+    Trace Correlation item — see execution.instance_trace()'s docstring for
+    what this deliberately does and doesn't claim."""
+    return execution.instance_trace(env, instance, db_name=db)
+
+
 @router.get("/ae")
 def runtime_ae(env: str = "HCM", limit: int = 50):
     """Return running/queued Application Engine processes."""
