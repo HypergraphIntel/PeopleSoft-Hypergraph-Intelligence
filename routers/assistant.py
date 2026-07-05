@@ -222,8 +222,9 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    messages:  list[ChatMessage]
-    stream:    bool = False
+    messages:        list[ChatMessage]
+    stream:          bool = False
+    conversation_id: int | None = None
 
 
 @router.get("/status")
@@ -241,14 +242,31 @@ def assistant_chat(req: ChatRequest):
     """
     Chat with the AI assistant. Supports multi-round tool use.
     Returns a streaming SSE response when stream=True, otherwise JSON.
+
+    Persists the turn to a conversation thread (connectors/conversationdb.py):
+    creates one (auto-titled from the first user message) if conversation_id
+    isn't given, appends the latest user message, then appends the
+    assistant's reply once it's ready.
     """
+    from connectors import conversationdb
+
+    conv_id = req.conversation_id
+    last_user_msg = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
+    if conv_id is None:
+        conv_id = conversationdb.create_conversation(first_message=last_user_msg)
+    if last_user_msg:
+        conversationdb.add_message(conv_id, "user", last_user_msg)
+
     if req.stream:
         return StreamingResponse(
-            _stream_chat(req.messages),
+            _stream_chat(req.messages, conv_id),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
-    return _blocking_chat(req.messages)
+    result = _blocking_chat(req.messages)
+    conversationdb.add_message(conv_id, "assistant", result["content"], tool_log=result.get("tool_log"))
+    result["conversation_id"] = conv_id
+    return result
 
 
 def _blocking_chat(messages: list[ChatMessage]) -> dict:
@@ -301,13 +319,14 @@ def _blocking_chat(messages: list[ChatMessage]) -> dict:
     raise HTTPException(status_code=500, detail="Maximum tool call rounds exceeded")
 
 
-async def _stream_chat(messages: list[ChatMessage]):
+async def _stream_chat(messages: list[ChatMessage], conversation_id: int = None):
     """
     SSE stream: yields events as the AI thinks and calls tools.
     Event types: tool_start, tool_result, content, done, error
     """
     from connectors.ai import get_provider
     from connectors.ai_tools import TOOLS, dispatch
+    from connectors import conversationdb
 
     def _event(event_type: str, data: dict) -> str:
         return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
@@ -319,6 +338,7 @@ async def _stream_chat(messages: list[ChatMessage]):
         return
 
     history = [{"role": m.role, "content": m.content} for m in messages]
+    tool_log = []
 
     for _round in range(_MAX_TOOL_ROUNDS):
         try:
@@ -337,6 +357,8 @@ async def _stream_chat(messages: list[ChatMessage]):
                 "provider": provider.name(),
             })
             yield _event("done", {})
+            if conversation_id is not None:
+                conversationdb.add_message(conversation_id, "assistant", resp["content"], tool_log=tool_log)
             return
 
         # Append assistant turn using provider-specific format
@@ -347,6 +369,7 @@ async def _stream_chat(messages: list[ChatMessage]):
             yield _event("tool_start", {"name": tc["name"], "input": tc["input"]})
             result_str = dispatch(tc["name"], tc["input"])
             result_obj = json.loads(result_str)
+            tool_log.append({"tool": tc["name"], "input": tc["input"], "result": result_obj})
             yield _event("tool_result", {"name": tc["name"], "result": result_obj})
             tool_results.append({"id": tc["id"], "name": tc["name"], "result_str": result_str})
 

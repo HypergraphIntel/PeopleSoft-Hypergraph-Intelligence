@@ -559,6 +559,18 @@ def admin_assistant():
 .provider-badge{{margin-top:auto;padding:8px;border:1px solid rgba(0,229,255,.12);
   font-size:10px;color:#445;line-height:1.6;}}
 .provider-name{{color:#00e5ff;font-weight:bold;}}
+#newConvBtn{{background:#00e5ff;border:none;color:#000;font-weight:bold;font-size:11px;
+  padding:7px 8px;cursor:pointer;margin-bottom:4px;}}
+#newConvBtn:hover{{background:#33eeff;}}
+.conv-list{{display:flex;flex-direction:column;gap:2px;margin-bottom:10px;max-height:40vh;overflow-y:auto;}}
+.conv-item{{display:flex;align-items:center;gap:4px;padding:6px 8px;cursor:pointer;
+  border:1px solid transparent;font-size:11px;color:#7faab2;}}
+.conv-item:hover{{border-color:rgba(0,229,255,.2);color:#d7faff;}}
+.conv-item.active{{background:rgba(0,229,255,.08);border-color:rgba(0,229,255,.35);color:#00e5ff;}}
+.conv-title{{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}}
+.conv-del{{color:#445;font-size:10px;flex-shrink:0;padding:0 2px;}}
+.conv-del:hover{{color:#ff6666;}}
+.conv-empty{{color:#334;font-size:10px;font-style:italic;padding:4px 8px;}}
 .chat-main{{flex:1;display:flex;flex-direction:column;min-width:0;}}
 .chat-messages{{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;}}
 .msg{{display:flex;flex-direction:column;gap:4px;max-width:92%;}}
@@ -623,8 +635,11 @@ a.obj-link:hover{{border-bottom-style:solid;}}
 
 <div class="chat-layout">
 
-  <!-- Sidebar: examples + provider badge -->
+  <!-- Sidebar: conversations + examples + provider badge -->
   <div class="chat-sidebar">
+    <button id="newConvBtn" onclick="startNewConversation()">+ New Conversation</button>
+    <div class="sidebar-head">Conversations</div>
+    <div id="convList" class="conv-list"><div class="conv-empty">Loading…</div></div>
     <div class="sidebar-head">Example questions</div>
     <div id="exampleList"></div>
     <div class="provider-badge" id="providerBadge">Loading provider…</div>
@@ -647,6 +662,7 @@ const chatMessages = document.getElementById('chatMessages');
 const chatInput    = document.getElementById('chatInput');
 const sendBtn      = document.getElementById('sendBtn');
 let conversationHistory = [];
+let currentConversationId = null;
 
 // Configure marked for safe inline rendering
 if (typeof marked !== 'undefined') {{
@@ -1275,6 +1291,60 @@ EXAMPLES.forEach(ex => {{
   }}
 }})();
 
+// ── Conversation threads ────────────────────────────────────────────────────────
+async function loadConversationList() {{
+  try {{
+    const r = await fetch('/api/conversations');
+    const d = await r.json();
+    renderConversationList(d.conversations || []);
+  }} catch(e) {{
+    document.getElementById('convList').innerHTML = '<div class="conv-empty">Failed to load.</div>';
+  }}
+}}
+
+function renderConversationList(convs) {{
+  const box = document.getElementById('convList');
+  if (!convs.length) {{ box.innerHTML = '<div class="conv-empty">No conversations yet.</div>'; return; }}
+  box.innerHTML = convs.map(c => {{
+    const active = c.id === currentConversationId ? ' active' : '';
+    return `<div class="conv-item${{active}}" onclick="openConversation(${{c.id}})">
+      <span class="conv-title">${{esc(c.title)}}</span>
+      <span class="conv-del" onclick="event.stopPropagation();deleteConversation(${{c.id}})" title="Delete">&#10005;</span>
+    </div>`;
+  }}).join('');
+}}
+
+function startNewConversation() {{
+  currentConversationId = null;
+  conversationHistory = [];
+  chatMessages.innerHTML = '';
+  chatInput.value = '';
+  chatInput.focus();
+  loadConversationList();
+}}
+
+async function openConversation(id) {{
+  try {{
+    const r = await fetch(`/api/conversations/${{id}}`);
+    if (!r.ok) throw new Error('Not found');
+    const d = await r.json();
+    currentConversationId = d.id;
+    conversationHistory = d.messages.map(m => ({{ role: m.role, content: m.content }}));
+    chatMessages.innerHTML = '';
+    d.messages.forEach(m => appendMsg(m.role, m.content, m.tool_log));
+    loadConversationList();
+  }} catch(e) {{
+    alert('Failed to load conversation: ' + e.message);
+  }}
+}}
+
+async function deleteConversation(id) {{
+  if (!confirm('Delete this conversation? This cannot be undone.')) return;
+  await fetch(`/api/conversations/${{id}}`, {{ method: 'DELETE' }});
+  if (id === currentConversationId) startNewConversation();
+  else loadConversationList();
+}}
+
 // ── Chat ──────────────────────────────────────────────────────────────────────
 function appendMsg(role, content, toolLog) {{
   const wrap = document.createElement('div');
@@ -1347,7 +1417,7 @@ async function sendMessage() {{
     const r = await fetch('/api/assistant/chat', {{
       method: 'POST',
       headers: {{ 'Content-Type': 'application/json' }},
-      body: JSON.stringify({{ messages: conversationHistory, stream: false }}),
+      body: JSON.stringify({{ messages: conversationHistory, stream: false, conversation_id: currentConversationId }}),
     }});
     removeThinking();
     if (!r.ok) {{
@@ -1360,6 +1430,8 @@ async function sendMessage() {{
       const d = await r.json();
       appendMsg('assistant', d.content, d.tool_log);
       conversationHistory.push({{ role: 'assistant', content: d.content }});
+      currentConversationId = d.conversation_id;
+      loadConversationList();
     }}
   }} catch(e) {{
     removeThinking();
@@ -1377,5 +1449,7 @@ chatInput.addEventListener('input', () => {{
   chatInput.style.height = 'auto';
   chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
 }});
+
+loadConversationList();
 </script>""")
 

@@ -54,9 +54,15 @@ def admin_graph():
 
         button {
             background: #00e5ff;
+            color: #000;
+            font-weight: bold;
             border: none;
             padding: 8px 14px;
             cursor: pointer;
+        }
+
+        button:hover {
+            background: #33eeff;
         }
 
         .graph {
@@ -175,6 +181,7 @@ def admin_graph():
                 <option value="tree">Tree</option>
                 <option value="ci">Component Interface</option>
                 <option value="application_package">App Package</option>
+                <option value="eocc_config">Page Field Config</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="loadGraph()">Explore</button>
@@ -886,9 +893,15 @@ def object_explorer_page(object_type="", object_name=""):
 
         button {
             background: #00e5ff;
+            color: #000;
+            font-weight: bold;
             border: none;
             padding: 8px 14px;
             cursor: pointer;
+        }
+
+        button:hover {
+            background: #33eeff;
         }
 
         .result, .row {
@@ -1041,6 +1054,7 @@ def object_explorer_page(object_type="", object_name=""):
                 <option value="tree">Tree</option>
                 <option value="ci">Component Interface</option>
                 <option value="application_package">App Package</option>
+                <option value="eocc_config">Page Field Config</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="openTypedObject()">Open</button>
@@ -2067,9 +2081,15 @@ def admin_portal():
 
         button {
             background: #00e5ff;
+            color: #000;
+            font-weight: bold;
             border: none;
             padding: 8px 12px;
             cursor: pointer;
+        }
+
+        button:hover {
+            background: #33eeff;
         }
 
         .muted {
@@ -2603,10 +2623,16 @@ def admin_metadata():
 
         button {
             background: #00e5ff;
+            color: #000;
+            font-weight: bold;
             border: none;
             padding: 8px 14px;
             cursor: pointer;
             margin-right: 8px;
+        }
+
+        button:hover {
+            background: #33eeff;
         }
 
         .row {

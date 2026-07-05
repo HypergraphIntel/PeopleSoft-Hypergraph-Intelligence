@@ -8403,3 +8403,134 @@ def get_component_peoplecode_events(env_name, component):
         "events": events,
         "warnings": [] if rows else [f"No PeopleCode found for component '{component.upper()}'"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Page and Field Configurator (EOCC) — Enterprise Components feature for
+# conditionally hiding/showing/masking/relabeling fields at runtime without
+# customization. PS_EOCC_CONFIG_HDR/SEQ/FLD/PNL/CRT, keyed by
+# (PNLGRPNAME, MARKET, EOCC_CONFIG_TYPE).
+# ---------------------------------------------------------------------------
+
+def eocc_configs(env_name, q="", limit=100):
+    """Search Page and Field Configurator headers by component name or description."""
+    columns = select_existing_columns(
+        env_name, "PS_EOCC_CONFIG_HDR",
+        ["DESCR", "EFF_STATUS", "EOCC_APPLY_LVL", "EOCC_APPLY_TO", "ROLENAME", "EOCC_PAGE_EVENT"],
+        required=["PNLGRPNAME", "MARKET", "EOCC_CONFIG_TYPE"],
+    )
+    where, params = "", {}
+    if q:
+        where = "WHERE UPPER(PNLGRPNAME) LIKE :q OR UPPER(DESCR) LIKE :q"
+        params["q"] = f"%{q.upper()}%"
+    rows = query(env_name, f"""
+        SELECT {", ".join(columns)}
+          FROM sysadm.PS_EOCC_CONFIG_HDR
+          {where}
+         ORDER BY PNLGRPNAME, MARKET, EOCC_CONFIG_TYPE
+         FETCH FIRST {max(1, min(int(limit), 500))} ROWS ONLY
+    """, params)
+    return rows
+
+
+def eocc_config(env_name, pnlgrpname, market, config_type):
+    """Single Page and Field Configurator header row."""
+    columns = select_existing_columns(
+        env_name, "PS_EOCC_CONFIG_HDR",
+        ["DESCR", "EFF_STATUS", "EOCC_APPLY_LVL", "EOCC_APPLY_TO", "ROLENAME",
+         "EOCC_PAGE_EVENT", "EOCC_TRK_RECGRP"],
+        required=["PNLGRPNAME", "MARKET", "EOCC_CONFIG_TYPE"],
+    )
+    rows = query(env_name, f"""
+        SELECT {", ".join(columns)}
+          FROM sysadm.PS_EOCC_CONFIG_HDR
+         WHERE PNLGRPNAME = UPPER(:p) AND MARKET = UPPER(:m) AND EOCC_CONFIG_TYPE = UPPER(:t)
+    """, {"p": pnlgrpname, "m": market, "t": config_type})
+    return rows[0] if rows else None
+
+
+def eocc_config_sequences(env_name, pnlgrpname, market, config_type):
+    """Sequence-level rows — order and additive application of a config."""
+    columns = select_existing_columns(
+        env_name, "PS_EOCC_CONFIG_SEQ",
+        ["STATUS", "DESCR", "EOCC_APPLY_TO", "EOCC_MANDATORY_FLG", "ROLENAME",
+         "EOCC_SMALL_FF", "EOCC_MEDIUM_FF", "EOCC_LARGE_FF", "EOCC_XLARGE_FF"],
+        required=["PNLGRPNAME", "MARKET", "EOCC_CONFIG_TYPE", "SEQUENCE_NBR"],
+    )
+    return query(env_name, f"""
+        SELECT {", ".join(columns)}
+          FROM sysadm.PS_EOCC_CONFIG_SEQ
+         WHERE PNLGRPNAME = UPPER(:p) AND MARKET = UPPER(:m) AND EOCC_CONFIG_TYPE = UPPER(:t)
+         ORDER BY SEQUENCE_NBR
+    """, {"p": pnlgrpname, "m": market, "t": config_type})
+
+
+def eocc_config_fields(env_name, pnlgrpname, market, config_type):
+    """Field-level configuration rows — the actual page/field behavior changes."""
+    columns = select_existing_columns(
+        env_name, "PS_EOCC_CONFIG_FLD",
+        ["SEQUENCE_NBR", "RECNAME", "FIELDNAME", "PNLNAME", "LBLTEXT",
+         "EOCC_LBL_OVERRIDE", "EOCC_IS_REQUIRED", "EOCC_SET_BLANK", "EOCC_DFLT_VALUE",
+         "EOCC_VISIBLE_FLAG", "EOCC_MASK_FLAG", "EOCC_MASK_ID", "EOCC_DISABLED",
+         "EOCC_CHGTRK_FLAG", "EOCC_CHGNOT_FLAG", "OCCURSLEVEL"],
+        required=["PNLGRPNAME", "MARKET", "EOCC_CONFIG_TYPE"],
+    )
+    return query(env_name, f"""
+        SELECT {", ".join(columns)}
+          FROM sysadm.PS_EOCC_CONFIG_FLD
+         WHERE PNLGRPNAME = UPPER(:p) AND MARKET = UPPER(:m) AND EOCC_CONFIG_TYPE = UPPER(:t)
+         ORDER BY SEQUENCE_NBR, PNLNAME, RECNAME, FIELDNAME
+    """, {"p": pnlgrpname, "m": market, "t": config_type})
+
+
+def eocc_config_panels(env_name, pnlgrpname, market, config_type):
+    """Page-level configuration rows — hide or make an entire page display-only."""
+    columns = select_existing_columns(
+        env_name, "PS_EOCC_CONFIG_PNL",
+        ["SEQUENCE_NBR", "PNLNAME", "EOCC_VISIBLE_FLAG", "DISPLAYONLY"],
+        required=["PNLGRPNAME", "MARKET", "EOCC_CONFIG_TYPE"],
+    )
+    return query(env_name, f"""
+        SELECT {", ".join(columns)}
+          FROM sysadm.PS_EOCC_CONFIG_PNL
+         WHERE PNLGRPNAME = UPPER(:p) AND MARKET = UPPER(:m) AND EOCC_CONFIG_TYPE = UPPER(:t)
+         ORDER BY SEQUENCE_NBR, PNLNAME
+    """, {"p": pnlgrpname, "m": market, "t": config_type})
+
+
+def eocc_config_criteria(env_name, pnlgrpname, market, config_type):
+    """Criteria rows — conditions (field/value/operator) that must be met to apply a sequence."""
+    columns = select_existing_columns(
+        env_name, "PS_EOCC_CONFIG_CRT",
+        ["SEQUENCE_NBR", "RECNAME", "FIELDNAME", "EOCC_CRITERIA_SYM", "EOCC_VALUE_MATCH",
+         "EOCC_VALUE_MATCH2", "PNLNAME", "LBLTEXT"],
+        required=["PNLGRPNAME", "MARKET", "EOCC_CONFIG_TYPE"],
+    )
+    return query(env_name, f"""
+        SELECT {", ".join(columns)}
+          FROM sysadm.PS_EOCC_CONFIG_CRT
+         WHERE PNLGRPNAME = UPPER(:p) AND MARKET = UPPER(:m) AND EOCC_CONFIG_TYPE = UPPER(:t)
+         ORDER BY SEQUENCE_NBR, RECNAME, FIELDNAME
+    """, {"p": pnlgrpname, "m": market, "t": config_type})
+
+
+def eocc_configs_for_component(env_name, pnlgrpname, active_only=True):
+    """
+    Page and Field Configurator headers that apply to a specific component
+    (any market/config type). Used to surface "this component has N enabled
+    PFC configuration(s)" on the Component object page and Comp Event Flow.
+    """
+    columns = select_existing_columns(
+        env_name, "PS_EOCC_CONFIG_HDR",
+        ["DESCR", "EFF_STATUS", "EOCC_APPLY_LVL", "EOCC_APPLY_TO", "ROLENAME", "EOCC_PAGE_EVENT"],
+        required=["PNLGRPNAME", "MARKET", "EOCC_CONFIG_TYPE"],
+    )
+    where = "WHERE PNLGRPNAME = UPPER(:p)"
+    if active_only:
+        where += " AND EFF_STATUS = 'A'"
+    return query(env_name, f"""
+        SELECT {", ".join(columns)}
+          FROM sysadm.PS_EOCC_CONFIG_HDR
+          {where}
+         ORDER BY MARKET, EOCC_CONFIG_TYPE
+    """, {"p": pnlgrpname})

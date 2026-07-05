@@ -120,6 +120,7 @@ function highlightPC(src){{
 }}
 
 let _sugIdx=-1,_sugTimer=null,_curComp='';
+let _pfcConfigs=[];
 
 function onInput(v){{clearTimeout(_sugTimer);_sugTimer=setTimeout(()=>fetchSuggestions(v),180);}}
 function onKey(e){{
@@ -158,7 +159,12 @@ async function load(){{
   const env=window.dsGetEnv?window.dsGetEnv():'HCM';
   document.getElementById('result').innerHTML='<div class="empty" style="color:#334">Loading…</div>';
   try{{
-    const d=await fetch(`/api/peoplesoft/components/${{encodeURIComponent(comp)}}/events?env=${{env}}`).then(r=>r.json());
+    const [d, obj]=await Promise.all([
+      fetch(`/api/peoplesoft/components/${{encodeURIComponent(comp)}}/events?env=${{env}}`).then(r=>r.json()),
+      fetch(`/api/peoplesoft/object/component/${{encodeURIComponent(comp)}}?env=${{env}}`).then(r=>r.ok?r.json():null).catch(()=>null),
+    ]);
+    const pfcSection=(obj?.sections||[]).find(s=>s.name==='Page Field Configurations');
+    _pfcConfigs=pfcSection?.items||[];
     renderFlow(d);
   }}catch(err){{
     document.getElementById('result').innerHTML=`<div class="warn">Error: ${{esc(String(err))}}</div>`;
@@ -230,6 +236,24 @@ function renderFlow(d){{
     <span class="comp-name">${{esc(d.component||'')}}</span>${{ownerBadge}}
     <span class="comp-meta">${{events.length}} event handler${{events.length!==1?'s':''}} &middot; ${{records}} record${{records!==1?'s':''}}${{modNote}}</span>
   </div>`;
+
+  if(_pfcConfigs.length){{
+    html+=`<div style="border:1px solid #ffaa2244;background:#1a120022;padding:8px 12px;margin-bottom:10px;font-size:11px">
+      <span style="color:#ffaa22;font-weight:bold;text-transform:uppercase;letter-spacing:1px;font-size:10px">
+        &#9888; ${{_pfcConfigs.length}} Enabled Page Field Configuration${{_pfcConfigs.length!==1?'s':''}}
+      </span>
+      ${{_pfcConfigs.map(c=>{{
+        const link=(c._links&&c._links.admin)||'#';
+        return `<div style="margin-top:4px">
+          <a href="${{link}}?env=${{window.dsGetEnv?window.dsGetEnv():'HCM'}}" style="color:#ffaa22;font-family:monospace;text-decoration:none">${{esc(c.config_name)}}</a>
+          <span style="color:#556;margin-left:6px">${{esc(c.descr||'')}} (${{esc(c.config_type)}})</span>
+        </div>`;
+      }}).join('')}}
+      <div style="color:#556;margin-top:4px;font-style:italic">
+        Field visibility/label/required/mask behavior below may be altered at runtime by these configurations.
+      </div>
+    </div>`;
+  }}
 
   if(warns.length)html+=warns.map(w=>`<div class="warn">&#9888; ${{esc(w)}}</div>`).join('');
   if(!events.length){{el.innerHTML=html+'<div class="empty">No PeopleCode events found for this component.</div>';return;}}

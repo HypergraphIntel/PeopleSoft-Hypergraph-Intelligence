@@ -1327,7 +1327,7 @@ nav a{color:#00e5ff;text-decoration:none;font-size:12px;}
 nav a:hover{text-decoration:underline;}
 .topbar{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
 .main{display:flex;flex:1;overflow:hidden;}
-.sidebar{width:220px;border-right:1px solid #00e5ff22;padding:10px;overflow-y:auto;}
+.sidebar{width:300px;flex-shrink:0;border-right:1px solid #00e5ff22;padding:10px;overflow-y:auto;overflow-x:hidden;}
 .content{flex:1;overflow:auto;padding:14px;}
 select,input[type=text]{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px;}
 select:focus,input:focus{outline:none;border-color:#00e5ff;}
@@ -1352,6 +1352,10 @@ button.sec:hover{background:#00e5ff11;}
 table{border-collapse:collapse;width:100%;font-size:11px;}
 th{border-bottom:1px solid #00e5ff33;padding:4px 8px;text-align:left;color:#00e5ff;font-size:10px;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;}
 td{border-bottom:1px solid #0e2030;padding:4px 8px;vertical-align:top;}
+#summaryTable table{table-layout:fixed;}
+#summaryTable td,#summaryTable th{padding:3px 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;}
+#summaryTable td:first-child,#summaryTable th:first-child{width:42%;white-space:normal;word-break:break-word;}
+#summaryTable td:not(:first-child),#summaryTable th:not(:first-child){width:19.33%;white-space:nowrap;}
 tr:hover td{background:rgba(0,229,255,.04);}
 .mono{font-family:monospace;font-size:11px;}
 .empty{color:#445;font-style:italic;font-size:12px;padding:10px 0;}

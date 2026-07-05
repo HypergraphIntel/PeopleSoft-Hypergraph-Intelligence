@@ -268,6 +268,29 @@ TOOLS = [
         },
     },
     {
+        "name": "process_instance_detail",
+        "description": (
+            "Look up ONE specific Process Scheduler run by its exact instance number, with NO time "
+            "window restriction — use this whenever the user names a specific process instance ID "
+            "(e.g. 'what happened with process 605810', 'why did instance 605810 error'), even if "
+            "it's old. process_scheduler_health only looks back a limited number of hours and will "
+            "miss older instances; this tool queries PSPRCSRQST directly by instance number "
+            "regardless of when it ran. Returns the run's status/dates/run control/requesting "
+            "OPRID, the AE program definition if it's an Application Engine run, log errors that "
+            "occurred during the run's actual time window (not last-24h), and Oracle ASH wait "
+            "events/top SQL correlated to that window if a database name is given. If the instance "
+            "isn't found, says so plainly rather than describing a different, more recent failure."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env":      {"type": "string", "description": "Environment: HCM or FSCM", "enum": ["HCM", "FSCM"]},
+                "instance": {"type": "integer", "description": "Exact PRCSINSTANCE number, e.g. 605810"},
+            },
+            "required": ["env", "instance"],
+        },
+    },
+    {
         "name": "log_search",
         "description": (
             "Search ingested web server and application server logs. "
@@ -446,6 +469,32 @@ TOOLS = [
                 "component": {"type": "string", "description": "Component name (PNLGRPNAME), e.g. JOB_DATA"},
             },
             "required": ["env", "component"],
+        },
+    },
+    {
+        "name": "page_field_config",
+        "description": (
+            "Look up Page and Field Configurator (EOCC) definitions — the PeopleTools Enterprise "
+            "Component feature that conditionally hides/shows/masks/relabels/disables fields and "
+            "pages at runtime based on role or criteria, without customization. Two modes: "
+            "list_type='search' finds configs by component name or description (use this first if "
+            "you don't have the exact config); list_type='detail' returns one config's full "
+            "sequences, field-level overrides (masked/required/disabled/label/default value), "
+            "page-level overrides, and the criteria that trigger each sequence — requires the "
+            "config_name in PNLGRPNAME.MARKET.CONFIG_TYPE form (e.g. 'PERSONAL_DATA.GBL.MASK'), "
+            "which search results provide. Examples: 'What Page Field Configurations exist for "
+            "PERSONAL_DATA?', 'Which fields are masked on the Personal Data component?', "
+            "'What criteria trigger the JOB_DATA_FL field configuration?'"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "PeopleSoft environment (e.g. HCM)"},
+                "list_type": {"type": "string", "enum": ["search", "detail"], "description": "search=find configs by component/description; detail=full config by exact name"},
+                "query": {"type": "string", "description": "Component name or description substring (search mode)"},
+                "config_name": {"type": "string", "description": "Exact PNLGRPNAME.MARKET.CONFIG_TYPE (detail mode), e.g. PERSONAL_DATA.GBL.MASK"},
+            },
+            "required": ["env", "list_type"],
         },
     },
     {
@@ -1309,6 +1358,52 @@ def _process_scheduler_health(env: str, hours: int = 24) -> dict:
     return result
 
 
+def _db_name_for_env(env: str) -> str | None:
+    """
+    Map a PeopleSoft environment name to its Oracle database name for ASH
+    correlation, by matching config.json's peoplesoft.environments[].service
+    against oracle.databases[].name (the same "service" value both sections
+    use as their join key) — e.g. HCM -> service HRDMO -> db name HRDMO.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    try:
+        cfg = _json.loads(_Path("/opt/deathstar-api/config.json").read_text())
+        ps_env = next((e for e in cfg.get("peoplesoft", {}).get("environments", [])
+                       if e.get("name", "").upper() == env.upper()), None)
+        if not ps_env:
+            return None
+        service = ps_env.get("service")
+        db = next((d for d in cfg.get("oracle", {}).get("databases", [])
+                   if d.get("service") == service or d.get("name") == service), None)
+        return db.get("name") if db else None
+    except Exception:
+        return None
+
+
+def _process_instance_detail(env: str, instance: int) -> dict:
+    """
+    Look up one process instance by exact PRCSINSTANCE, no time-window
+    restriction — see TOOLS entry for why this exists alongside
+    process_scheduler_health (which only looks back a bounded window and
+    will miss older instances a user asks about by name).
+    """
+    from connectors import execution
+    env = env.upper()
+    db_name = _db_name_for_env(env)
+    result = execution.instance_trace(env, instance, db_name=db_name)
+    if not result.get("process"):
+        return {
+            "found": False,
+            "instance": instance,
+            "env": env,
+            "message": f"No process instance {instance} found in {env} (checked PSPRCSRQST directly, no time limit).",
+            "warnings": result.get("warnings", []),
+        }
+    result["found"] = True
+    return result
+
+
 def _envcompare_summary(env1: str, env2: str) -> dict:
     result = envcompare.summary(env1.upper(), env2.upper())
     return result
@@ -1470,6 +1565,48 @@ def _component_detail(env: str, component: str) -> dict:
     }
 
 
+def _page_field_config(env: str, list_type: str, query: str = "", config_name: str = "") -> dict:
+    from connectors import psdb, uom
+    env = env.upper()
+
+    if list_type == "search":
+        rows = psdb.eocc_configs(env, query or "", limit=25)
+        return {
+            "results": [
+                {
+                    "config_name": f"{r.get('pnlgrpname')}.{r.get('market')}.{r.get('eocc_config_type')}",
+                    "component": r.get("pnlgrpname"),
+                    "market": r.get("market"),
+                    "config_type": r.get("eocc_config_type"),
+                    "description": (r.get("descr") or "").strip(),
+                    "status": r.get("eff_status"),
+                }
+                for r in rows
+            ],
+            "count": len(rows),
+        }
+
+    if list_type == "detail":
+        if not config_name:
+            return {"found": False, "error": "config_name is required for detail mode (e.g. PERSONAL_DATA.GBL.MASK)"}
+        obj = uom.eocc_config_object(env, config_name)
+        if obj.get("status") == "not_found":
+            return {"found": False, "config_name": config_name, "warnings": obj.get("warnings", [])}
+        by_section = {s["name"]: s["items"] for s in obj.get("sections", [])}
+        return {
+            "found": True,
+            "config_name": obj["display_name"],
+            "overview": obj.get("_metadata", {}).get("raw", {}),
+            "sequences": by_section.get("Sequences", []),
+            "field_config": by_section.get("Field Configuration", []),
+            "page_config": by_section.get("Page Configuration", []),
+            "criteria": by_section.get("Criteria", []),
+            "warnings": obj.get("warnings", []),
+        }
+
+    return {"found": False, "error": f"Unknown list_type '{list_type}' — use 'search' or 'detail'"}
+
+
 def _peoplecode_sequence(env: str, target_type: str, name: str) -> dict:
     from connectors import peoplecode
     env = env.upper()
@@ -1568,10 +1705,12 @@ _HANDLERS = {
     "environment_health":      _environment_health,
     "ib_diagnostics":          _ib_diagnostics,
     "process_scheduler_health": _process_scheduler_health,
+    "process_instance_detail":  _process_instance_detail,
     "sqr_program":             _sqr_program,
     "cobol_program":           _cobol_program,
     "component_events":        _component_events,
     "component_detail":        _component_detail,
+    "page_field_config":       _page_field_config,
     "peoplecode_sequence":     _peoplecode_sequence,
     "execute_sql":             _execute_sql,
     "trace_status":            _trace_status,

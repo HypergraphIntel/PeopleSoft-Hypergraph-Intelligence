@@ -28,6 +28,7 @@ from routers import promotions
 from routers import deployments
 from routers import architecture
 from routers import assistant
+from routers import conversations
 from routers import tracing
 from routers import record
 from routers import field
@@ -136,6 +137,7 @@ app.include_router(promotions.router)
 app.include_router(deployments.router)
 app.include_router(architecture.router)
 app.include_router(assistant.router)
+app.include_router(conversations.router)
 app.include_router(tracing.router)
 app.include_router(record.router)
 app.include_router(field.router)

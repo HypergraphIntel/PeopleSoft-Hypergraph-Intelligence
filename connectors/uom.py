@@ -1598,7 +1598,8 @@ def component_object(env, component_name):
     drop_zones, dz_warn = safe_relationship("component_drop_zones", lambda: psdb.component_drop_zones(env, component_name))
     access_result, access_warn = safe_relationship("component_access", lambda: psdb.component_access(env, component_name))
     page_hierarchy, hier_warn = safe_relationship("component_page_hierarchy", lambda: psdb.component_page_hierarchy(env, component_name))
-    warnings.extend(page_warn + pl_warn + menu_warn + cmenu_warn + record_warn + portal_warn + rc_warn + event_warn + dz_warn + access_warn + hier_warn)
+    eocc_configs, eocc_warn = safe_relationship("eocc_configs_for_component", lambda: psdb.eocc_configs_for_component(env, component_name, active_only=True))
+    warnings.extend(page_warn + pl_warn + menu_warn + cmenu_warn + record_warn + portal_warn + rc_warn + event_warn + dz_warn + access_warn + hier_warn + eocc_warn)
 
     search_records = []
     for key in ("searchrecname", "addsrchrecname"):
@@ -1635,6 +1636,25 @@ def component_object(env, component_name):
         except Exception:
             pass
 
+    _eocc_apply_lvl = {"S": "Sequence", "H": "Header"}
+    _eocc_apply_to = {"A": "All Users", "R": "Role", "U": "User"}
+    eocc_items = []
+    for row in (eocc_configs or []):
+        market = str(row.get("market") or "").strip()
+        config_type = str(row.get("eocc_config_type") or "").strip()
+        config_name = f"{component_name}.{market}.{config_type}"
+        eocc_items.append({
+            "config_name": config_name,
+            "market": market,
+            "config_type": config_type,
+            "descr": (row.get("descr") or "").strip() or None,
+            "apply_level": _eocc_apply_lvl.get(row.get("eocc_apply_lvl"), row.get("eocc_apply_lvl")),
+            "apply_to": _eocc_apply_to.get(row.get("eocc_apply_to"), row.get("eocc_apply_to")),
+            "rolename": (row.get("rolename") or "").strip() or None,
+            "runs_on_page_event": row.get("eocc_page_event") == "Y",
+            "_links": {"admin": object_url("eocc_config", config_name)},
+        })
+
     relationships = {
         "pages": [attach_object_links(row, env) for row in (pages or [])],
         "page_hierarchy": page_hierarchy or [],
@@ -1652,6 +1672,7 @@ def component_object(env, component_name):
         "event_mapping": [attach_object_links(row, env) for row in (event_mapping or [])],
         "drop_zones": [attach_object_links(row, env) for row in (drop_zones or [])],
         "peoplecode": pc_items,
+        "page_field_configs": eocc_items,
     }
 
     users = sorted({row.get("roleuser") for row in (access_result or []) if row.get("roleuser")})
@@ -1713,6 +1734,12 @@ def component_object(env, component_name):
                 },
             ],
         },
+        {
+            "relationship": "page_field_configs",
+            "node_type": "eocc_config",
+            "target_name": lambda row: str(row.get("config_name") or "").strip(),
+            "default_edge": "configured_by",
+        },
     ], root_data=raw)
 
     return canonical_base(
@@ -1742,6 +1769,7 @@ def component_object(env, component_name):
                 "page_records": len(page_records or []),
                 "portal_refs": len(portal_refs or []),
                 "peoplecode": len(pc_items),
+                "page_field_configs": len(eocc_items),
             },
         },
     )
@@ -1794,6 +1822,13 @@ def sections_for_component(component):
             "permissionlists": counts.get("permissionlists", 0),
             "roles": counts.get("roles", 0),
             "operators": counts.get("operators", 0),
+        }},
+        {"name": "Page Field Configurations", "items": [
+            {**r, "relationship": r.get("config_type") or ""}
+            for r in rels.get("page_field_configs", [])
+        ], "data": {
+            "count": len(rels.get("page_field_configs", [])),
+            "note": "Enabled (EFF_STATUS=A) Page and Field Configurator definitions for this component" if rels.get("page_field_configs") else "",
         }},
         {"name": "Related Content", "items": rels.get("related_content", []), "data": {"count": len(rels.get("related_content", []))}},
         {"name": "Event Mapping", "items": rels.get("event_mapping", []), "data": {"count": len(rels.get("event_mapping", []))}},
@@ -8608,4 +8643,139 @@ def ib_operation_object(env, op_name):
                   "rtng_label": rtng_label, "is_rest": is_rest, "rest_method": rest_method,
                   "msgname": msgname, "descr": descr},
         _metadata={"environment": env.upper(), "source_table": "PSOPERATION"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page and Field Configurator (EOCC) — Enterprise Components feature for
+# conditionally hiding/showing/masking/relabeling page fields at runtime.
+# Composite key (PNLGRPNAME, MARKET, EOCC_CONFIG_TYPE) is represented as a
+# dot-joined name, e.g. "PERSONAL_DATA.GBL.MASK", the same convention used
+# for peoplecode's dotted encoded_reference.
+# ---------------------------------------------------------------------------
+
+_EOCC_APPLY_LVL = {"S": "Sequence", "H": "Header"}
+_EOCC_APPLY_TO = {"A": "All Users", "R": "Role", "U": "User"}
+_EOCC_STATUS = {"A": "Active", "I": "Inactive"}
+
+
+def eocc_config_key(name):
+    parts = str(name).split(".")
+    if len(parts) != 3:
+        return None
+    return tuple(p.upper() for p in parts)
+
+
+def eocc_config_object(env, name):
+    """Build a UOM canonical object for a Page and Field Configurator definition."""
+    key = eocc_config_key(name)
+    if not key:
+        return canonical_base(
+            env, "eocc_config", name, status="not_found",
+            warnings=[ptmetadata.warning("eocc_config_bad_name",
+                      "Expected PNLGRPNAME.MARKET.CONFIG_TYPE, e.g. PERSONAL_DATA.GBL.MASK")],
+        )
+    pnlgrpname, market, config_type = key
+    display = f"{pnlgrpname}.{market}.{config_type}"
+
+    hdr, hdr_warn = safe_relationship("eocc_config_hdr", lambda: psdb.eocc_config(env, pnlgrpname, market, config_type))
+    if not hdr:
+        return canonical_base(
+            env, "eocc_config", display, status="not_found",
+            warnings=hdr_warn + [ptmetadata.warning("eocc_config_not_found", f"No Page and Field Configuration found for {display}")],
+        )
+
+    seqs, seq_warn = safe_relationship("eocc_config_sequences", lambda: psdb.eocc_config_sequences(env, pnlgrpname, market, config_type))
+    flds, fld_warn = safe_relationship("eocc_config_fields", lambda: psdb.eocc_config_fields(env, pnlgrpname, market, config_type))
+    pnls, pnl_warn = safe_relationship("eocc_config_panels", lambda: psdb.eocc_config_panels(env, pnlgrpname, market, config_type))
+    crts, crt_warn = safe_relationship("eocc_config_criteria", lambda: psdb.eocc_config_criteria(env, pnlgrpname, market, config_type))
+    warnings = hdr_warn + seq_warn + fld_warn + pnl_warn + crt_warn
+
+    seq_items = [{
+        "sequence_nbr": s.get("sequence_nbr"),
+        "status": _EOCC_STATUS.get(s.get("status"), s.get("status")),
+        "descr": (s.get("descr") or "").strip() or None,
+        "apply_to": _EOCC_APPLY_TO.get(s.get("eocc_apply_to"), s.get("eocc_apply_to")),
+        "mandatory": s.get("eocc_mandatory_flg") == "Y",
+        "rolename": (s.get("rolename") or "").strip() or None,
+        "form_factors": [
+            label for label, flag in (
+                ("Small", s.get("eocc_small_ff")), ("Medium", s.get("eocc_medium_ff")),
+                ("Large", s.get("eocc_large_ff")), ("XLarge", s.get("eocc_xlarge_ff")),
+            ) if flag == "Y"
+        ],
+    } for s in (seqs or [])]
+
+    fld_items = [attach_object_links({
+        "sequence_nbr": f.get("sequence_nbr"),
+        "recname": f.get("recname"),
+        "fieldname": f.get("fieldname"),
+        "pnlname": f.get("pnlname"),
+        "label": (f.get("lbltext") or "").strip() or None,
+        "label_override": (f.get("eocc_lbl_override") or "").strip() or None,
+        "required": f.get("eocc_is_required") == "Y",
+        "visible": f.get("eocc_visible_flag") != "N",
+        "disabled": f.get("eocc_disabled") == "Y",
+        "masked": f.get("eocc_mask_flag") == "Y",
+        "mask_id": (f.get("eocc_mask_id") or "").strip() or None,
+        "default_value": (f.get("eocc_dflt_value") or "").strip() or None,
+        "change_tracked": f.get("eocc_chgtrk_flag") == "Y",
+    }, env) for f in (flds or [])]
+
+    pnl_items = [attach_object_links({
+        "sequence_nbr": p.get("sequence_nbr"),
+        "pnlname": p.get("pnlname"),
+        "visible": p.get("eocc_visible_flag") != "N",
+        "display_only": bool(p.get("displayonly")),
+    }, env) for p in (pnls or [])]
+
+    crt_items = [attach_object_links({
+        "sequence_nbr": c.get("sequence_nbr"),
+        "recname": c.get("recname"),
+        "fieldname": c.get("fieldname"),
+        "pnlname": c.get("pnlname"),
+        "label": (c.get("lbltext") or "").strip() or None,
+        "operator": (c.get("eocc_criteria_sym") or "").strip() or None,
+        "value_match": (c.get("eocc_value_match") or "").strip() or None,
+        "value_match2": (c.get("eocc_value_match2") or "").strip() or None,
+    }, env) for c in (crts or [])]
+
+    masked_count = sum(1 for f in fld_items if f["masked"])
+    overview = {
+        "pnlgrpname": pnlgrpname,
+        "market": market,
+        "config_type": config_type,
+        "descr": (hdr.get("descr") or "").strip() or None,
+        "status": _EOCC_STATUS.get(hdr.get("eff_status"), hdr.get("eff_status")),
+        "apply_level": _EOCC_APPLY_LVL.get(hdr.get("eocc_apply_lvl"), hdr.get("eocc_apply_lvl")),
+        "apply_to": _EOCC_APPLY_TO.get(hdr.get("eocc_apply_to"), hdr.get("eocc_apply_to")),
+        "rolename": (hdr.get("rolename") or "").strip() or None,
+        "runs_on_page_event": hdr.get("eocc_page_event") == "Y",
+        "sequence_count": len(seq_items),
+        "field_count": len(fld_items),
+        "masked_field_count": masked_count,
+        "page_count": len(pnl_items),
+        "criteria_count": len(crt_items),
+        "_links": {"admin": object_url("component", pnlgrpname)},
+    }
+
+    sections = [
+        {"name": "Sequences", "items": seq_items, "data": {"count": len(seq_items)}},
+        {"name": "Field Configuration", "items": fld_items,
+         "data": {"count": len(fld_items), "masked": masked_count}},
+        {"name": "Page Configuration", "items": pnl_items, "data": {"count": len(pnl_items)}},
+        {"name": "Criteria", "items": crt_items,
+         "data": {"count": len(crt_items),
+                  "note": "Conditions that must be met for a sequence to apply" if crt_items else ""}},
+        {"name": "Warnings", "items": warnings, "data": {"count": len(warnings)}},
+    ]
+
+    return canonical_base(
+        env, "eocc_config", display,
+        display_name=display,
+        description=(hdr.get("descr") or "").strip() or display,
+        status="available",
+        warnings=[w for w in warnings if w],
+        sections=sections,
+        _metadata={"environment": env.upper(), "source_table": "PS_EOCC_CONFIG_HDR", "raw": overview},
     )

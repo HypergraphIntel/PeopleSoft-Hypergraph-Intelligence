@@ -1661,6 +1661,24 @@ function renderComponent(d, name, panel) {{
   const portal_count = ov.portal_refs || 0;
   const searchrec = (ov.searchrecname||'').trim();
   const addsrec   = (ov.addsrchrecname||'').trim();
+  const pfcItems = (byName['Page Field Configurations'] || {{}}).items || [];
+  const pfc_count = ov.page_field_configs || pfcItems.length || 0;
+
+  const pfcHtml = pfcItems.length ? `
+    <div style="margin-top:12px">
+      <div style="font-size:10px;color:#556;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">
+        Page Field Configurations (enabled)
+      </div>
+      ${{pfcItems.map(c => {{
+        const link = (c._links && c._links.admin) || '#';
+        const bits = [c.apply_level, c.apply_to, c.rolename].filter(Boolean).join(' · ');
+        return `<div style="padding:5px 8px;border:1px solid #ffaa2233;background:#1a120033;margin-bottom:3px;font-size:12px">
+          <a href="${{link}}?env=${{ENV}}" style="color:#ffaa22;font-family:monospace;text-decoration:none">${{esc(c.config_name)}}</a>
+          <span style="color:#556;margin-left:6px">${{esc(c.descr||'')}}</span>
+          ${{bits ? `<div style="font-size:10px;color:#445;margin-top:1px">${{esc(bits)}}</div>` : ''}}
+        </div>`;
+      }}).join('')}}
+    </div>` : '';
 
   const ovHtml = `
     <div class="stat-row">
@@ -1671,6 +1689,7 @@ function renderComponent(d, name, panel) {{
       <div class="stat-pill"><span class="stat-num">${{pc_count}}</span><span class="stat-lbl">PC Events</span></div>
       <div class="stat-pill"><span class="stat-num">${{rec_count}}</span><span class="stat-lbl">Records</span></div>
       ${{portal_count ? `<div class="stat-pill"><span class="stat-num">${{portal_count}}</span><span class="stat-lbl">Portal Refs</span></div>` : ''}}
+      ${{pfc_count ? `<div class="stat-pill" style="border-color:#ffaa2244"><span class="stat-num" style="color:#ffaa22">${{pfc_count}}</span><span class="stat-lbl">Page Field Configs</span></div>` : ''}}
     </div>
     <div class="kv">
       <span class="kv-lbl">Component</span><span class="kv-val">${{esc(ov.pnlgrpname||name)}}</span>
@@ -1682,6 +1701,7 @@ function renderComponent(d, name, panel) {{
       <span class="kv-lbl">Last Updated</span><span class="kv-val">${{fmt(ov.lastupddttm||'')}}</span>
       <span class="kv-lbl">Updated By</span><span class="kv-val">${{esc(ov.lastupdoprid||'')}}</span>
     </div>
+    ${{pfcHtml}}
     <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
       <a href="/admin/compflow?comp=${{encodeURIComponent(name)}}&env=${{ENV}}" style="color:#44aaff;font-size:12px">Event Flow &#x2197;</a>
       <a href="/admin/object/component/${{encodeURIComponent(name)}}?env=${{ENV}}" style="color:#44aaff;font-size:12px">Full Object View &#x2197;</a>

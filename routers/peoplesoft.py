@@ -717,6 +717,12 @@ def object_payload(env, object_type, object_name):
     if object_type == "peoplecode":
         return uom.peoplecode_payload(uom.peoplecode_object(env, object_name))
 
+    if object_type == "eocc_config":
+        eocc_obj = uom.eocc_config_object(env, object_name)
+        if eocc_obj.get("status") == "not_found":
+            raise HTTPException(status_code=404, detail="Page Field Configuration not found")
+        return uom.object_payload(eocc_obj)
+
     if object_type == "application_engine":
         ae_obj = uom.ae_object(env, object_name)
         payload = uom.ae_payload(ae_obj)

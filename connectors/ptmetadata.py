@@ -350,6 +350,18 @@ OBJECT_REGISTRY = {
             {"edge_type": "CALLS", "target_type": "application_package", "direction": "out", "label": "App Package Classes"},
         ],
     },
+    "eocc_config": {
+        "display_title": "Page Field Config",
+        "icon": "sliders",
+        "graph_node_type": "eocc_config",
+        "object_page": "/admin/object/eocc_config/{name}",
+        "discovery": {"table": "PS_EOCC_CONFIG_HDR", "name_column": "PNLGRPNAME"},
+        "search": {"provider": "eocc_config", "table": "PS_EOCC_CONFIG_HDR", "name_column": "PNLGRPNAME", "description_columns": ["DESCR"]},
+        "supported_versions": ["8.58", "8.59", "8.60", "8.61", "8.62"],
+        "relationships": [
+            {"edge_type": "CONFIGURES", "target_type": "component", "direction": "out", "label": "Component"},
+        ],
+    },
     "peoplecode_event": {
         "display_title": "PeopleCode Event",
         "icon": "zap",
@@ -1507,6 +1519,38 @@ def global_search(env, q, limit=20):
                             "effdt": row.get("effdt"),
                             "status": row.get("eff_status"),
                         },
+                        "_links": {"admin": entry["object_page"].format(name=name)},
+                    })
+            except Exception as exc:
+                results.append({
+                    "type": object_type, "name": None,
+                    "description": f"Search failed: {exc}",
+                    "score": 0, "icon": entry["icon"], "error": True,
+                })
+            continue
+
+        if provider.get("provider") == "eocc_config":
+            try:
+                eocc_rows = psdb.eocc_configs(env, q, limit)
+                for row in eocc_rows:
+                    pnlgrpname = row.get("pnlgrpname")
+                    market = row.get("market")
+                    config_type = row.get("eocc_config_type")
+                    if not (pnlgrpname and market and config_type):
+                        continue
+                    name = f"{pnlgrpname}.{market}.{config_type}"
+                    descr = (row.get("descr") or "").strip()
+                    score = 15
+                    if pnlgrpname.upper() == q.upper():
+                        score += 100
+                    elif pnlgrpname.upper().startswith(q.upper()):
+                        score += 50
+                    results.append({
+                        "type": object_type,
+                        "name": name,
+                        "description": descr or name,
+                        "score": score,
+                        "icon": entry["icon"],
                         "_links": {"admin": entry["object_page"].format(name=name)},
                     })
             except Exception as exc:

@@ -58,10 +58,16 @@ def admin_security():
 
         button {
             background: #00e5ff;
+            color: #000;
+            font-weight: bold;
             border: none;
             padding: 8px 14px;
             margin: 4px 0;
             cursor: pointer;
+        }
+
+        button:hover {
+            background: #33eeff;
         }
 
         button.link-row {
@@ -1219,7 +1225,7 @@ function renderComponents(items) {
 }
 
 function renderPages(items) {
-  if (!items.length) return '<div class="empty">No pages reference this record\'s fields.</div>';
+  if (!items.length) return '<div class="empty">No pages reference this record\\'s fields.</div>';
   // Deduplicate by page name.
   const seen = new Set();
   const unique = items.filter(r => { const k = r.pnlname; if (seen.has(k)) return false; seen.add(k); return true; });

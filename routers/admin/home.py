@@ -374,10 +374,16 @@ def admin_users():
 
         button {
             background: #00e5ff;
+            color: #000;
+            font-weight: bold;
             border: none;
             padding: 8px 14px;
             margin: 4px;
             cursor: pointer;
+        }
+
+        button:hover {
+            background: #33eeff;
         }
 
         table {
