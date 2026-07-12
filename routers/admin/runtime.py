@@ -2374,9 +2374,7 @@ a.obj-link:hover{text-decoration:underline;}
 
 <div class="ds-toolbar">
   <span class="lbl">Env</span>
-  <select id="envSel" style="width:70px;"></select>
-  <span class="lbl">DB</span>
-  <select id="dbSel" style="width:80px;"></select>
+  <select id="envSel" style="width:auto;min-width:90px;" onchange="loadActive()"></select>
   <span class="lbl">OPRID</span>
   <div class="suggest-wrap" style="position:relative;">
     <input id="opridInput" type="text" placeholder="JSMITH" autocomplete="off"
@@ -2395,7 +2393,6 @@ a.obj-link:hover{text-decoration:underline;}
 <div class="sidebar">
   <div style="padding:8px;border-bottom:1px solid #00e5ff11;">
     <h2 style="margin:0 0 6px;">Recent Activity</h2>
-    <select id="sideEnvSel" style="width:100%;font-size:11px;" onchange="loadActive()"></select>
   </div>
   <div class="sidebar-body" id="activeList">
     <span class="empty">Loading…</span>
@@ -2423,8 +2420,16 @@ const $ = id => document.getElementById(id);
 let suggestTimer = null;
 let currentOprid = null;
 
+let _allDbs = [];
 function env()   { return $('envSel').value   || 'HCM'; }
-function db()    { return $('dbSel').value    || ''; }
+function db() {
+  // Oracle database for the selected env, matched by name (envs and dbs
+  // don't always share an exact name, e.g. env "FSCM" -> db "FSCMDMO").
+  const e = env();
+  return _allDbs.find(d => d === e)
+      || _allDbs.find(d => d.startsWith(e) || e.startsWith(d))
+      || '';
+}
 function hours() { return parseInt($('hoursInput').value) || 24; }
 
 function esc(s) {
@@ -2474,9 +2479,8 @@ document.addEventListener('click', e => {
 
 // ─── Recent active operators (sidebar) ────────────────────────────────────
 async function loadActive() {
-  const e = $('sideEnvSel').value || 'HCM';
   $('activeList').innerHTML = '<span class="empty">Loading…</span>';
-  const d = await api(`/api/tracing/active?env=${e}&limit=30`);
+  const d = await api(`/api/tracing/active?env=${env()}&limit=30`);
   const items = d.items || [];
   if (!items.length) {
     $('activeList').innerHTML = '<span class="empty" style="padding:8px;">No recent activity.</span>';
@@ -2531,7 +2535,7 @@ async function runTrace() {
   const now  = new Date();
   const startDt = new Date(now - hours() * 3600000);
   const fmtIso  = dt => dt.toISOString().slice(0, 19);
-  const logUrl = `/api/logs/session/${encodeURIComponent(oprid)}?start=${fmtIso(startDt)}&end=${fmtIso(now)}&limit=500`;
+  const logUrl = `/api/logs/session/${encodeURIComponent(oprid)}?start=${fmtIso(startDt)}&end=${fmtIso(now)}&limit=500&env=${encodeURIComponent(env())}`;
 
   const [traceData, logData] = await Promise.all([
     api(traceUrl),
@@ -2822,11 +2826,8 @@ function collapseAll() {
 (async () => {
   const cfg = await api('/api/tracing/config');
   const envs = cfg.envs || ['HCM'];
-  const dbs  = cfg.dbs  || [];
+  _allDbs = cfg.dbs || [];
   $('envSel').innerHTML = envs.map(e => `<option value="${e}">${e}</option>`).join('');
-  $('sideEnvSel').innerHTML = envs.map(e => `<option value="${e}">${e}</option>`).join('');
-  $('dbSel').innerHTML = `<option value="">— (no Oracle)</option>` + dbs.map(d => `<option value="${d}">${d}</option>`).join('');
-  if (dbs.length) $('dbSel').value = dbs[0];
 
   // Pre-fill from URL params: ?oprid=VP1&env=FSCM
   const params = new URLSearchParams(window.location.search);
@@ -2834,7 +2835,6 @@ function collapseAll() {
   const envParam = params.get('env');
   if (envParam && envs.includes(envParam.toUpperCase())) {
     $('envSel').value = envParam.toUpperCase();
-    $('sideEnvSel').value = envParam.toUpperCase();
   }
   if (opParam) {
     $('opridInput').value = opParam;

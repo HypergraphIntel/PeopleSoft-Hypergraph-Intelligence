@@ -598,14 +598,15 @@ def prcs_ae_summary(env: str | None = None) -> dict:
 _SYSTEM_LOG_SOURCES = ("weblogic", "stdout", "error", "igw")  # source_name substrings for system-level entries
 
 
-def session_chain(oprid: str, start: str, end: str) -> dict:
+def session_chain(oprid: str, start: str, end: str, env: str | None = None) -> dict:
     """
     Return web + app log rows for an OPRID in a time window, plus system-level
     entries (weblogic, web error, JVM stdout) that fall in the same window
-    regardless of OPRID — they provide environmental context.
+    regardless of OPRID — they provide environmental context. When env is
+    given, all rows are scoped to that environment's log sources only.
     """
-    web = query_web(oprid=oprid, start=start, end=end, limit=500)
-    app = query_app(oprid=oprid, start=start, end=end, limit=500)
+    web = query_web(env=env, oprid=oprid, start=start, end=end, limit=500)
+    app = query_app(env=env, oprid=oprid, start=start, end=end, limit=500)
 
     # Pull system-level entries (no OPRID filter) for environmental context.
     # These are entries from weblogic / error / stdout sources in the window.
@@ -613,6 +614,9 @@ def session_chain(oprid: str, start: str, end: str) -> dict:
     sys_clauses = ["ts>=?", "ts<=?",
                    "(" + " OR ".join(f"lower(source_name) LIKE ?" for _ in _SYSTEM_LOG_SOURCES) + ")"]
     sys_params  = [start, end] + [f"%{kw}%" for kw in _SYSTEM_LOG_SOURCES]
+    if env:
+        sys_clauses.append("env=?")
+        sys_params.append(env)
     sys_rows = c.execute(
         f"SELECT * FROM app_entries WHERE {' AND '.join(sys_clauses)} ORDER BY ts ASC LIMIT 200",
         sys_params,
@@ -625,7 +629,7 @@ def session_chain(oprid: str, start: str, end: str) -> dict:
         if d.get("id") not in existing_ids:
             app.append(d)
 
-    return {"oprid": oprid, "start": start, "end": end, "web": web, "app": app}
+    return {"oprid": oprid, "start": start, "end": end, "env": env, "web": web, "app": app}
 
 
 def prune_old_entries(web_days: int = 30, app_days: int = 90, error_days: int = 90):

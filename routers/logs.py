@@ -88,6 +88,7 @@ def session_chain(
     oprid: str,
     start: Optional[str] = Query(None),
     end:   Optional[str] = Query(None),
+    env:   Optional[str] = Query(None),
 ):
     db = _db()
     if not start:
@@ -96,7 +97,7 @@ def session_chain(
     if not end:
         from datetime import datetime
         end = datetime.utcnow().isoformat(timespec="seconds")
-    return db.session_chain(oprid.upper(), start, end)
+    return db.session_chain(oprid.upper(), start, end, env=env)
 
 
 @router.post("/ingest")
