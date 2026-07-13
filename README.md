@@ -264,24 +264,44 @@ Low-level Oracle connections. Used for queries that do not require a PS environm
 PeopleSoft environment connections. Each entry becomes a named environment
 (e.g. `HCM`, `FSCM`) used in the UI and API `?env=` parameters.
 
+- `pillar` — groups environments for the Pillar dropdown in Promotion History
+  (`GET /api/runtime/pillars` derives pillar → environment-name mappings from
+  this field; any value works, not just `HCM`/`FSCM`).
+- `db` — name of the matching entry in `oracle.databases[]`, used to
+  auto-select the Oracle monitoring DB for this environment on the Runtime
+  Monitor page (no separate DB dropdown needed).
+- `ssh_host` / `ps_cfg_home` — used by filesystem-based domain discovery
+  (`connectors/domaindisc.py`): `ssh_host` is an alias into `ssh_hosts`,
+  `ps_cfg_home` is that environment's `PS_CFG_HOME` root. Both optional —
+  omit them and `/api/runtime/domains` returns a warning instead of data
+  for that environment.
+
 ``` json
 "peoplesoft": {
   "environments": [
     {
-      "name":     "HCM",
-      "service":  "HRDMO",
-      "host":     "192.168.1.10",
-      "port":     1521,
-      "user":     "DEATHSTAR_MON",
-      "password": "changeme"
+      "name":        "HCM",
+      "pillar":      "HCM",
+      "db":          "HRDMO",
+      "service":     "HRDMO",
+      "host":        "192.168.1.10",
+      "port":        1521,
+      "user":        "DEATHSTAR_MON",
+      "password":    "changeme",
+      "ssh_host":    "hcm_appserver",
+      "ps_cfg_home": "/opt/psoft/hcm/ps_cfg_home"
     },
     {
-      "name":     "FSCM",
-      "service":  "FSCMDMO",
-      "host":     "192.168.1.10",
-      "port":     1521,
-      "user":     "DEATHSTAR_MON",
-      "password": "changeme"
+      "name":        "FSCM",
+      "pillar":      "FSCM",
+      "db":          "FSCMDMO",
+      "service":     "FSCMDMO",
+      "host":        "192.168.1.10",
+      "port":        1521,
+      "user":        "DEATHSTAR_MON",
+      "password":    "changeme",
+      "ssh_host":    "hcm_appserver",
+      "ps_cfg_home": "/opt/psoft/fin/ps_cfg_home"
     }
   ]
 }
@@ -800,7 +820,9 @@ GET    /api/identity/audit?limit=100
 ### Runtime Monitor
 
 ```text
-GET /api/runtime/domains?env=HCM
+GET /api/runtime/domains?env=HCM         # App/Web/Process Scheduler domains, discovered via SSH filesystem listing (not Performance Monitor)
+GET /api/runtime/domains/all             # Same, merged across every configured environment
+GET /api/runtime/pillars                 # Configured pillars -> environment names (config.json-driven)
 GET /api/runtime/alerts?env=HCM&db=HRDMO
 GET /api/runtime/ash?db=HRDMO&minutes=30
 GET /api/runtime/ash/sql?db=HRDMO&minutes=30

@@ -192,6 +192,29 @@ snapshots only have the original 17.
   changes. **Lab context**: HCM and FSCM here are separate pillars, not a promotion
   chain — this needs real DV/TST/UAT/PRD connections to implement meaningfully.
 
+### Remaining — domain topology port/listener detail
+- **2026-07-13**: Domain discovery (`connectors/domaindisc.py`) was rebuilt on SSH
+  filesystem listing instead of `PSPMDOMAIN_VW` (see DEVELOPMENT_DIARY.md 2026-07-13),
+  since that Oracle view depends on Performance Monitor being configured/running and was
+  returning empty/stale/wrong data in environments where PSPM wasn't set up.
+- **2026-07-13 (session 2)**: first live check found environments sharing one physical
+  app-server host (all of HRDMO/HRDEV/HRTST/HRUAT/HRPRD here) were each re-querying the
+  same `ps_cfg_home` and showing 5x duplicated results — fixed by discovering each unique
+  `(ssh_host, ps_cfg_home)` pair once and attributing it to every environment sharing it
+  (labeled by shared pillar name when all grouped envs share one, else joined env names),
+  rather than one row-set per environment name (`connectors/domaindisc.py`
+  `discover_domains_by_path`).
+- **2026-07-13 (session 3)**: added port/listener parsing — `_app_server_port()` reads
+  `psappsrv.cfg` and extracts `Port=` from the Jolt/WSL listener section;
+  `_web_domain_ports()` reads WebLogic `config/config.xml` and extracts `<listen-port>`/
+  `<ssl-listen-port>`. Both are best-effort (`_read_text()` returns `None` on any SSH/read
+  failure rather than raising), so a domain with an unreadable/missing config file still
+  shows up with `—` ports instead of failing the whole listing. Process Scheduler domains
+  intentionally have no port (no listener) — that's expected, not a gap.
+- **Still open**: no way to attribute a shared-host domain to *one specific* environment
+  without parsing `psappsrv.cfg`'s `DBName`/`ServerName` inside each domain directory —
+  worth doing alongside the port parsing above (same file, same read) as a follow-up.
+
 ---
 
 # Phase 7 — AI Engineering Assistant

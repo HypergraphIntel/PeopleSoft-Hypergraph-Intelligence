@@ -25,6 +25,12 @@ tr:hover td{background:rgba(0,229,255,.04);}
 .chip-success{background:#002800;border:1px solid #00cc66;color:#00cc66;}
 .chip-warn{background:#2a1800;border:1px solid #ffaa00;color:#ffaa00;}
 .chip-muted{background:#141a20;border:1px solid #334;color:#778;}
+.chip-info{background:#002a3a;border:1px solid #33aadd;color:#33aadd;}
+.chip-ib{background:#1a0a2a;border:1px solid #aa77ff;color:#aa77ff;}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+.status-running .status-dot{background:#00cc66;box-shadow:0 0 4px #00cc66;}
+.status-down .status-dot{background:#ff4444;box-shadow:0 0 4px #ff4444;}
+.status-unknown .status-dot{background:#556;}
 .s-run{color:#00e5ff;} .s-que{color:#ffaa00;} .s-err{color:#ff4444;}
 .s-ok{color:#00cc66;} .s-hold{color:#778;}
 .alert-box{background:#2a0000;border:1px solid #ff4444;
@@ -98,8 +104,8 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
   <div id="procPanelBody"></div>
 </div>
 <div class="ctrl">
-  <div><span class="lbl">Environment</span><select id="envSel" onchange="refresh()"></select></div>
-  <div><span class="lbl">Oracle DB</span><select id="dbSel" onchange="refresh()"></select></div>
+  <div><span class="lbl">Environment</span><select id="envSel" onchange="onEnvChange()"></select></div>
+  <input type="hidden" id="dbSel">
   <div>
     <button onclick="refresh()">&#8635; Refresh</button>
     <button class="sec" id="arBtn" onclick="toggleAR()">Auto: ON</button>
@@ -132,7 +138,19 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
 <!-- ── App Server Domains ── -->
 <div class="card">
   <h2>App Server Domains</h2>
-  <div id="domArea"><span class="muted" style="font-size:12px">Loading…</span></div>
+  <div id="domAreaApp"><span class="muted" style="font-size:12px">Loading…</span></div>
+</div>
+
+<!-- ── Web Server Domains ── -->
+<div class="card">
+  <h2>Web Server Domains</h2>
+  <div id="domAreaWeb"><span class="muted" style="font-size:12px">Loading…</span></div>
+</div>
+
+<!-- ── Process Scheduler Domains ── -->
+<div class="card">
+  <h2>Process Scheduler Domains</h2>
+  <div id="domAreaPrcs"><span class="muted" style="font-size:12px">Loading…</span></div>
 </div>
 
 <!-- ── App Server / Process Scheduler Processes (live, via SSH ps) ── -->
@@ -528,45 +546,89 @@ async function loadAlerts() {
   }
 }
 
+const DOM_TYPE_CLS = {
+  app_server:        'chip-success',
+  process_scheduler: 'chip-warn',
+  web:               'chip-info',
+  ib:                'chip-ib',
+};
+
+const STATUS_LABEL = { running: 'Running', down: 'Down', unknown: 'Unknown' };
+
+function statusBadge(status) {
+  const s = status || 'unknown';
+  return `<span class="status-${esc(s)}"><span class="status-dot"></span>${esc(STATUS_LABEL[s]||'Unknown')}</span>`;
+}
+
+function domainRowPrefix(dom) {
+  const cls = DOM_TYPE_CLS[dom.domain_type] || 'chip-muted';
+  const sectionsTitle = dom.cfg_sections
+    ? ` title="psappsrv.cfg raw content:\\n${esc(dom.cfg_sections.join('\\n'))}"`
+    : '';
+  return `
+      <td style="font-size:11px">${statusBadge(dom.status)}</td>
+      <td class="mono" style="font-size:11px;color:#7faab2">${esc(dom.pillar||'—')}</td>
+      <td class="mono" style="font-size:11px;color:#8ab">${esc(dom.env||'—')}</td>
+      <td class="mono"${sectionsTitle}>${esc(dom.domain_name)}${dom.cfg_sections ? ' ⓘ' : ''}</td>
+      <td><span class="chip ${cls}" style="font-size:10px;padding:2px 8px;">${esc(dom.domain_type_label)}</span></td>
+      <td class="mono" style="font-size:11px">${esc((dom.hosts||[]).join(', '))}</td>`;
+}
+
+function renderAppServerTable(items) {
+  if (!items.length) return '';
+  let html = `<table><thead><tr>
+    <th>Status</th><th>Pillar</th><th>Env</th><th>Domain</th><th>Type</th><th>Host</th>
+    <th>WSL</th><th>WSL SSL</th><th>JSL</th><th>JSL SSL</th><th>JRAD</th><th>Listeners</th>
+  </tr></thead><tbody>`;
+  for (const dom of items) {
+    const p = (v) => `<td class="mono" style="font-size:11px${v==='off'?';color:#556':''}">${esc(v||'—')}</td>`;
+    html += `<tr>${domainRowPrefix(dom)}
+      ${p(dom.wsl_port)}${p(dom.wsl_ssl_port)}${p(dom.jsl_port)}${p(dom.jsl_ssl_port)}${p(dom.jrad_port)}
+      <td style="text-align:center;color:#8ab">${dom.listener_count==null?'—':dom.listener_count}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+function renderDomainTable(items) {
+  if (!items.length) return '';
+  let html = `<table><thead><tr>
+    <th>Status</th><th>Pillar</th><th>Env</th><th>Domain</th><th>Type</th><th>Host</th><th>HTTP Port</th><th>HTTPS Port</th><th>Listeners</th>
+  </tr></thead><tbody>`;
+  for (const dom of items) {
+    html += `<tr>${domainRowPrefix(dom)}
+      <td class="mono" style="font-size:11px">${esc(dom.primary_port||'—')}</td>
+      <td class="mono" style="font-size:11px">${esc(dom.alt_port||'—')}</td>
+      <td style="text-align:center;color:#8ab">${dom.listener_count==null?'—':dom.listener_count}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
 async function loadDomains() {
-  const env = $('envSel').value;
-  if (!env) { $('domArea').innerHTML = '<span class="muted" style="font-size:12px">No environment selected.</span>'; return; }
+  const areas = ['domAreaApp', 'domAreaWeb', 'domAreaPrcs'];
   try {
-    const d = await api(`/api/runtime/domains?env=${env}`);
+    const d = await api('/api/runtime/domains/all');
     const items = d.items || [];
     const warnings = d.warnings || [];
     if (!items.length) {
       const wmsg = warnings.length ? warnings.map(w => esc(w.message||String(w))).join(' ') : 'No domain data found.';
-      $('domArea').innerHTML = `<span class="muted" style="font-size:12px">${wmsg}</span>`;
+      areas.forEach(id => $(id).innerHTML = `<span class="muted" style="font-size:12px">${wmsg}</span>`);
       return;
     }
-    const TYPE_CLS = {
-      app_server:        'chip-success',
-      process_scheduler: 'chip-warn',
-      web:               'chip-info',
-      ib:                'chip-muted',
-    };
-    let html = `<table><thead><tr>
-      <th>Domain</th><th>Type</th><th>Host</th><th>Port</th><th>Listeners</th>
-    </tr></thead><tbody>`;
-    for (const dom of items) {
-      const cls = TYPE_CLS[dom.domain_type] || 'chip-muted';
-      const altPort = dom.alt_port ? ` / ${esc(dom.alt_port)}` : '';
-      html += `<tr>
-        <td class="mono">${esc(dom.domain_name)}</td>
-        <td><span class="chip ${cls}" style="font-size:10px;padding:2px 8px;">${esc(dom.domain_type_label)}</span></td>
-        <td class="mono" style="font-size:11px">${esc((dom.hosts||[]).join(', '))}</td>
-        <td class="mono" style="font-size:11px">${esc(dom.primary_port||'—')}${altPort}</td>
-        <td style="text-align:center;color:#8ab">${dom.listener_count}</td>
-      </tr>`;
-    }
-    html += '</tbody></table>';
-    if (d.source_view) {
-      html += `<div style="font-size:9px;color:#334;margin-top:4px;text-align:right;">Source: ${esc(d.source_view)}</div>`;
-    }
-    $('domArea').innerHTML = html;
+    const appItems  = items.filter(d => d.domain_type === 'app_server');
+    const webItems  = items.filter(d => d.domain_type === 'web' || d.domain_type === 'ib');
+    const prcsItems = items.filter(d => d.domain_type === 'process_scheduler');
+    const srcNote = (d.source_views||[]).length
+      ? `<div style="font-size:9px;color:#334;margin-top:4px;text-align:right;">Source: ${esc(d.source_views.join(', '))}</div>`
+      : '';
+    $('domAreaApp').innerHTML  = (renderAppServerTable(appItems)  || '<span class="muted" style="font-size:12px">No app server domains found.</span>') + srcNote;
+    $('domAreaWeb').innerHTML  = (renderDomainTable(webItems)  || '<span class="muted" style="font-size:12px">No web server domains found.</span>');
+    $('domAreaPrcs').innerHTML = (renderDomainTable(prcsItems) || '<span class="muted" style="font-size:12px">No process scheduler domains found.</span>');
   } catch(e) {
-    $('domArea').innerHTML = `<span class="muted" style="font-size:12px">Domains unavailable: ${esc(e.message)}</span>`;
+    areas.forEach(id => $(id).innerHTML = `<span class="muted" style="font-size:12px">Domains unavailable: ${esc(e.message)}</span>`);
   }
 }
 
@@ -1288,16 +1350,22 @@ async function loadRtGraph() {
 }
 
 // ── init ────────────────────────────────────────────────
+let ENV_DB = {};
+function onEnvChange() {
+  $('dbSel').value = ENV_DB[$('envSel').value] || '';
+  refresh();
+}
 (async () => {
-  const cfg = await api('/api/runtime/config').catch(() => ({envs:[], dbs:[]}));
+  const cfg = await api('/api/runtime/config').catch(() => ({envs:[], dbs:[], env_db:{}}));
+  ENV_DB = cfg.env_db || {};
   $('envSel').innerHTML = cfg.envs.map(e => `<option value="${e}">${e}</option>`).join('');
-  $('dbSel').innerHTML  = cfg.dbs.map(d  => `<option value="${d}">${d}</option>`).join('');
   const urlParams = new URLSearchParams(window.location.search);
   const envParam = urlParams.get('env');
   if (envParam) {
     const envOpt = $('envSel').querySelector(`option[value="${envParam}"]`);
     if (envOpt) envOpt.selected = true;
   }
+  $('dbSel').value = ENV_DB[$('envSel').value] || '';
   await refresh();
   arTimer = setTimeout(refresh, INTERVAL);
   const instParam = urlParams.get('instance');
@@ -2850,19 +2918,18 @@ function collapseAll() {
 def admin_infra():
     return _shell("Infrastructure", "infra", content="""
 <div class="ds-page-header">
-  <div class="ds-page-title">Infrastructure</div>
   <div class="ds-page-subtitle">Host metrics, services, containers, and Oracle health</div>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
 
   <div class="card">
-    <h2>Host Metrics <button onclick="loadHost()" style="float:right;font-size:11px">Refresh</button></h2>
+    <h2 style="display:flex;justify-content:space-between;align-items:center">Host Metrics <button onclick="loadHost()" style="font-size:11px">Refresh</button></h2>
     <div id="hostMetrics" style="font-size:12px;color:#6c7086">Loading...</div>
   </div>
 
   <div class="card">
-    <h2>Services <button onclick="loadServices()" style="float:right;font-size:11px">Refresh</button></h2>
+    <h2 style="display:flex;justify-content:space-between;align-items:center">Services <button onclick="loadServices()" style="font-size:11px">Refresh</button></h2>
     <table id="servicesTable" style="font-size:12px;width:100%">
       <thead><tr><th>Service</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody id="serviceRows"></tbody>
@@ -2873,7 +2940,7 @@ def admin_infra():
   </div>
 
   <div class="card">
-    <h2>Containers <button onclick="loadContainers()" style="float:right;font-size:11px">Refresh</button></h2>
+    <h2 style="display:flex;justify-content:space-between;align-items:center">Containers <button onclick="loadContainers()" style="font-size:11px">Refresh</button></h2>
     <table id="containersTable" style="font-size:12px;width:100%">
       <thead><tr><th>Name</th><th>Image</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody id="containerRows"></tbody>
@@ -2881,7 +2948,7 @@ def admin_infra():
   </div>
 
   <div class="card">
-    <h2>Oracle Health <button onclick="loadOracleHealth()" style="float:right;font-size:11px">Refresh</button></h2>
+    <h2 style="display:flex;justify-content:space-between;align-items:center">Oracle Health <button onclick="loadOracleHealth()" style="font-size:11px">Refresh</button></h2>
     <div id="oracleHealth" style="font-size:12px;color:#6c7086">Loading...</div>
   </div>
 
@@ -3080,6 +3147,8 @@ tr:hover td{background:rgba(0,229,255,.04);}
 </style>
 <div style="padding:16px;">
 <div class="ctrl">
+  <label style="font-size:11px;color:#7faab2">Pillar</label>
+  <select id="driftPillar" onchange="onDriftPillarChange()"></select>
   <label style="font-size:11px;color:#7faab2">ENV1</label>
   <select id="driftEnv1"></select>
   <label style="font-size:11px;color:#7faab2">ENV2</label>
@@ -3210,13 +3279,30 @@ function renderSummary(latest,history){
   }
 }
 
-(async () => {
-  const cfg = await apiGet('/api/runtime/config');
-  const envs = cfg.envs || ['HCM','FSCM'];
-  const opts = envs.map(e => `<option>${e}</option>`).join('');
+let PILLAR_ENVS = {};
+
+function populateDriftEnvs(pillar){
+  const envs = pillar ? (PILLAR_ENVS[pillar]||[]) : Object.values(PILLAR_ENVS).flat();
+  const prev1 = $('driftEnv1').value, prev2 = $('driftEnv2').value;
+  const opts = envs.map(e => `<option>${esc(e)}</option>`).join('');
   $('driftEnv1').innerHTML = opts;
   $('driftEnv2').innerHTML = opts;
-  if (envs.length > 1) $('driftEnv2').value = envs[1];
+  $('driftEnv1').value = envs.includes(prev1) ? prev1 : (envs[0]||'');
+  $('driftEnv2').value = envs.includes(prev2) ? prev2 : (envs[1]||envs[0]||'');
+}
+
+function onDriftPillarChange(){
+  populateDriftEnvs($('driftPillar').value);
+  loadDrift();
+}
+
+(async () => {
+  const r = await apiGet('/api/runtime/pillars');
+  PILLAR_ENVS = r.pillars || {};
+  const pillarNames = Object.keys(PILLAR_ENVS);
+  $('driftPillar').innerHTML = '<option value="">All</option>' +
+    pillarNames.map(p => `<option>${esc(p)}</option>`).join('');
+  populateDriftEnvs($('driftPillar').value);
   loadDrift();
 })();
 </script>""")
@@ -3224,8 +3310,6 @@ function renderSummary(latest,history){
 
 @router.get("/promotions", response_class=HTMLResponse)
 def admin_promotions():
-    from connectors.promotiondb import ENV_SUGGESTIONS
-    env_opts = "".join(f'<option value="{e}">' for e in ENV_SUGGESTIONS)
     return _shell("Promotion History", "promotions", env=False, content=f"""\
 <style>
 *{{box-sizing:border-box;}}
@@ -3265,7 +3349,7 @@ tr:hover td{{background:rgba(0,229,255,.04);}}
   padding:8px 12px;margin-bottom:14px;line-height:1.5;}}
 </style>
 
-<datalist id="envList">{env_opts}</datalist>
+<datalist id="envList"></datalist>
 
 <div style="padding:16px;">
 
@@ -3280,7 +3364,7 @@ tr:hover td{{background:rgba(0,229,255,.04);}}
 <div class="form-grid">
   <div class="form-col">
     <label>Pillar</label>
-    <select id="fPillar"><option>HCM</option><option>FSCM</option></select>
+    <select id="fPillar" onchange="onFormPillarChange()"></select>
   </div>
   <div class="form-col">
     <label>Project Name</label>
@@ -3318,8 +3402,8 @@ tr:hover td{{background:rgba(0,229,255,.04);}}
 <div class="section-head" style="margin-top:24px">Promotion Timeline</div>
 <div class="ctrl">
   <label>Pillar</label>
-  <select id="fltPillar" onchange="loadPromos()">
-    <option value="">All</option><option>HCM</option><option>FSCM</option>
+  <select id="fltPillar" onchange="onFilterPillarChange()">
+    <option value="">All</option>
   </select>
   <label>Project</label>
   <input id="fltProject" type="text" placeholder="filter…" style="width:180px"
@@ -3334,6 +3418,7 @@ tr:hover td{{background:rgba(0,229,255,.04);}}
 <script>
 const $ = id => document.getElementById(id);
 function esc(s){{return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}}
+async function apiGet(url){{try{{const r=await fetch(url);return r.json();}}catch{{return {{}};}}}}
 
 // Set today's date as default
 (function(){{
@@ -3342,9 +3427,40 @@ function esc(s){{return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,
   $('fDate').value=iso;
 }})();
 
-function pillCls(p){{
+let PILLAR_ENVS={{}};
+const PILLAR_COLORS=['#00e5ff','#aa77ff','#ffcc55','#55ffaa','#ff7799','#77aaff'];
+function pillarColor(p){{
+  const names=Object.keys(PILLAR_ENVS);
+  const i=names.indexOf(p);
+  return PILLAR_COLORS[(i<0?0:i)%PILLAR_COLORS.length];
+}}
+function pillStyle(p){{
   if(!p)return'';
-  return p.toUpperCase()==='HCM'?'pill pill-hcm':'pill pill-fscm';
+  const c=pillarColor(p.toUpperCase());
+  return `color:${{c}};border-color:${{c}}44;background:${{c}}14`;
+}}
+
+function populateEnvList(pillar){{
+  const envs=pillar?(PILLAR_ENVS[pillar]||[]):Object.values(PILLAR_ENVS).flat();
+  $('envList').innerHTML=envs.map(e=>`<option value="${{esc(e)}}">`).join('');
+}}
+
+function onFormPillarChange(){{
+  populateEnvList($('fPillar').value);
+}}
+function onFilterPillarChange(){{
+  populateEnvList($('fltPillar').value);
+  loadPromos();
+}}
+
+async function loadPillars(){{
+  const r=await apiGet('/api/runtime/pillars');
+  PILLAR_ENVS=r.pillars||{{}};
+  const names=Object.keys(PILLAR_ENVS);
+  const pillarOpts=names.map(p=>`<option>${{esc(p)}}</option>`).join('');
+  $('fPillar').innerHTML=pillarOpts;
+  $('fltPillar').innerHTML='<option value="">All</option>'+pillarOpts;
+  populateEnvList($('fPillar').value);
 }}
 
 async function logPromotion(){{
@@ -3406,7 +3522,7 @@ async function loadPromos(){{
   rows.forEach(r=>{{
     h+=`<tr>
       <td class="mono">${{esc(r.promoted_at)}}</td>
-      <td><span class="${{pillCls(r.pillar)}}">${{esc(r.pillar)}}</span></td>
+      <td><span class="pill" style="${{pillStyle(r.pillar)}}">${{esc(r.pillar)}}</span></td>
       <td class="mono">${{esc(r.project)}}</td>
       <td>
         <span class="pill pill-env">${{esc(r.from_env)}}</span>
@@ -3450,7 +3566,10 @@ async function loadFingerprint(id, btn){{
   }}
 }}
 
-loadPromos();
+(async () => {{
+  await loadPillars();
+  loadPromos();
+}})();
 </script>""")
 
 
@@ -3478,12 +3597,15 @@ button:hover{background:#33eeff}
 </style>
 
 <div class="ds-page-header">
-  <div class="ds-page-title">Infrastructure Topology</div>
   <div class="ds-page-subtitle">Live PeopleSoft infrastructure flow with status indicators. Click a node to see details.</div>
 </div>
 
 <div class="card">
   <button onclick="loadTopo()">Refresh</button>
+  <label style="font-size:11px;color:#7faab2;margin-left:10px">Pillar</label>
+  <select id="pillarSel" style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px" onchange="onPillarSelChange()">
+    <option value="">All</option>
+  </select>
   <label style="font-size:11px;color:#7faab2;margin-left:10px">Environment</label>
   <select id="envSel" style="background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;padding:4px 8px;font-size:12px" onchange="loadTopo()">
     <option value="">All</option>
@@ -3523,7 +3645,7 @@ const LANE_H = 150, LANE_TOP = 70;
 const NODE_W = 110, NODE_H = 40, NODE_R = 6;
 
 // ── state ──────────────────────────────────────────────────────────────────
-let _nodes = [], _links = [], _envs = [], _posMap = {}, _laneMap = {};
+let _nodes = [], _links = [], _envs = [], _posMap = {}, _laneMap = {}, _pillars = [], _envPillar = {};
 
 function computeLayout(nodes) {
   // Assign each distinct lane a row band, top to bottom.
@@ -3718,17 +3840,39 @@ function showDetail(n) {
     (n.meta   ? `<br><span style="color:#445566">meta:</span> <code style="color:#8ab">${ESC(n.meta)}</code>` : '');
 }
 
+function onPillarSelChange() {
+  const pillarSel = document.getElementById('pillarSel');
+  const envSel = document.getElementById('envSel');
+  const chosenPillar = pillarSel.value;
+  const visibleEnvs = chosenPillar
+    ? _envs.filter(e => _envPillar[e] === chosenPillar)
+    : _envs;
+  const prevEnv = envSel.value;
+  envSel.innerHTML = '<option value="">All</option>' +
+    visibleEnvs.map(e => `<option value="${ESC(e)}">${ESC(e)}</option>`).join('');
+  envSel.value = visibleEnvs.includes(prevEnv) ? prevEnv : '';
+  loadTopo();
+}
+
 async function loadTopo() {
   const msg = document.getElementById('statusMsg');
   msg.textContent = 'Loading\u2026';
   try {
+    const pillarSel = document.getElementById('pillarSel');
     const envSel = document.getElementById('envSel');
-    const envParam = envSel.value ? `?env=${encodeURIComponent(envSel.value)}` : '';
-    const d = await fetch('/api/topology' + envParam).then(r => r.json());
+    const params = new URLSearchParams();
+    if (envSel.value) params.set('env', envSel.value);
+    if (pillarSel.value) params.set('pillar', pillarSel.value);
+    const qs = params.toString() ? '?' + params.toString() : '';
+    const d = await fetch('/api/topology' + qs).then(r => r.json());
     _nodes = d.nodes || [];
     _links = d.links || [];
     if (d.envs && d.envs.length && !_envs.length) {
       _envs = d.envs;
+      _envPillar = d.env_pillar || {};
+      _pillars = d.pillars || [];
+      pillarSel.innerHTML = '<option value="">All</option>' +
+        _pillars.map(p => `<option value="${ESC(p)}">${ESC(p)}</option>`).join('');
       envSel.innerHTML = '<option value="">All</option>' +
         _envs.map(e => `<option value="${ESC(e)}">${ESC(e)}</option>`).join('');
     }

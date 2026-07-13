@@ -330,21 +330,56 @@ Display live execution state across the full PeopleSoft stack:
 Oracle sessions, blocking chains, long ops, Process Scheduler queue, active AE programs,
 IB transaction queue depth, web server request rates, tuxedo domain status.
 
-**App Server Domain Topology** is read from runtime views discovered at query time:
+**App/Web/Process Scheduler Domain Topology** is discovered directly from the PeopleSoft
+filesystem over SSH — not from Oracle/Performance Monitor. The original implementation
+read `SYSADM.PSPMDOMAIN_VW` (populated by the PSPM performance-monitor agent), but that
+view is empty or stale in any environment where PSPM isn't configured/running,
+independent of whether the domains themselves are healthy — which made the data
+unreliable in exactly the environments most likely to lack a fully wired-up PSPM setup.
 
-| View | Columns | Notes |
-|------|---------|-------|
-| `SYSADM.PSPMDOMAIN_VW` | PM_SYSTEMID, PM_DOMAIN_NAME, PM_HOST_PORT | Primary; available in PeopleTools 8.58+ |
-| `SYSADM.PS_PSPMDOMAIN1_VW` | PM_DOMAIN_NAME, PM_HOST_PORT | Fallback; same data, no system ID |
+`connectors/domaindisc.py`'s `discover_domains(env_name)` instead lists real directories
+under each environment's `ps_cfg_home` (via `connectors/sshclient.list_dirs`, SFTP-based):
 
-The connector (`psdb.app_server_domains`) discovers which view is accessible at runtime
-using `ptmetadata.has_table()`, queries the first available one, groups rows by
-PM_DOMAIN_NAME, infers domain type from name suffix (`_APP` → App Server, `_PRCS` →
-Process Scheduler, `_WEB` → Web/PIA), and returns a structured domain list with listener
-counts and host:port breakdown. If neither view is accessible, a non-fatal warning is
-returned and the UI degrades gracefully. `PSAPPSRV` and `PSAPPSRVDOM` are not required.
+| Path | Domain type |
+|------|-------------|
+| `<ps_cfg_home>/appserv/*` | App Server, unless the directory name contains `PRCS` → Process Scheduler |
+| `<ps_cfg_home>/webserv/*` | Web / PIA, plus a separate **Integration Gateway** row when `applications/peoplesoft/PSIGW.war` exists under that domain (same physical listener/ports as the PIA domain — a distinct logical row, not a separate port) |
 
-*Enabled by:* Execution Monitor, Oracle connectors, IB connector, infrastructure connectors.
+`ssh_host` (an alias into `ssh_hosts`) and `ps_cfg_home` are configured per environment in
+`config.json`'s `peoplesoft.environments[]` — nothing hardcoded. Domain type is derived
+from which directory tree a domain lives under, not from guessing based on naming
+convention, so it works correctly even for domains that don't follow an `_APP`/`_WEB`
+suffix convention.
+
+**Port/listener detail** is parsed from each domain's own config file, over the same SSH
+connection used for directory listing:
+
+- **App Server domains**: `psappsrv.cfg` (INI-style) is parsed for the five PeopleSoft
+  App Server listener types — `WSL`, `WSL SSL`, `JSL` (Jolt), `JSL SSL`, `JRAD` — matched
+  by section-header substring (`_APP_PORT_SECTIONS` in `domaindisc.py`), not a fixed
+  header string, since exact section wording varies by PeopleTools version. These are the
+  real App Server listener ports; **not** the generic HTTP/HTTPS columns used for Web
+  domains — a different tier of the stack with a different port model.
+- **Web domains**: WebLogic's `config/config.xml` is parsed for the plaintext
+  `<listen-port>` (HTTP) and the `<listen-port>` nested inside `<ssl>...</ssl>` (HTTPS) —
+  the SSL block is extracted and searched separately first, since both use the same tag
+  name at different nesting depth.
+- **Process Scheduler domains**: no port is expected (no listener) — `—` there is
+  correct, not a gap.
+- The `hosts` field resolves the `ssh_host` config alias to its real hostname (via
+  `ssh_hosts[alias].host`) rather than displaying the internal alias string.
+
+`GET /api/runtime/domains?env=` returns one environment; `GET /api/runtime/domains/all`
+groups environments that share the same `(ssh_host, ps_cfg_home)` — common when a whole
+pillar is deployed on one physical box — and discovers each unique pair only once rather
+than repeating the identical listing per environment name. Each discovered domain is then
+attributed to its specific environment by matching the domain name against configured
+environment names (longest substring match, e.g. `HRDEV_APP` → `HRDEV`); a domain that
+matches none of them is assigned to whichever environment in the group has no other match,
+but only when that's unambiguous — otherwise it keeps a shared group/pillar label rather
+than guessing wrong (`attribute_domains_to_envs()`).
+
+*Enabled by:* SSH/SFTP connector (`connectors/sshclient.py`), infrastructure connectors.
 
 ### Transaction Replay
 

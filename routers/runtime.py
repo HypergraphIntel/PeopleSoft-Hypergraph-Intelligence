@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from connectors import execution, psdb, alerts as alerts_conn
+from connectors import execution, psdb, alerts as alerts_conn, domaindisc
 
 router = APIRouter(prefix="/api/runtime", tags=["Runtime"])
 
@@ -12,11 +12,25 @@ CONFIG = Path("/opt/deathstar-api/config.json")
 
 @router.get("/config")
 def runtime_config():
-    """Return available PeopleSoft environments and Oracle monitoring databases."""
+    """Return available PeopleSoft environments, Oracle monitoring databases,
+    and the env->db mapping (each environment's associated monitoring db)."""
     data = json.loads(CONFIG.read_text())
     envs = [e["name"] for e in data["peoplesoft"]["environments"]]
     dbs  = [db["name"] for db in data["oracle"]["databases"]]
-    return {"envs": envs, "dbs": dbs}
+    env_db = {e["name"]: e["db"] for e in data["peoplesoft"]["environments"] if e.get("db")}
+    return {"envs": envs, "dbs": dbs, "env_db": env_db}
+
+
+@router.get("/pillars")
+def runtime_pillars():
+    """Return configured pillars and the environments that belong to each,
+    derived from the 'pillar' field on peoplesoft.environments in config.json."""
+    data = json.loads(CONFIG.read_text())
+    pillars: dict[str, list[str]] = {}
+    for e in data["peoplesoft"]["environments"]:
+        pillar = e.get("pillar", "UNASSIGNED")
+        pillars.setdefault(pillar, []).append(e["name"])
+    return {"pillars": pillars}
 
 
 @router.get("/status")
@@ -140,8 +154,80 @@ def runtime_ash_process(db: str, env: str = psdb.default_env(), instance: int = 
 
 @router.get("/domains")
 def runtime_domains(env: str = psdb.default_env()):
-    """Return App Server domain topology from PSPMDOMAIN_VW (or PS_PSPMDOMAIN1_VW fallback)."""
-    return psdb.app_server_domains(env)
+    """Return App/Web/Process Scheduler domain topology, discovered directly
+    from the PeopleSoft filesystem (ps_cfg_home/appserv, ps_cfg_home/webserv)
+    over SSH — independent of Performance Monitor (PSPMDOMAIN_VW), which is
+    only populated when the PSPM agent is configured and running."""
+    return domaindisc.discover_domains(env)
+
+
+_domains_all_cache: dict = {"at": 0.0, "data": None}
+_DOMAINS_ALL_CACHE_TTL = 20  # seconds — this endpoint does several SSH round
+# trips per host (directory listings + config-file reads + one process
+# list per host); short-caching it means repeat page loads / the Runtime
+# Monitor page's auto-refresh cycle don't re-pay that cost every time,
+# while still staying reasonably fresh. force=1 bypasses it.
+
+
+@router.get("/domains/all")
+def runtime_domains_all(force: bool = False):
+    """Return domain topology across every configured PeopleSoft environment,
+    merged into one list. Environments that share the same (ssh_host,
+    ps_cfg_home) — e.g. an entire pillar deployed on one physical app-server
+    box — are discovered only once and the result is attributed to all of
+    them together, rather than re-querying and repeating the identical
+    listing once per environment name sharing that box."""
+    import time
+    now = time.monotonic()
+    if not force and _domains_all_cache["data"] is not None and now - _domains_all_cache["at"] < _DOMAINS_ALL_CACHE_TTL:
+        return {**_domains_all_cache["data"], "cached": True}
+
+    groups: dict[tuple, list[dict]] = {}
+    unconfigured = []
+    for env in domaindisc.load_environments():
+        ssh_host = env.get("ssh_host")
+        ps_cfg_home = env.get("ps_cfg_home")
+        if not ssh_host or not ps_cfg_home:
+            unconfigured.append(env["name"])
+            continue
+        groups.setdefault((ssh_host, ps_cfg_home), []).append(env)
+
+    items = []
+    warnings = []
+    sources = set()
+    for (ssh_host, ps_cfg_home), envs in groups.items():
+        env_names = [e["name"] for e in envs]
+        label = "/".join(env_names)
+        try:
+            result = domaindisc.discover_domains_by_path(ssh_host, ps_cfg_home)
+        except Exception as exc:
+            warnings.append({
+                "code": "domain_discovery_failed",
+                "message": f"{label}: {exc}",
+                "severity": "warning",
+            })
+            continue
+        items.extend(domaindisc.attribute_domains_to_envs(result.get("items", []), envs))
+        for w in result.get("warnings", []):
+            warnings.append({**w, "env": label})
+        if result.get("source"):
+            sources.add(result["source"])
+
+    for env_name in unconfigured:
+        warnings.append({
+            "code": "domain_discovery_unconfigured",
+            "message": (
+                f"{env_name}: missing 'ssh_host' and/or 'ps_cfg_home' in "
+                "config.json peoplesoft.environments."
+            ),
+            "env": env_name,
+            "severity": "warning",
+        })
+
+    result = {"items": items, "source_views": sorted(sources), "warnings": warnings}
+    _domains_all_cache["at"] = now
+    _domains_all_cache["data"] = result
+    return {**result, "cached": False}
 
 
 @router.get("/appserver-processes")

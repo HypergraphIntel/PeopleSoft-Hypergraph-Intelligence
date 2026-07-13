@@ -6987,3 +6987,881 @@ discipline for "real data has nothing to demonstrate against"**:
 Verification: `python3 scripts/smoke_admin_shell.py` → 73/73 (unchanged — no
 new admin pages); `make check` → 100/100 files, 24/24 tests (19 previous +
 5 new).
+
+------------------------------------------------------------------------
+
+## 2026-07-13 — Config-Driven Pillars/Env↔DB, and Domain Discovery Rewrite (SSH filesystem, not PSPMDOMAIN_VW)
+
+**Context:** A run of admin-UI feedback on Promotion History and Runtime
+Monitor, each traced back to a hardcoded or unreliable data source rather
+than a UI bug:
+
+1. Promotion History's Pillar dropdown was hardcoded to `HCM`/`FSCM` in the
+   HTML, with no link between a pillar and the environments valid for it.
+2. Runtime Monitor had two independent selectors (Environment, Oracle DB)
+   for what is actually a 1:1 relationship per environment.
+3. "App Server Domains" mixed App Server, Web/PIA, IB, and Process
+   Scheduler rows in one table.
+4. Splitting that table surfaced the real issue underneath: most
+   environments were missing rows, and the ones present sometimes showed
+   another environment's domain (e.g. `HCMDMO_APP` appearing under
+   `HRDEV`/`HRTST`/`HRUAT`/`HRPRD`). Root-caused (via subagent research,
+   not guesswork) to two independent problems: (a) stale `PSPMDOMAIN_VW`
+   rows left over from environment cloning/refresh — a database-side
+   PeopleSoft admin issue, not app code — and (b) this app's own
+   `_classify_domain()` defaulting any domain name without an `_APP`/
+   `_WEB`/`_PRCS` substring to "Integration Broker", which mislabeled
+   single combined web+IB domains.
+5. Zooming out further: `PSPMDOMAIN_VW` is populated by the PeopleSoft
+   Performance Monitor (PSPM) agent. If PSPM isn't configured/running for
+   an environment, the view is empty/stale regardless of whether the
+   domains themselves are healthy — the actual root cause of the whole
+   chain of symptoms above. Decided to stop patching the PSPM-dependent
+   path and replace the data source entirely.
+
+**What changed:**
+
+- `config.json`:
+  - Added `pillar` to every `peoplesoft.environments[]` entry (grouping
+    key for the Promotion History pillar dropdown — any value works, not
+    just HCM/FSCM).
+  - Added `db` to every entry (name of the matching `oracle.databases[]`
+    entry — env→db is 1:1, so the DB no longer needs its own selector).
+  - Added `ssh_host` (alias into `ssh_hosts`) and `ps_cfg_home`
+    (`PS_CFG_HOME` root) to every entry, for the new domain-discovery
+    connector.
+
+- `routers/runtime.py`:
+  - `GET /api/runtime/config` now also returns `env_db` (env→db map).
+  - Added `GET /api/runtime/pillars` — derives pillar→environments from
+    `config.json`, replacing the hardcoded dropdown options.
+  - `GET /api/runtime/domains` and new `GET /api/runtime/domains/all`
+    (aggregates every configured environment, tagging each item with its
+    source `env`) now call `connectors/domaindisc.discover_domains()`
+    instead of `psdb.app_server_domains()` — see below.
+
+- `connectors/domaindisc.py` (new): filesystem-based domain discovery over
+  SSH, replacing the `PSPMDOMAIN_VW`/`PS_PSPMDOMAIN1_VW` approach. Lists
+  real directories under `<ps_cfg_home>/appserv/*` (App Server, or Process
+  Scheduler if the name contains `_PRCS`/`PRCSDOM`) and
+  `<ps_cfg_home>/webserv/*` (Web/PIA — IB rides on the same PIA domain, so
+  no separate IB type is needed, unlike the old classifier). Domain type
+  comes from *which directory tree* a domain lives under, not from
+  guessing based on name suffix — the actual bug class in point 4 above
+  can't recur structurally. Every path/host is config-driven
+  (`ssh_host`/`ps_cfg_home` per environment), nothing hardcoded. Known
+  limitation, tracked in ROADMAP.md: port/listener detail isn't parsed
+  from `psappsrv.cfg`/webserv config yet, so those columns render `—`.
+
+- `connectors/sshclient.py`: added `list_dirs(alias, path)` (SFTP
+  `listdir_attr` + `stat.S_ISDIR` filtering; `local` alias uses
+  `os.listdir`/`os.path.isdir`) — the primitive `domaindisc.py` needed
+  that didn't previously exist (`list_files` only globs files by pattern
+  within one directory, doesn't distinguish dirs from files).
+
+- `routers/admin/runtime.py` (Promotion History + Runtime Monitor pages):
+  - Promotion History: both Pillar `<select>`s now populate from
+    `/api/runtime/pillars`; selecting a pillar filters the From/To/filter
+    env `<datalist>` to that pillar's environments only. Pillar badge
+    coloring generated per-pillar (cycling a fixed palette) instead of a
+    hardcoded HCM/FSCM binary. Also fixed a `ReferenceError: apiGet is not
+    defined` — `apiGet` turned out to be defined locally inside the Drift
+    History page's own `<script>` block (`admin_drift`), not shared
+    globally across admin pages as assumed; added a local copy to the
+    Promotions page script instead.
+  - Runtime Monitor: removed the separate Oracle DB `<select>` — now a
+    hidden field auto-derived from the selected Environment via the new
+    `env_db` map (`onEnvChange()`), so there's one dropdown for what is
+    actually one choice.
+  - "App Server Domains" split into three cards/sections (App Server, Web
+    Server [Web/PIA + IB merged], Process Scheduler), each rendered from
+    the same `/api/runtime/domains/all` response filtered by
+    `domain_type`, with an `Env` column added since results now span every
+    configured environment in one table instead of whichever env happened
+    to be selected.
+
+- Docs: `ARCHITECTURE.md`'s App Server Domain Topology section rewritten to
+  describe the SSH/filesystem approach and why it replaced PSPMDOMAIN_VW;
+  `ROADMAP.md` Phase 6 gained a "domain topology port/listener detail"
+  remaining-work note; `README.md`'s `peoplesoft` config section documents
+  the new `pillar`/`db`/`ssh_host`/`ps_cfg_home` fields, and the Runtime
+  Monitor endpoint list gained `/domains/all` and `/api/runtime/pillars`.
+
+**Verification:** `python3 -c "import json; json.load(open('config.json'))"`
+and `python3 -c "import ast; ast.parse(...)"` against every changed `.py`
+file after each edit (config.json validity + syntax checks, run
+incrementally rather than only at the end, since several rounds of user
+screenshots drove iterative fixes in this session). Manual verification
+against the live service (`systemctl restart deathstar-api`, hard-refresh)
+at each step, driven by user-provided screenshots showing: pillar dropdown
+populated, `apiGet` ReferenceError caught and fixed, env/db selector
+collapsed to one control working live, three domain sections rendering
+correctly split, and the `HCMDMO_APP` cross-environment leak visibly
+disappearing once the user cleaned up the stale PSPM data — confirming the
+root-cause diagnosis (not just a plausible theory) before undertaking the
+larger domain-discovery rewrite. The filesystem-based `domaindisc.py`
+itself has not yet been screenshot-verified against the live SSH
+hosts/PS_CFG_HOME layout — next session should confirm real domain
+directories are being listed correctly for at least one environment before
+trusting it over the old PSPMDOMAIN_VW path.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 2) — Domain Discovery: Fixed Per-Env Duplication (Shared-Host Reality)
+
+**Context:** First live check of `domaindisc.py` (see previous entry)
+showed every HCM-family environment (HRDMO/HRDEV/HRTST/HRUAT/HRPRD)
+displaying the *same full list* of ~7 domains, each repeated 5 times —
+worse than the original problem. Root cause: those five environments all
+share one physical app-server host and one `ps_cfg_home` root in this lab
+(a single box hosting every HCM environment's domains side by side), so
+looping "for each configured environment name, list ps_cfg_home/appserv"
+queried the identical directory five times and produced five identical,
+fully-duplicated result sets.
+
+**Fix:** `connectors/domaindisc.py` split into `discover_domains_by_path
+(ssh_host, ps_cfg_home)` (the actual SSH listing, path-based, no
+environment identity involved) and `discover_domains(env_name)` (thin
+per-env wrapper, still used by `/api/runtime/domains?env=` for the
+single-env case). `routers/runtime.py`'s `runtime_domains_all()` now
+groups configured environments by their `(ssh_host, ps_cfg_home)` pair
+first, discovers each unique pair exactly once, and attributes results to
+a combined label (e.g. `HRDMO/HRDEV/HRTST/HRUAT/HRPRD`) covering every
+environment that shares that box — instead of one row-set per environment
+name. Also broadened the Process Scheduler name hint from `_PRCS`/
+`PRCSDOM` to a bare `PRCS` substring match, since the real directory in
+this lab is named exactly `prcs` (no separator) and wasn't being caught by
+the original two-hint list.
+
+**Not yet fixed / open**: this collapses duplication but doesn't restore
+per-environment attribution where multiple environments genuinely share
+infrastructure — that's an honest tradeoff, not a bug: there is no reliable
+way to know from the filesystem alone which of the 5 environments a given
+shared-box domain "belongs to" without either (a) real per-environment
+`PS_CFG_HOME` separation (not the case in this lab) or (b) parsing
+`psappsrv.cfg`'s `DBName`/`ServerName` config inside each domain directory
+to recover its actual bound database — which would also solve the
+port-parsing gap already tracked in ROADMAP.md and is the natural next
+step over guessing from directory/domain names (the same class of mistake
+`PSPMDOMAIN_VW`'s classifier made).
+
+**Verification**: `python3 -c "import ast; ast.parse(...)"` on both changed
+files. Not yet re-verified against the live service after this fix — next
+step is restart + hard-refresh to confirm the App Server Domains table
+shows one deduplicated row-set per shared host instead of 5x repetition.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 3) — Domain Discovery: Port/Listener Parsing + Pillar-Label Cleanup
+
+**Context:** Live check after the dedup fix (previous entry) confirmed one
+row-set per shared host instead of 5x duplication, but Port/Listeners
+columns were still all `—`, and the `Env` column repeated the full
+`HRDMO/HRDEV/HRTST/HRUAT/HRPRD` string on every single row — technically
+correct but visually noisy.
+
+**What changed:**
+
+- `connectors/domaindisc.py`: added best-effort config parsing over the same
+  SSH connection already used for directory listing —
+  - `_app_server_port()` reads `<appserv_path>/<domain>/psappsrv.cfg`
+    (INI-style) and extracts `Port=` from whichever section header contains
+    `JOLT` or `WSL` (`_parse_ini_port()`, a small stateful section-aware
+    line parser — PeopleTools' exact section name varies by version, hence
+    matching by substring hint rather than one fixed header string).
+  - `_web_domain_ports()` reads `<webserv_path>/<domain>/config/config.xml`
+    (WebLogic) and regex-extracts `<listen-port>`/`<ssl-listen-port>`.
+  - `_read_text()` wraps `sshclient.read_bytes()` and swallows all
+    exceptions, returning `None` — a missing/unreadable config file
+    degrades that one domain's port fields to `—` rather than failing the
+    whole discovery call, consistent with the non-fatal-warning philosophy
+    already used elsewhere in this connector.
+  - Process Scheduler domains deliberately get no port lookup — they don't
+    have a listener, so `—` there is correct, not a gap.
+
+- `routers/runtime.py`'s `runtime_domains_all()`: the per-row `env` label
+  now prefers the shared `pillar` name (from `config.json`) when every
+  environment in a discovered group shares one pillar, falling back to the
+  joined environment-name list only when they don't — cuts the noisy
+  repeated `HRDMO/HRDEV/HRTST/HRUAT/HRPRD` string down to `HCM` per row
+  while keeping the fallback behavior for genuinely mixed groups.
+
+- `ROADMAP.md`: consolidated the three same-day domain-discovery entries
+  under one "Remaining" section — port parsing marked done, shared-host
+  attribution (which specific env a domain "belongs to") remains open as a
+  natural follow-up using the same config file read.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on both changed
+files. Not yet re-verified against the live service after this round —
+next step is restart + hard-refresh to confirm real port numbers appear
+(or a graceful `—` if `psappsrv.cfg`/`config.xml` aren't at the assumed
+paths in this lab, which would indicate the path convention needs
+adjusting rather than the parsing logic itself).
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 4) — Domain Discovery: Per-Domain Env Attribution + Pillar Column
+
+**Context:** Port/listener parsing (previous entry) confirmed working
+live — real Jolt/WSL and WebLogic listen ports showed up correctly. Next
+ask: split the group-level label (`HCM` for every row) back into the real,
+specific environment per domain, and add a separate Pillar column, since
+the live data showed most domains *do* cleanly encode their environment in
+the name (`HRDEV_APP`, `HRPRD_WEB`, etc.) — only the legacy demo domain
+(`HCMDMO_APP`/`HCDMO`, predating that environment's rename to `HRDMO`)
+doesn't follow the convention.
+
+**What changed:**
+
+- `connectors/domaindisc.py`: added `attribute_domains_to_envs(items,
+  envs)` — two-pass attribution, not a blind rename:
+  1. Match each domain name against configured environment names by
+     longest case-insensitive substring (`HRDEV_APP` → `HRDEV`). Handles
+     the common case correctly without guessing.
+  2. Domains that don't match anything (the `HCMDMO_APP`/`HCDMO` case) are
+     assigned to whichever environment in the group has *zero* matched
+     domains — but **only when exactly one such environment exists**. With
+     more than one unmatched environment the mapping would be a genuine
+     guess, so those domains keep the shared group/pillar label instead —
+     same "degrade honestly rather than guess wrong" principle as the rest
+     of this connector (and the reason the old `PSPMDOMAIN_VW` classifier
+     was replaced in the first place).
+  - Each attributed item also gets a `pillar` field (from the resolved
+    environment's `config.json` pillar), independent of `env`.
+
+- `routers/runtime.py`'s `runtime_domains_all()`: replaced the flat
+  group-label assignment with a call to `attribute_domains_to_envs()` per
+  discovered group.
+
+- `routers/admin/runtime.py`: domain tables gained a leading **Pillar**
+  column ahead of **Env**, so the three domain sections now read
+  Pillar → Env → Domain → Type → Host → Port → Listeners.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on all three
+changed files. Not yet re-verified live after this round.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 5) — Domain Discovery: HTTP+HTTPS Ports, Real Hostnames, Web/PIA Badge, IB Gateway Detection
+
+**Context:** Live check after per-domain env attribution (previous entry)
+surfaced four more gaps, all in `connectors/domaindisc.py` /
+`routers/admin/runtime.py`:
+
+1. Web Server Domains showed only one port per row — `_web_domain_ports()`'s
+   regex for `<ssl-listen-port>` doesn't match real WebLogic `config.xml`
+   syntax, where the SSL port is `<listen-port>` **nested inside** a
+   `<ssl>...</ssl>` block, not a differently-named tag. The old regex
+   silently never matched, so `alt_port` was always `None`.
+2. Host column showed the `ssh_host` config alias (`hcm_appserver`) instead
+   of the real server hostname.
+3. "Web / PIA" rendered as plain unstyled text — `DOM_TYPE_CLS` referenced
+   a `chip-info` CSS class that was never defined (only `chip-active/
+   error/success/warn/muted` existed).
+4. No Integration Broker Gateway rows at all — IB Gateway (`PSIGW.war`)
+   runs inside the same PIA web domain, so it was invisible once IB was
+   folded into "Web / PIA" during the classification redesign (2026-07-13
+   session 1).
+
+**What changed:**
+
+- `connectors/domaindisc.py`:
+  - `_web_domain_ports()` rewritten: extracts the `<ssl>...</ssl>` block
+    first via `_WEB_SSL_BLOCK_RE`, searches *within* it for the SSL
+    `<listen-port>`, then removes that block from the text before
+    searching for the remaining (HTTP) `<listen-port>` — so HTTP and HTTPS
+    are structurally distinguished instead of both matching the same tag
+    pattern.
+  - Added `_resolve_hostname()`: looks up `ssh_hosts[alias].host` in
+    `config.json` and uses that as the domain's `hosts` value instead of
+    the alias string, for both appserv and webserv items.
+  - Added `_has_ib_gateway()`: lists
+    `<webserv_path>/<domain>/applications/peoplesoft/` and checks for a
+    `PSIGW.war` entry (case-insensitive). When found, `discover_domains_by_path`
+    emits a second item for that same domain with `domain_type: "ib"` /
+    `"Integration Gateway"`, sharing the PIA domain's ports (it's the same
+    physical listener, different servlet context path) — an honest
+    representation: same infrastructure, two logical roles, both visible.
+
+- `routers/admin/runtime.py`:
+  - Added missing `.chip-info` (Web/PIA) and new `.chip-ib` (Integration
+    Gateway) CSS rules.
+  - `DOM_TYPE_CLS.ib` now maps to `chip-ib` instead of the fallback
+    `chip-muted`.
+  - Domain table split the single "Port" column into separate **HTTP
+    Port** / **HTTPS Port** columns, both reading `primary_port`/`alt_port`
+    directly (no more string-concatenation `" / "` display).
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on all three
+changed files; `python3 -c "import json; json.load(open('config.json'))"`
+(unchanged this round, checked out of habit). Not yet re-verified live —
+next step: restart + hard-refresh, confirm HTTP/HTTPS both populate for at
+least one web domain, hostnames read as real addresses, Web/PIA renders as
+a colored badge, and IB Gateway rows appear for domains that host
+`PSIGW.war`.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 6) — App Server Domains: WSL/JSL/JRAD Ports, Not Generic HTTP/HTTPS
+
+**Context:** After the HTTP/HTTPS port split (previous entry), correctly
+pointed out that App Server domains don't speak HTTP — that column layout
+belongs to Web Server domains only. PeopleSoft App Server domains expose
+distinct listener types: WSL (Workstation Listener) and its SSL variant,
+JSL (Jolt Station Listener, sometimes labeled "Jolt Listener" in config)
+and its SSL variant, and JRAD (Jolt Relay Adapter).
+
+**What changed:**
+
+- `connectors/domaindisc.py`:
+  - Replaced the single generic `_app_server_port()` (one `Port=` value
+    from a JOLT-or-WSL-hinted section) with `_app_server_ports()`, which
+    parses the full `psappsrv.cfg` into sections
+    (`_parse_ini_sections()`) and extracts five distinct values via
+    `_APP_PORT_SECTIONS`: `wsl_port`, `wsl_ssl_port`, `jsl_port`,
+    `jsl_ssl_port`, `jrad_port`. Each is matched by section-header
+    substring rules (must-have / must-not-have tuples) rather than an
+    exact header string, since PeopleTools versions word these headers
+    differently — and critically, the SSL variant of WSL/JSL must be
+    excluded from the plaintext variant's match (`WSL` alone would also
+    match the `WSL SSL` header without the `must_not_have=("SSL",)`
+    exclusion).
+  - App Server items now carry these five port fields directly instead of
+    the generic `primary_port`/`alt_port` pair; `listener_count` is the
+    count of non-null values among them.
+
+- `routers/admin/runtime.py`: split the previously-shared table renderer
+  into `renderAppServerTable()` (Pillar/Env/Domain/Type/Host/**WSL/WSL
+  SSL/JSL/JSL SSL/JRAD**/Listeners) and the original `renderDomainTable()`
+  (kept for Web/Process Scheduler, still HTTP Port/HTTPS Port), factoring
+  the shared Pillar/Env/Domain/Type/Host cells into `domainRowPrefix()` to
+  avoid duplicating that markup between the two.
+
+- `ARCHITECTURE.md`: rewrote the domain-topology section to document the
+  full picture built across this whole domain-discovery arc in one place
+  (directory-tree classification, per-type port parsing, IB Gateway
+  detection, hostname resolution, shared-host dedup, per-domain env
+  attribution) rather than leaving six separate incremental diary entries
+  as the only record.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on both
+changed files. Not yet re-verified live — next step: restart + hard-
+refresh, confirm the App Server Domains table shows WSL/JSL/JRAD columns
+with real values (or honest `—` if `psappsrv.cfg`'s section headers don't
+match the assumed hint patterns, which would mean the hints need
+adjusting for this lab's actual PeopleTools version rather than the
+parsing approach itself).
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 7) — Domain Discovery: Live Status + Distinguishing "Disabled" from "Not Configured"
+
+**Context:** Two more gaps flagged from the live WSL/JSL/JRAD table
+(previous entry): no indication of whether a domain is actually running
+or down, and most App Server ports (WSL, WSL SSL, JRAD) were blank — only
+JSL had a value.
+
+**Port investigation, not just a fix:** the blank ports are very likely
+*correct*, not a parsing bug — web-only PeopleSoft App Server domains
+commonly leave two-tier Workstation Listener (WSL) and JRAD disabled or
+entirely unconfigured, since PIA only needs Jolt (JSL) to talk to the app
+server. But "disabled" and "never configured" look identical as a flat
+`—`, which isn't honest about *why* the value is missing. Fixed by having
+`_find_section_value()` in `connectors/domaindisc.py` distinguish three
+states instead of two: a real port number, the string `"off"` (the
+section exists in `psappsrv.cfg` with an explicit `Enable=0`-type flag —
+confirmed disabled), or `None` (no matching section at all — never
+configured). The UI renders `"off"` in dimmed text vs `—` for `None`, so a
+reader can now tell "intentionally disabled" from "not applicable to this
+domain" instead of seeing the same blank for both.
+
+**Live status:** added `_domain_status(ssh_host, domain_name)` — runs
+`pgrep -f <domain_name>` over SSH and returns `"running"` (a matching
+process exists — covers Tuxedo boot processes for App Server/Process
+Scheduler domains and WebLogic's server process for Web domains, since
+both have the domain name in their command line/config path),
+`"down"` (command succeeded, nothing matched), or `"unknown"` (the SSH
+command itself failed — kept distinct from a confirmed-down domain, since
+"couldn't check" and "checked and it's off" are different facts).
+Explicitly documented as a heuristic (process-presence, not a listener
+health check) rather than overclaiming precision.
+
+**What changed:**
+
+- `connectors/domaindisc.py`: `_section_explicitly_disabled()`,
+  `_find_section_value()` (replaces `_find_section_port()`),
+  `_domain_status()`. Every item in `discover_domains_by_path()` now
+  carries a `status` field; the Web/IB Gateway pair shares one
+  `_domain_status()` call since they're the same physical process.
+  `listener_count` now only counts `isinstance(p, int)` values, since the
+  new `"off"` string would otherwise count as a truthy listener.
+- `routers/admin/runtime.py`: new `.status-running`/`.status-down`/
+  `.status-unknown` CSS (colored dot + label) and `statusBadge()`; both
+  `renderAppServerTable()` and `renderDomainTable()` gained a leading
+  **Status** column via the shared `domainRowPrefix()`. Port cells render
+  `"off"` in dimmed gray text, distinguishing it from the `—` used for
+  `None`.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on both
+changed files. Not yet re-verified live — next step: restart + hard-
+refresh, confirm Status badges show real running/down state and that
+WSL/WSL SSL/JRAD now show either a real port, "off", or `—` rather than a
+uniform blank — which will settle whether the missing ports were disabled
+listeners (expected) or an actual parsing gap (would need further
+investigation into this lab's real psappsrv.cfg section headers).
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 8) — Domain Discovery: Self-Diagnosing the WSL/JRAD Gap Instead of Guessing Again
+
+**Context:** After live status landed (previous entry), WSL/WSL SSL/JSL
+SSL/JRAD were still blank (`—`, not even the new `"off"` state) across
+every single App Server domain — only JSL ever resolved. Two explanations
+remain open and are indistinguishable from the outside: (a) this lab's
+domains genuinely never configured those listener types (plausible for a
+lean demo/dev setup that only needs Jolt for PIA), or (b) the section-
+header substring hints in `_APP_PORT_SECTIONS` don't match whatever this
+PeopleTools version actually names those sections. Guessing a third
+pattern without evidence would repeat the same mistake this whole domain-
+discovery rewrite was meant to move away from (see 2026-07-13 session 1).
+
+**What changed instead of guessing again:** `_app_server_ports()` now
+returns the raw section headers it actually found in `psappsrv.cfg`
+(`_cfg_sections`) whenever fewer than all five listener types resolved to
+a real port. `discover_domains_by_path()` attaches this as `cfg_sections`
+on the item (popped out of the port dict so it doesn't pollute
+`listener_count`'s int-only sum). `routers/admin/runtime.py` renders it as
+a hover tooltip (`title=`) on the domain name cell, with a small "ⓘ"
+marker so it's discoverable — hovering any App Server domain whose ports
+are partially blank now shows exactly what sections `psappsrv.cfg`
+actually contains, settling the question directly instead of via another
+guess from this side.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on both
+changed files. Next step: restart + hard-refresh, hover a domain with
+blank WSL/JRAD columns, and read the actual section list — if `WSL`/`JRAD`
+section names are in there under different wording than assumed, that's
+the concrete fix to make next; if they're genuinely absent, the blanks are
+correct and this diagnostic confirms it rather than leaving it ambiguous.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 9) — WSL/JSL/JRAD Ports: Fixed for Real, Confirmed Against Ground Truth
+
+**Context:** The tooltip diagnostic (previous entry) worked exactly as
+intended — the user hovered a domain and pasted both the raw section list
+and a real `psadmin` quick-configure screenshot for `HRDEV_APP`. That's
+ground truth, not a guess, and it revealed the original assumption was
+wrong in two ways simultaneously:
+
+1. Section headers don't contain "WSL"/"JSL" at all — they're named
+   `WORKSTATION LISTENER`, `JOLT LISTENER`, `JOLT RELAY ADAPTER`. The
+   original `_APP_PORT_SECTIONS` substring hints (`"WSL"`, `"JOLT"`,
+   `"JRAD"`) could never match `WORKSTATION LISTENER` or `JOLT RELAY
+   ADAPTER`.
+2. More fundamentally, the plaintext and SSL port for both WSL and JSL
+   live as **two separate keys within the same section**
+   (`WORKSTATION LISTENER` contains both `WSL Port=` and `WSL SSL
+   Port=`; `JOLT LISTENER` contains both `JSL Port=` and `JSL SSL
+   Port=`) — not two differently-named sections as the section-based
+   design assumed. That's why JSL happened to work (the section-matching
+   found `JOLT LISTENER` and grabbed whichever key contained "PORT"
+   first) while every SSL variant and WSL/JRAD came back empty.
+
+**Fix:** Replaced section-scoped matching with key-scoped matching.
+`_find_key_port()` searches every key across every parsed section (not
+one section) for a key name matching `_APP_PORT_KEYS`' must-have/
+must-not-have substrings — e.g. `wsl_port` matches any key containing
+both `WSL` and `PORT` but not `SSL`; `wsl_ssl_port` matches `WSL`+`SSL`+
+`PORT`. This is section-agnostic by design, which is also more robust
+than the original section-based approach even if PeopleTools versions
+vary section header wording, since it no longer depends on section
+naming being predictable at all — only the key names, which are visibly
+stable (confirmed directly from the `psadmin` UI, which reads the same
+file).
+
+Removed the enable/disable ("off") state added in session 7 — it was
+built on the (also now-disproven) assumption that a `Port=` key's absence
+meant a disabled listener; the real quick-configure output shows WSL and
+JRAD can have real assigned port numbers while their *feature* toggle is
+independently "No" (a separate concept the config file doesn't expose
+in a way this parser can reliably read) — showing a wrong "off" would
+have been worse than the honest blank it replaced, so simplicity won:
+just the port number, or `None`/`—` if the key genuinely isn't present.
+
+**Verification:** Wrote a standalone check reproducing the exact
+`WORKSTATION LISTENER`/`JOLT LISTENER`/`JOLT RELAY ADAPTER` structure
+from the user's screenshot and ran `_find_key_port()` against it directly
+— all five fields (`wsl_port=7120`, `wsl_ssl_port=7123`, `jsl_port=9120`,
+`jsl_ssl_port=9123`, `jrad_port=9126`) matched the screenshot's real
+values exactly before this was reported as done. `python3 -c "import ast;
+ast.parse(...)"` on the changed file. This is the first change in this
+whole domain-discovery arc verified against real ground-truth data rather
+than plausible-sounding assumptions about PeopleSoft config format — a
+sharper bar than the syntax-check-only verification used in the earlier
+sessions of this same arc, worth holding to from here on for any future
+config-parsing work.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 10) — WSL/JSL/JRAD Ports Broke Further: Key-Name Diagnostic Instead of a Third Guess
+
+**Context:** Session 9's key-based rewrite was verified against a
+synthetic config built from the `psadmin` quick-configure screenshot's
+*display labels* (`WSL Port`, `JSL Port`, etc.) — but live it made things
+worse: even JSL, which worked under the original section-based approach,
+went blank. That's a strong signal the assumption itself was wrong: those
+quick-configure labels are almost certainly psadmin's friendly display
+text, not the literal INI key names inside `psappsrv.cfg`. Verifying
+against self-constructed synthetic data that encodes the same wrong
+assumption doesn't actually verify anything — a mistake worth naming
+plainly rather than glossing over.
+
+**What changed:** Rather than guess a third key-naming pattern,
+`_app_server_ports()`'s diagnostic (added session 8, previously showed
+only section headers) now shows the **actual key=value pairs** inside
+whichever sections match listener-related hints (`LISTENER`, `JRAD`,
+`RELAY`, `WSL`, `JSL`) — real ground truth, not another inference layer.
+`routers/admin/runtime.py`'s tooltip renders this as a multi-line block
+(`psappsrv.cfg raw content:` + one line per key) instead of a
+comma-joined section list.
+
+**Deliberately not fixed yet:** the port-matching logic
+(`_find_key_port`/`_APP_PORT_KEYS`) is left as-is from session 9 — it's
+demonstrably wrong (JSL regressed), but changing it again without seeing
+the actual key names first would just be a fourth guess. Next step is
+mechanical: read the tooltip's real key=value output, adjust
+`_APP_PORT_KEYS`' substrings to match verbatim, and this time verify
+against the exact real strings from the tooltip rather than a
+hand-built synthetic file.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on both
+changed files only — explicitly not claiming the port values are fixed
+this round, since they aren't yet; this round only replaces the
+diagnostic with one that shows real data.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 11) — WSL/JSL/JRAD Ports: Fixed From Actual pasted psappsrv.cfg Content
+
+**Context:** The session-10 diagnostic worked — the user pasted real
+screenshots of the actual `psappsrv.cfg` sections, settling the question
+with real evidence instead of another guess. Ground truth: each listener
+has its own section (`[Workstation Listener]`, `[JOLT Listener]`, `[JOLT
+Relay Adapter]`), and *within* each section the port keys are just
+`Port` / `SSL Port` (JRAD: `Listener Port`) — no `WSL`/`JSL`/`JRAD`
+prefix on the key itself at all. Session 9's key-name-only matching
+(`_find_key_port`, requiring e.g. `"WSL"` inside the key text) could
+never have matched real keys named simply `PORT`/`SSL PORT` — which is
+exactly why it regressed JSL along with everything else.
+
+**Fix:** Rewrote as two-stage section-then-key lookup, matching the real
+structure: `_APP_LISTENER_SECTIONS` finds the right section by header
+(`WORKSTATION`+`LISTENER` for WSL; `JOLT`+`LISTENER` minus `RELAY` for
+JSL — the exclusion matters, `[JOLT Relay Adapter]` also contains
+`"JOLT"`; `RELAY` for JRAD), then `_APP_PORT_FIELDS` reads a fixed key
+name (`"PORT"`, `"SSL PORT"`, or `"LISTENER PORT"` for JRAD) out of that
+resolved section.
+
+**Verified against the user's actual pasted content this time** — not a
+hand-built synthetic file encoding an assumption, and not the `psadmin`
+quick-configure display labels (proven wrong in session 9). Reconstructed
+the exact `[Workstation Listener]`/`[JOLT Listener]`/`[JOLT Relay
+Adapter]` sections verbatim from the screenshots and ran the parser
+against that before reporting this as fixed: all five values matched
+(`wsl_port=7120`, `wsl_ssl_port=7123`, `jsl_port=9120`,
+`jsl_ssl_port=9123`, `jrad_port=9126`).
+
+**Lesson for this whole arc** (sessions 8-11): two rounds of guessing —
+first from generic PeopleTools knowledge, then from `psadmin`'s display
+labels — both failed live despite each being independently "verified" by
+a plausible-sounding synthetic test. Verification against self-authored
+synthetic data only checks that code does what the code's author
+intended; it says nothing about whether that intention matched reality.
+The diagnostic-tooltip approach (session 8) that exposes real remote
+config content on demand, rather than another layer of inference, is
+what actually closed this out — worth defaulting to earlier next time a
+remote config format is unknown, rather than after two failed guesses.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`, plus a direct
+run of the parser against the verbatim-reconstructed real config (shown
+above) — both passed. Not yet re-verified against the live service via
+browser; next step is restart + hard-refresh to confirm the same values
+render in the actual UI table.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 12) — Fixed: Entire Runtime Monitor Page Broken by an Unescaped \n
+
+**Context:** After session 11's port-parsing fix, the entire Runtime
+Monitor page got stuck on "Loading…" everywhere — not just the domain
+tables, every section. Root cause: `admin_runtime()` (routers/admin/
+runtime.py:8) renders its content via a plain (non-raw, non-f) Python
+triple-quoted string. The tooltip code added in session 8
+(`sectionsTitle`) used `\n` inside that string, intending it to reach the
+browser as the two literal characters backslash+n (a JS string escape).
+But because the enclosing Python string is neither raw (`r"""`) nor
+otherwise escaped, Python's own parser resolved `\n` to an actual newline
+character *before* the JS ever saw it. That real newline landed inside a
+single-quoted JS string (`dom.cfg_sections.join('\n')` → literally
+`join('<newline>')`), which is an unterminated string literal — a
+SyntaxError that aborts parsing of the entire `<script>` block, which is
+why every unrelated section (Active Alerts, Metrics History, Process
+Scheduler) also hung on "Loading…": one broken function anywhere in a
+single shared `<script>` tag takes the whole page's JS down with it.
+
+**Fix:** Changed both occurrences to `\\n` in the Python source, so Python
+emits a literal `\n` (two characters) into the page, which JS then
+correctly parses as an escaped newline inside the string.
+
+**Lesson:** this file mixes plain, raw (`r"""`), and f-string
+(`f"""`) content blocks across different route handlers (`grep -n
+'content=f"""\|content=r"""\|content="""'` shows all three in this one
+file) — escaping rules differ per block, and it's easy to write an escape
+sequence that's correct for one style while editing a route that uses
+another. Worth checking which flavor a given `_shell(...)` call uses
+before adding any backslash escape to its content string.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` (syntax valid
+— this class of bug is a *runtime* JS error, not a Python syntax error,
+so `ast.parse` alone would never have caught it; only fetching and
+inspecting the actual rendered output, as was done here, revealed the
+literal embedded newline breaking the JS string). Not yet re-verified via
+browser after this fix — next step: restart + hard-refresh, confirm the
+page loads normally again with all sections populated.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 13) — Infrastructure Topology: Duplicate Title + Wired to domaindisc for All Environments
+
+**Context:** Two issues on `/admin/topology`, a page not touched by this
+session's earlier domain-discovery work: the page title rendered twice,
+and the topology graph only ever showed HCMDMO's WEB/APP/PRCS/IB nodes
+regardless of the Environment dropdown — never HRDEV/HRTST/HRUAT/HRPRD or
+FSCM.
+
+**Duplicate title**: `_shell()` (`routers/admin/_core.py:243`) already
+renders the page title from its `title=` parameter
+(`_shell("Infrastructure Topology", ...)`,
+`routers/admin/runtime.py:3564`); the page's own content additionally
+had a hand-written `<div class="ds-page-title">Infrastructure
+Topology</div>` (`runtime.py:3581-3584`) — leftover from before this
+page was wired into the shared shell, presumably. Removed the redundant
+block.
+
+**Missing environments**: `routers/topology.py`'s `/api/topology`
+endpoint builds its lane graph entirely from
+`/opt/nginx/shared/status/status.json` — an external nginx status-page
+monitor that, in this lab, only has HCM's systems configured. The
+endpoint's own lane-discovery logic (`_discover_lanes()`) is actually
+environment-agnostic (no hardcoded domain names — confirmed via research
+before touching anything), so the gap was upstream data, not endpoint
+logic: whatever the nginx monitor covers is all this page could ever
+show, regardless of environment filter.
+
+**Fix**: added `_domaindisc_lanes()`, which builds the same lane
+shape directly from `connectors/domaindisc.py` — the SSH filesystem
+discovery connector built earlier this session, already proven (sessions
+1-12) to correctly enumerate every configured environment's App/Web/
+Process Scheduler domains with live status. `/api/topology` now merges
+`_domaindisc_lanes()` (broad coverage, every configured environment) with
+`_discover_lanes()`'s status.json-derived lanes (status.json wins on
+overlap — it's an active live probe, a stronger signal than domaindisc's
+process-presence heuristic — but domaindisc fills every lane status.json
+doesn't cover). This is the same architectural move as the Runtime
+Monitor domain tables earlier in this session: stop relying on one
+narrow/stale data source, wire to the connector that's already proven to
+cover every environment.
+
+**Verification**: `python3 -c "import ast; ast.parse(...)"` on both
+changed files; confirmed `domaindisc.load_environments`/
+`discover_domains_by_path`/`attribute_domains_to_envs` signatures match
+the new call sites. Not yet re-verified live (would require a real SSH
+round-trip this sandboxed shell isn't set up to safely exercise) — next
+step: restart + hard-refresh `/admin/topology`, confirm the title
+renders once and HRDEV/HRTST/HRUAT/HRPRD/FSCM lanes now appear alongside
+HCMDMO.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 14) — Infrastructure Topology: Separate Pillar and Environment Selectors
+
+**Context:** Session 13's domaindisc merge didn't visibly add any new
+lanes — because the single Environment dropdown conflated two different
+things: status.json's `"HCM"` group (a pillar-named bucket, legacy data)
+and domaindisc's environment-named lanes (`"HRDMO"`, `"HRDEV"`, etc.).
+Selecting `"HCM"` only ever matched status.json's literal `"HCM"` group;
+it could never match domaindisc's `HRDMO`/`HRDEV`/... lanes, since none
+of them are literally named `"HCM"`. The merge in session 13 was correct
+but invisible through this dropdown.
+
+**Fix:** Every lane (`connectors/domaindisc.py`-derived and
+status.json-derived) now carries a `pillar` field —
+`_pillar_by_env_name()` resolves it from `config.json` for domaindisc
+lanes; for status.json lanes (whose `group` may itself literally be a
+pillar name, a legacy artifact), it resolves via the same lookup with a
+same-value fallback. `routers/topology.py`'s `/api/topology` gained a
+`pillar` query param (`Query`) filtering lanes by this field, alongside
+the existing `env` param filtering by exact lane name; response now
+includes `pillars` (distinct pillar values across all lanes) and
+`env_pillar` (env name → pillar map) for the frontend to build a proper
+two-level filter.
+
+`routers/admin/runtime.py`: added a Pillar `<select>` alongside the
+existing Environment `<select>`. `onPillarSelChange()` filters the
+Environment dropdown's visible options to only those belonging to the
+chosen pillar (or all, if Pillar is "All") before reloading — the same
+two-tier filter pattern already used on the Promotion History page
+(`/admin/promotions`, built earlier this session) for pillar→environment
+relationships.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on both
+changed files. Not yet re-verified live — next step: restart +
+hard-refresh `/admin/topology`, confirm Pillar shows HCM/FSCM (or
+whatever configured pillars exist), selecting a pillar narrows the
+Environment dropdown to that pillar's environments, and selecting an
+actual environment (not just "HCM" the pillar) now surfaces the
+domaindisc-discovered lane for it.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 15) — Drift History: Pillar Selector, Same Pattern as Promotions/Topology
+
+**Context:** `/admin/drift`'s ENV1/ENV2 dropdowns showed every configured
+environment flat, with no pillar grouping — same gap already fixed this
+session for Promotion History (pillar-scoped env dropdowns) and
+Infrastructure Topology (pillar/env two-tier filter).
+
+**What changed:** `routers/admin/runtime.py`'s `admin_drift()` gained a
+Pillar `<select>` before ENV1/ENV2. Reused the existing `GET
+/api/runtime/pillars` endpoint (built earlier this session for Promotion
+History — no backend change needed here, purely a frontend wiring
+addition). `populateDriftEnvs(pillar)` fills both ENV1 and ENV2 from
+`PILLAR_ENVS[pillar]` (or every environment when Pillar is "All"),
+preserving each dropdown's previous selection if it's still valid for the
+newly chosen pillar, falling back to the first two environments
+otherwise. `onDriftPillarChange()` re-populates and reloads drift data on
+pillar change.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`. Not yet
+re-verified live — next step: restart + hard-refresh `/admin/drift`,
+confirm Pillar dropdown shows HCM/FSCM, and selecting one narrows both
+ENV1 and ENV2 to that pillar's environments only.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 16) — Runtime Monitor Load Speed: Fixed N+1 SSH Pattern + Added Short Cache
+
+**Context:** With the WSL/JSL/JRAD port fix and live status both working
+(sessions 11-12), the domain tables were functionally correct but slow to
+load — flagged directly as a UX problem worth fixing for "near instant"
+loads.
+
+**Root cause, found by counting round trips, not guessing:** `_domain_status()`
+issued its own `pgrep -f <domain>` SSH command *per domain*. With ~6 App
+Server + 6 Web domains per host group (HCM's shared box) plus a second
+group (FSCM), that's 12+ extra sequential SSH round trips just for status
+— on top of the pre-existing per-domain config-file reads
+(`psappsrv.cfg`, `config.xml`) and IB Gateway directory checks. Each SSH
+round trip has real network+auth latency; a dozen-plus of them run
+sequentially (no pipelining) is the dominant cost of the whole page load.
+
+**What changed:**
+
+- `connectors/domaindisc.py`: replaced the per-domain `pgrep` with
+  `_fetch_process_cmdlines(ssh_host)` — one `ps -eo args=` call per host,
+  fetched once at the top of `discover_domains_by_path()` and reused for
+  every domain on that host. `_domain_status()` is now a pure Python
+  membership check against that pre-fetched list (`cmdlines` param)
+  instead of its own SSH call — turns N round trips into 1 per host
+  regardless of domain count.
+- `routers/runtime.py`'s `GET /api/runtime/domains/all` gained a 20-second
+  in-process cache (`_domains_all_cache`), since the endpoint still does
+  several SSH round trips per host even after the status fix (directory
+  listings + per-domain config reads). Repeat loads within the TTL —
+  page navigation back to Runtime Monitor, the page's own auto-refresh
+  cycle — now return instantly from cache instead of re-paying that cost.
+  Added a `force=true` query param to bypass the cache when a genuinely
+  fresh read is needed; responses carry a `cached: true/false` flag so
+  this is visible/debuggable rather than a silent behavior change.
+
+**Deliberately not done this round**: per-domain config-file reads
+(`psappsrv.cfg`, `config.xml`, IB Gateway directory checks) are still one
+SSH round trip each — the process-status fix was the highest-leverage
+single change (it alone was ~12 of the total round trips), and the new
+cache absorbs most of the remaining latency for repeat loads. If the
+*first* load (cache miss) is still too slow, the next targetted fix would
+be batching those per-domain file reads similarly (e.g. one `cat
+file1 file2 ...` per host instead of N separate SFTP opens).
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on both
+changed files; grepped for any remaining call to the old
+`_domain_status(ssh_host, ...)` two-arg-with-ssh_host signature to confirm
+both call sites were updated to the new `_domain_status(cmdlines, ...)`
+signature consistently. Not yet re-verified live for actual wall-clock
+improvement — next step: restart + hard-refresh, time the first
+(cache-miss) load vs. a repeat load within 20s.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 17) — Listener Count: Real Bound Sockets, Not Static Config Count
+
+**Context:** Listener counts stayed at 5 (App Server) / 2 (Web) even for
+domains marked "Down" — because `listener_count` was computed from how
+many of the five/two port *fields* were successfully parsed out of
+`psappsrv.cfg`/`config.xml`, which is static configuration and doesn't
+change whether the domain is actually running. Also raised: this
+approach could never reflect a domain that's opened *more* listeners than
+the ones this parser knows about.
+
+**Fix:** Added `_fetch_listening_ports(ssh_host)` — one `ss -ltn` call per
+host (same one-round-trip-per-host pattern as the process-status fix from
+session 16), parsing the local address column for the port number of
+every socket currently in `LISTEN` state. `_live_listener_count()` then
+counts how many of a domain's *configured* ports are actually present in
+that live set — real bound sockets, not configuration line items. A down
+domain now correctly shows 0 (none of its configured ports are actually
+listening), and if a future domain genuinely bound extra unexpected
+ports, this approach still wouldn't surface those specific *extra* ports
+(it only checks the five/two known configured ones) — a real remaining
+limitation, honestly not solved this round: fully answering "how many
+listeners does this domain actually have, including ones we don't know
+to look for" would need to enumerate all listening ports owned by the
+domain's actual process (via `lsof -p <pid>` or similar, matched to the
+process found during the status check), not just check a fixed list of
+known port fields against the live set.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`. Not yet
+re-verified live — next step: restart + hard-refresh, confirm Down
+domains show 0 listeners and Running domains show real counts, which may
+now legitimately differ from 5/2 (e.g. if WSL is configured but never
+actually bound because the WSL feature toggle is off, as suggested by
+the "6) WSL: No" feature flag seen in the psadmin quick-configure output
+several sessions ago).
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 18) — Infrastructure Page: Duplicate Title + Broken Card Header Borders
+
+**Context:** Two cosmetic bugs on `/admin/infra`, same duplicate-title
+pattern already fixed on `/admin/topology` this session (session 13) —
+`admin_infra()` had the same leftover hand-written `<div
+class="ds-page-title">Infrastructure</div>` duplicating what `_shell()`
+already renders from its `title=` param. Removed it the same way.
+
+**Header border split**: the four card `<h2>` headers (Host Metrics,
+Services, Containers, Oracle Health) each had a `Refresh` button styled
+`float:right`. The shared `h2{border-bottom:1px solid...}` rule renders
+that border at the height of the h2's normal-flow content; a floated
+child is pulled out of normal flow and can render taller than the text
+line, so the border-bottom line visually cut through the middle of the
+floated button instead of sitting below it. Fixed by changing each `h2`
+to `display:flex;justify-content:space-between;align-items:center` and
+dropping `float:right` from the buttons — standard flex header pattern,
+the border now wraps the whole header row correctly regardless of button
+height.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`. Not yet
+re-verified live — next step: restart + hard-refresh `/admin/infra`,
+confirm the title renders once and all four card headers show a clean
+unbroken border line with the Refresh button aligned inside it.

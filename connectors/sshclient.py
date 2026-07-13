@@ -120,6 +120,35 @@ def list_files(alias: str, pattern: str) -> list[str]:
         sftp.close()
 
 
+def list_dirs(alias: str, path: str) -> list[str]:
+    """
+    Return sorted list of subdirectory names (not full paths, not files)
+    directly under `path` on the remote host. Raises FileNotFoundError if
+    `path` itself does not exist.
+    """
+    if alias == "local":
+        expanded = os.path.expanduser(path)
+        try:
+            entries = os.listdir(expanded)
+        except OSError as exc:
+            raise FileNotFoundError(f"Directory not found: {path!r}") from exc
+        return sorted(e for e in entries if os.path.isdir(os.path.join(expanded, e)))
+
+    client = _get_client(alias)
+    sftp = client.open_sftp()
+    try:
+        import stat as _stat
+        try:
+            attrs = sftp.listdir_attr(path)
+        except IOError as exc:
+            raise FileNotFoundError(
+                f"Directory not found on {alias}: {path!r}"
+            ) from exc
+        return sorted(a.filename for a in attrs if _stat.S_ISDIR(a.st_mode))
+    finally:
+        sftp.close()
+
+
 def read_bytes(alias: str, path: str, offset: int = 0, max_bytes: int = 4 * 1024 * 1024) -> bytes:
     """
     Read up to max_bytes from a remote file starting at byte offset.
