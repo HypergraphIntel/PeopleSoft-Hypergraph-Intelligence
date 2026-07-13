@@ -125,8 +125,77 @@ def compare_records(env1, env2, q="", limit=500):
     return diff
 
 
+def compare_field_definitions(env1, env2, q="", limit=500):
+    """
+    Diff PSDBFIELD — the standalone PeopleTools Field object type —
+    between two environments. A Field is its own metadata definition
+    independent of which records use it; this is NOT the same thing as
+    compare_fields() below, which diffs PSRECFIELD (a record's *usage* of
+    fields, i.e. Record.Fields) — a legitimately different, record-scoped
+    object type that was previously mislabeled as "Fields" in the UI.
+
+    PSDBFIELD does not carry a DESCR column in every PeopleTools version
+    (confirmed live: ORA-00904 when assumed present) — check per env like
+    compare_components()/compare_permissions() do for their own
+    version-dependent columns, rather than assuming.
+
+    Matches FIELDNAME *exactly* (case-insensitive), not by substring —
+    unlike Records/Components/etc., a field name is a precise identifier,
+    not free text; substring matching on "EMPLID" pulled in 186 unrelated
+    fields (EMPLID_SRCH, NEW_EMPLID, ...) instead of the single field the
+    user was actually looking up. DESCR is still substring-matched, for
+    discovering fields by description text when the exact name isn't known.
+    """
+    q_name = q.strip().upper() if q else None
+    q_descr_pattern = f"%{q_name}%" if q_name else None
+    warnings = []
+    all_rows = []
+
+    for env in (env1, env2):
+        cols = psdb.table_columns(env, "PSDBFIELD")
+        has_descr = "descr" in cols
+        descr_sel = "DESCR" if has_descr else "NULL AS DESCR"
+        # oracledb requires the params dict to exactly match the bind
+        # placeholders present in THIS SQL string — a stray unused key
+        # (e.g. :qpat when the has_descr=False branch never references
+        # it) raises DPY-4008, so params are built per-branch, not shared.
+        if has_descr:
+            q_clause = "(:qname IS NULL OR UPPER(FIELDNAME) = :qname OR UPPER(DESCR) LIKE :qpat)"
+            params = {"qname": q_name, "qpat": q_descr_pattern}
+        else:
+            q_clause = "(:qname IS NULL OR UPPER(FIELDNAME) = :qname)"
+            params = {"qname": q_name}
+        sql = f"""
+            SELECT FIELDNAME,
+                   FIELDTYPE,
+                   LENGTH AS FIELDLEN,
+                   DECIMALPOS,
+                   {descr_sel}
+            FROM SYSADM.PSDBFIELD
+            WHERE {q_clause}
+            ORDER BY FIELDNAME
+            FETCH FIRST {int(limit)} ROWS ONLY
+        """
+        rows, w = _run(env, sql, params)
+        all_rows.append(rows)
+        if w:
+            warnings.append(w)
+
+    rows1, rows2 = all_rows
+
+    for r in rows1 + rows2:
+        r["fieldtype_label"] = _label(FIELDTYPE_LABELS, r.get("fieldtype"))
+
+    diff = _compare(rows1, rows2, "fieldname", ["fieldtype", "fieldlen", "decimalpos", "descr"])
+    diff.update({"env1": env1, "env2": env2, "object_type": "field_definition",
+                 "query": q, "warnings": warnings})
+    return diff
+
+
 def compare_fields(env1, env2, record_name):
-    """Diff PSRECFIELD for a specific record across two environments.
+    """Diff PSRECFIELD (a record's field usage/structure — "Record.Fields",
+    NOT the standalone Field object type; see compare_field_definitions()
+    above for that) for a specific record across two environments.
 
     FIELDTYPE/LENGTH/DECIMALPOS live in PSDBFIELD, not PSRECFIELD — join when accessible.
     """
@@ -854,7 +923,8 @@ def summary(env1, env2):
     """
     queries = [
         ("Records",          "SELECT COUNT(*) AS n FROM SYSADM.PSRECDEFN"),
-        ("Fields",           "SELECT COUNT(*) AS n FROM SYSADM.PSRECFIELD"),
+        ("Fields",           "SELECT COUNT(*) AS n FROM SYSADM.PSDBFIELD"),
+        ("Record Fields",    "SELECT COUNT(*) AS n FROM SYSADM.PSRECFIELD"),
         ("Components",       "SELECT COUNT(*) AS n FROM SYSADM.PSPNLGRPDEFN WHERE MARKET='GBL'"),
         ("Pages",            "SELECT COUNT(*) AS n FROM SYSADM.PSPNLDEFN"),
         ("Permission Lists", "SELECT COUNT(*) AS n FROM SYSADM.PSCLASSDEFN"),

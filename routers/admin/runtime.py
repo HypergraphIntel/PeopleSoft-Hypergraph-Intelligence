@@ -40,9 +40,12 @@ button{background:#00e5ff;border:none;padding:5px 12px;cursor:pointer;
 button.sec{background:transparent;border:1px solid #00e5ff33;color:#00e5ff;}
 select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
        padding:5px 8px;font-size:12px;}
- .ctrl{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+ .ctrl{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:0;}
  .lbl{font-size:10px;color:#667;text-transform:uppercase;letter-spacing:1px;
    display:block;margin-bottom:3px;}
+ .rt-toolbar{position:sticky;top:0;z-index:50;background:#03070f;
+   padding:14px 16px 12px;border-bottom:1px solid #00e5ff33;
+   box-shadow:0 4px 12px rgba(0,0,0,.35);}
 .runtime-nav{font-size:12px;margin-bottom:16px;color:#445;}
 .mono{font-family:monospace;}
 .empty{color:#445;font-style:italic;padding:10px 0;font-size:12px;}
@@ -103,6 +106,7 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
   <h1 style="font-size:14px;margin:0 0 4px;color:#00e5ff;">PROCESS DETAIL</h1>
   <div id="procPanelBody"></div>
 </div>
+<div class="rt-toolbar">
 <div class="ctrl">
   <div><span class="lbl">Environment</span><select id="envSel" onchange="onEnvChange()"></select></div>
   <input type="hidden" id="dbSel">
@@ -112,7 +116,9 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
     <span class="ts" id="lastTs"></span>
   </div>
 </div>
+</div>
 
+<div style="padding:0 16px 16px">
 <!-- ── Active Alerts ── -->
 <div class="card" id="alertsCard">
   <h2>Active Alerts <span id="alertBadge"></span></h2>
@@ -238,6 +244,7 @@ select{background:#0b1b24;color:#d7faff;border:1px solid #00e5ff44;
       Click a node to see details.
     </div>
   </div>
+</div>
 </div>
 
 <script>
@@ -1472,7 +1479,8 @@ a.obj-link:hover{text-decoration:underline;}
 <div class="content">
   <div class="tab-row">
     <div class="tab on"  onclick="switchTab('records')">Records</div>
-    <div class="tab"     onclick="switchTab('fields')">Fields</div>
+    <div class="tab"     onclick="switchTab('field_definitions')">Fields</div>
+    <div class="tab"     onclick="switchTab('fields')">Record Fields</div>
     <div class="tab"     onclick="switchTab('components')">Components</div>
     <div class="tab"     onclick="switchTab('permissions')">Permissions</div>
     <div class="tab"     onclick="switchTab('ae')">AE Programs</div>
@@ -1500,7 +1508,17 @@ a.obj-link:hover{text-decoration:underline;}
     <div id="res-records"></div>
   </div>
 
-  <!-- Fields tab -->
+  <!-- Field Definitions tab (PSDBFIELD — the standalone Field object type) -->
+  <div id="pane-field_definitions" class="pane" style="display:none;">
+    <div class="ctrl">
+      <input id="field_definitionsQ" type="text" placeholder="Field name (exact, e.g. EMPLID) or description text…" style="width:220px;" onkeydown="if(event.key==='Enter')runCompare('field_definitions')">
+      <button onclick="runCompare('field_definitions')">Compare</button>
+      <span class="spinner" id="spin-field_definitions">&#9679;&#9679;&#9679;</span>
+    </div>
+    <div id="res-field_definitions"></div>
+  </div>
+
+  <!-- Record Fields tab (PSRECFIELD — a record's field usage/structure, not the Field object type itself) -->
   <div id="pane-fields" class="pane" style="display:none;">
     <div class="ctrl">
       <input id="fieldRec" type="text" placeholder="Record name (e.g. PSRECDEFN)" style="width:220px;" onkeydown="if(event.key==='Enter')runFieldCompare()">
@@ -1694,7 +1712,7 @@ a.obj-link:hover{text-decoration:underline;}
 
 <script>
 const $ = id => document.getElementById(id);
-const TABS = ['records','fields','components','permissions','ae','roles','peoplecode','sql_definitions','portals','queries','menus','trees','process_definitions','ib_routings','ib_messages','ci','graph'];
+const TABS = ['records','field_definitions','fields','components','permissions','ae','roles','peoplecode','sql_definitions','portals','queries','menus','trees','process_definitions','ib_routings','ib_messages','ci','graph'];
 let currentTab = 'records';
 
 function env1() { return $('env1Sel').value || 'HCM'; }
@@ -1748,7 +1766,7 @@ async function loadSummary() {
 
 // ─── Generic compare (records / components / permissions / ae / roles) ────────
 const Q_IDS = {
-  records: 'recQ', components: 'compQ', permissions: 'permQ', ae: 'aeQ', roles: 'roleQ',
+  records: 'recQ', field_definitions: 'field_definitionsQ', components: 'compQ', permissions: 'permQ', ae: 'aeQ', roles: 'roleQ',
   peoplecode: 'pcQ', sql_definitions: 'sqlQ', portals: 'portalQ', queries: 'queryQ',
   menus: 'menuQ', trees: 'treeQ', process_definitions: 'prcsQ', ib_routings: 'ibrtngQ', ib_messages: 'ibmsgQ', ci: 'ciQ',
 };
@@ -2266,6 +2284,7 @@ function sBox(n, label, cls, targetSectionId) {
 function nameCol(type) {
   const map = {
     records: 'recname',
+    field_definitions: 'fieldname',
     fields: 'fieldname',
     components: 'pnlgrpname',
     permissions: 'classid',
@@ -2285,6 +2304,7 @@ function nameCol(type) {
 function metaHeaders(type) {
   const map = {
     records:      ['Name', 'Type', 'Fields', 'Description'],
+    field_definitions: ['Name', 'Type', 'Length', 'Decimal', 'Description'],
     fields:       ['Name', 'Seq', 'Type', 'Length'],
     components:   ['Name', 'Search Rec', 'Add Rec', 'Actions'],
     permissions:  ['Name', 'Description'],
@@ -2305,6 +2325,8 @@ function metaCells(r, type) {
   switch(type) {
     case 'records':
       return `<td>${esc(r.rectype_label||r.rectype)}</td><td>${esc(r.field_count)}</td><td>${esc(r.recdescr)}</td>`;
+    case 'field_definitions':
+      return `<td>${esc(r.fieldtype_label||r.fieldtype)}</td><td>${esc(r.fieldlen)}</td><td>${esc(r.decimalpos)}</td><td>${esc(r.descr)}</td>`;
     case 'fields':
       return `<td>${esc(r.fieldnum)}</td><td>${esc(r.fieldtype_label||r.fieldtype)}</td><td>${esc(r.fieldlen)}</td>`;
     case 'components':
@@ -2916,12 +2938,16 @@ function collapseAll() {
 
 @router.get("/infra", response_class=HTMLResponse)
 def admin_infra():
-    return _shell("Infrastructure", "infra", content="""
+    return _shell("Infrastructure", "infra", env=False, content="""
+<style>
+.ds-page-header{padding:10px 16px 0}
+.ds-page-subtitle{font-size:12px;color:#7faab2;margin:0}
+</style>
 <div class="ds-page-header">
   <div class="ds-page-subtitle">Host metrics, services, containers, and Oracle health</div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:12px 16px 16px">
 
   <div class="card">
     <h2 style="display:flex;justify-content:space-between;align-items:center">Host Metrics <button onclick="loadHost()" style="font-size:11px">Refresh</button></h2>
@@ -2954,7 +2980,7 @@ def admin_infra():
 
 </div>
 
-<div class="card" style="margin-top:16px">
+<div class="card" style="margin:16px 16px 0">
   <h2>Container Logs
     <select id="containerLogName" style="font-size:11px;background:#1e1e2e;color:#cdd6f4;border:1px solid #313244;padding:2px 4px">
       <option value="authelia">authelia</option>
@@ -2965,7 +2991,7 @@ def admin_infra():
   <pre id="containerLogOutput" style="font-size:11px;max-height:300px;overflow:auto;background:#0d0d14;padding:8px;border-radius:4px;color:#a6e3a1">Select a container and click Load.</pre>
 </div>
 
-<div class="card" style="margin-top:16px">
+<div class="card" style="margin:16px 16px 16px">
   <h2>Journal Log
     <input id="journalUnits" value="nginx,deathstar-api" style="font-size:11px;background:#1e1e2e;color:#cdd6f4;border:1px solid #313244;padding:2px 4px;width:220px">
     <input id="journalLines" type="number" value="80" min="10" max="500" style="width:60px;font-size:11px;background:#1e1e2e;color:#cdd6f4;border:1px solid #313244;padding:2px 4px">

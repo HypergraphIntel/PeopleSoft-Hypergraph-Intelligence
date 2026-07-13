@@ -37,13 +37,27 @@ def compare_records(
     return envcompare.compare_records(env1, env2, q=q, limit=limit)
 
 
+@router.get("/field_definitions")
+def compare_field_definitions(
+    env1: str = Query(default_env()),
+    env2: str = Query(default_env2()),
+    q:     str = Query(""),
+    limit: int = Query(500),
+):
+    """Diff PSDBFIELD — the standalone Field object type — between two
+    environments. Not scoped to a record; a Field is its own metadata
+    definition (FIELDNAME, FIELDTYPE, LENGTH, DECIMALPOS, DESCR)."""
+    return envcompare.compare_field_definitions(env1, env2, q=q, limit=limit)
+
+
 @router.get("/fields")
 def compare_fields(
     env1: str = Query(default_env()),
     env2: str = Query(default_env2()),
     record: str = Query(..., description="Record name to compare field-by-field"),
 ):
-    """Diff PSRECFIELD for a specific record across two environments."""
+    """Diff PSRECFIELD — a record's field usage/structure ("Record.Fields")
+    — for a specific record across two environments."""
     return envcompare.compare_fields(env1, env2, record)
 
 

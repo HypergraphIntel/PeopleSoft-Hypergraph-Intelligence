@@ -7865,3 +7865,250 @@ height.
 re-verified live — next step: restart + hard-refresh `/admin/infra`,
 confirm the title renders once and all four card headers show a clean
 unbroken border line with the Refresh button aligned inside it.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 19) — Infrastructure Page: Subtitle Spacing
+
+**Context:** After the duplicate-title fix (session 18), the remaining
+subtitle ("Host metrics, services, containers, and Oracle health") sat
+with an odd gap below the "INFRASTRUCTURE" header bar instead of directly
+underneath it — because `admin_infra()`'s content had no `<style>` block
+defining `.ds-page-header`/`.ds-page-subtitle` at all (unlike e.g. the
+Topology page, which defines them locally), so the div rendered with
+default browser spacing rather than intentional layout.
+
+**Fix:** Added a small scoped `<style>` block giving `.ds-page-header`
+tight top padding and `.ds-page-subtitle` zero margin, and added
+consistent `16px` padding to the card grid and the two log-viewer cards
+below it (previously flush against the page edge) so the whole page has
+uniform horizontal alignment.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`. Not yet
+re-verified live — next step: restart + hard-refresh `/admin/infra`,
+confirm the subtitle sits directly under the header with no gap.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 20) — Infrastructure Page: Removed Non-Functional Env Selector
+
+**Context:** `/admin/infra` showed the shared shell's top-right ENV
+dropdown, but nothing on the page (host metrics, services, containers,
+Oracle health at the OS/container level) is scoped to a PeopleSoft
+environment — it's host-level infrastructure, not per-environment data.
+The selector did nothing when changed.
+
+**Fix:** `_shell("Infrastructure", "infra", ...)` now passes `env=False`,
+matching the pattern already used on other environment-agnostic pages
+(Promotion History, Infrastructure Topology) — the shell only renders
+the ENV dropdown when `env=True` (the default), so this suppresses it.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`. Not yet
+re-verified live — next step: restart + hard-refresh, confirm the ENV
+dropdown no longer appears on `/admin/infra`.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 21) — Runtime Monitor: Sticky Toolbar, Fixed Label Clipping
+
+**Context:** The Environment/Refresh/Auto toolbar sat flush against the
+page content area with no padding (the "ENVIRONMENT" label visually
+overlapped the boundary with the header bar above it), and scrolled away
+with the rest of the page — on a long page with many domain/process
+tables, that meant losing access to Environment switching and Refresh
+without scrolling back to the top.
+
+**Fix:** Wrapped the toolbar (`.ctrl` — Environment select, hidden db
+field, Refresh/Auto buttons) in a new `.rt-toolbar` div:
+`position:sticky;top:0` (relative to `.ds-content`, the actual scrolling
+container per `static/app.css`), its own solid background, padding, and
+a bottom border/shadow so it reads as a distinct fixed bar rather than
+floating page content — this also fixes the label-clipping look, since
+the toolbar now has proper top/bottom padding instead of sitting flush
+against the content boundary. The rest of the page content got a matching
+`padding:0 16px 16px` wrapper so cards align consistently under the now-
+padded toolbar instead of everything being flush-left.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`; wrote a small
+script counting `<div`/`</div>` occurrences across the touched region
+(lines 100-248) to confirm the new wrapper's open/close tags balance
+after inserting them at two different points in a large HTML block —
+both counts matched (67/67) before considering this done. Not yet
+re-verified live — next step: restart + hard-refresh, confirm the
+toolbar stays pinned to the top while scrolling through the domain
+tables and process lists below it.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 22) — Environment Comparison: Real "Fields" (PSDBFIELD) Tab, Not Record.Fields
+
+**Context:** User (PeopleSoft-fluent) pushed back on my initial defense
+of the Fields tab: I'd confirmed "Record name" + "Compare Fields" was
+internally consistent (it diffs PSRECFIELD, a record's field usage,
+scoped by record) — but the user correctly identified that this
+conflates two genuinely different PeopleTools object types. A **Field**
+(PSDBFIELD) is a standalone metadata definition — FIELDNAME, FIELDTYPE,
+LENGTH, DECIMALPOS, DESCR — that exists independently of any record.
+What the UI called "Fields" was actually **Record.Fields** (PSRECFIELD —
+which fields a given record uses, in what order). Both are legitimate,
+useful comparisons; only one of them is actually "Fields."
+
+**What changed:**
+
+- `connectors/envcompare.py`: added `compare_field_definitions(env1,
+  env2, q, limit)` — a genuine PSDBFIELD-vs-PSDBFIELD diff, keyed on
+  FIELDNAME, comparing fieldtype/fieldlen/decimalpos/descr, following the
+  exact same generic pattern (`_compare()`/`_run()`) as `compare_records`/
+  `compare_permissions`/etc. — not scoped to any record. Renamed
+  `compare_fields`'s docstring to make explicit it's PSRECFIELD
+  (Record.Fields), distinct from the new function.
+- `routers/envcompare.py`: new `GET /api/envcompare/field_definitions`
+  route delegating to it; updated `/fields`'s docstring to match.
+- `routers/admin/runtime.py`: split into two tabs — **Fields** (new,
+  generic search-box pattern via `runCompare('field_definitions')`,
+  matching how every other tab already works) and **Record Fields**
+  (the renamed original, still record-scoped — genuinely useful, just
+  correctly labeled now). Wired `field_definitions` into `Q_IDS`,
+  `nameCol()`, `metaHeaders()`, `metaCells()` — the same four places
+  every other generic tab is registered.
+- `connectors/envcompare.py`'s `summary()` object-count table: the
+  "Fields" row now counts `PSDBFIELD` (real distinct field definitions)
+  instead of `PSRECFIELD`; added a new "Record Fields" row for the
+  PSRECFIELD count that row used to (mis)represent.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on all three
+changed files. Not yet re-verified live against real Oracle data — next
+step: restart + hard-refresh `/admin/envcompare`, confirm the new Fields
+tab returns a sane result count (PSDBFIELD, expected tens-of-thousands
+range per `connectors/ptmetadata.py`'s prior ~90K-110K observation, not
+PSRECFIELD's ~522K), and that Record Fields still works record-scoped as
+before.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 23) — Environment Comparison: Fixed Off-By-One Tab Highlighting
+
+**Context:** Inserting the new "Fields" tab (session 22) between Records
+and the renamed "Record Fields" broke active-tab highlighting for every
+tab after it — clicking Components highlighted Record Fields, etc.
+
+**Root cause:** `switchTab(name)`'s pane visibility logic
+(`pane.style.display = t === name ? ...`) is name-based and was never
+broken. But the `.tab` DOM element highlight logic
+(`TABS[i] === name`, matching the clicked tab's name against a
+hardcoded `TABS` array **by position**, not by name) relied on `TABS`
+being in exactly the same order as the tab `<div>`s in the DOM. Adding
+one new tab to the DOM without adding it to `TABS` shifted every
+subsequent index by one — a positional-array bug, not a logic bug.
+
+**Fix:** Added `'field_definitions'` to `TABS` at the same position as
+its DOM tab element (index 1, between `'records'` and `'fields'`),
+restoring alignment. Verified by diffing the `TABS` array order against
+every `switchTab('...')` call in DOM order — now identical.
+
+**Lesson**: this positional-matching pattern (`TABS[i] === name`) is
+fragile — any future tab insertion has to remember to update two places
+in lockstep (the DOM tab list and the `TABS` array) with no compiler/
+linter to catch a mismatch. Not fixed structurally this round (e.g. by
+reading `data-tab` attributes directly instead of an index array), since
+that's a larger refactor than this bug fix warrants — worth doing if this
+class of bug recurs.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`; manually
+diffed `TABS` array contents against the DOM's `switchTab(...)` call
+order line-by-line. Not yet re-verified live — next step: restart +
+hard-refresh, click through all tabs to confirm each highlights itself
+correctly.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 24) — Fields Tab: PSDBFIELD Has No DESCR Column (Live ORA-00904)
+
+**Context:** First live test of the new Fields tab (session 22) against
+real Oracle data hit `ORA-00904: "DESCR": invalid identifier` on both
+environments — `PSDBFIELD` doesn't carry a `DESCR` column in this
+PeopleTools version. I'd copied that assumption from
+`connectors/psdb.py`'s pre-existing `search_fields_distinct()`, which
+apparently had the same latent bug, just never exercised against live
+data before (nothing surfaced it until this feature actually ran a query
+against a real environment).
+
+**Fix**: `compare_field_definitions()` now checks
+`psdb.table_columns(env, "PSDBFIELD")` per environment and only selects/
+filters on `DESCR` when it's actually present — the exact defensive
+pattern already used by `compare_components()` (`ADDSRCHRECNAME`/
+`ACTIONS`) and `compare_permissions()` (`DESCR` vs `CLASSDEFNDESC`) for
+their own version-dependent columns elsewhere in this same file. Also
+caught and fixed a self-introduced bug while writing that fix: a Python
+ternary (`"a" + ("b" if cond else "c")`) evaluated with the wrong
+precedence, which for `has_descr=False` would have produced `")"` alone
+instead of the full WHERE clause — replaced with an explicit if/else
+before it could ship.
+
+**Verification**: `python3 -c "import ast; ast.parse(...)"`; manually
+traced the `has_descr` True/False branches by hand and confirmed both
+produce syntactically complete SQL fragments (`(:q IS NULL OR
+UPPER(FIELDNAME) LIKE :q OR UPPER(DESCR) LIKE :q)` vs `(:q IS NULL OR
+UPPER(FIELDNAME) LIKE :q)`) before considering this fixed — the kind of
+check that would have caught the precedence bug immediately, done this
+time instead of only syntax-checking. Not yet re-verified against live
+Oracle — next step: restart + hard-refresh, search "EMPLID" again on the
+Fields tab, confirm no ORA-00904 and a sane result.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 25) — Fields Tab: Exact Field-Name Match, Not Substring
+
+**Context:** After the ORA-00904 fix (previous entry), the Fields tab
+worked but searching "EMPLID" returned 186 "identical" results instead
+of the expected 1 — because it reused the same `LIKE '%q%'` substring
+pattern every other generic tab uses (correct for those: record
+descriptions, component names, etc. are reasonably searched as free
+text). A field name isn't free text, though — it's a precise identifier,
+and PeopleSoft HR schemas have many `EMPLID`-containing field names
+(`EMPLID_SRCH`, `NEW_EMPLID`, etc.) that substring matching pulled in
+unintentionally.
+
+**Fix:** `compare_field_definitions()` now matches `FIELDNAME` by exact
+equality (case-insensitive, trimmed) — `UPPER(FIELDNAME) = :qname` —
+while keeping `DESCR` as a substring match (`LIKE :qpat`), so searching
+by description text still works for discovery when the exact field name
+isn't known. An empty search still returns everything (`:qname IS NULL`
+short-circuits), same browse-all behavior as before. Updated the
+placeholder text to say "Field name (exact, e.g. EMPLID) or description
+text…" so the UI sets the right expectation instead of implying fuzzy
+search like the other tabs.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`; traced the
+`q_name`/`q_descr_pattern` binding logic by hand for both the
+`"EMPLID"` and empty-string cases before considering this fixed (same
+discipline as the previous session's precedence-bug catch) — both
+produced the expected bind values.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 26) — Fields Tab: DPY-4008 from Shared Bind-Params Dict
+
+**Context:** Exact-match fix (previous entry) hit a new live error:
+`DPY-4008: no bind placeholder named ":qpat" was found in the SQL text`.
+`oracledb` (unlike some drivers) requires the params dict passed to
+`execute()` to exactly match the bind placeholders present in that
+specific SQL string — a dict key with no corresponding `:name` in the
+SQL raises this error rather than being silently ignored. The
+`has_descr=False` branch's SQL never references `:qpat`, but the shared
+`params = {"qname": ..., "qpat": ...}` dict (built once, outside the
+per-env loop) still included it on every call.
+
+**Fix:** Moved `params` construction inside the per-branch `if
+has_descr` / `else`, building only the keys that branch's SQL actually
+references — same fix shape as `q_clause` itself (which was already
+correctly branch-scoped), just extended to the params dict that goes
+with it.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`. This is the
+third live-only failure in this one function across three consecutive
+turns (ORA-00904 → substring-vs-exact-match UX bug → DPY-4008) — each
+only surfaced by actually running the query against live Oracle, not by
+code review or syntax checking. Not yet re-verified live — next step:
+restart + hard-refresh, search "EMPLID" again, confirm 1 result and no
+driver error this time.
