@@ -5,10 +5,18 @@ services:
     restart: unless-stopped
 
     ports:
-      - '8088:8088'
+      # Set PHI_PORT in your shell/.env to change the port (both the
+      # host-published port and what the container listens on internally
+      # move together). If you need the host port to differ from the
+      # container's internal port instead, override this whole `ports:`
+      # line in a compose override file rather than relying on nested
+      # variable interpolation, which isn't reliably supported across both
+      # docker compose and podman-compose.
+      - '${PHI_PORT:-8088}:${PHI_PORT:-8088}'
 
     environment:
       PHI_CONFIG_FILE: /config/config.json
+      PHI_PORT: ${PHI_PORT:-8088}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}

@@ -225,6 +225,14 @@ podman-compose up -d
 
 Then open **http://localhost:8088**.
 
+Port 8088 conflicts with something else on your host? Set `PHI_PORT`
+before starting (moves both the published host port and the port the
+container listens on internally):
+
+```bash
+PHI_PORT=9090 docker compose up -d   # or: PHI_PORT=9090 podman-compose up -d
+```
+
 To stop it: `docker compose down` / `podman-compose down` (add `-v` to
 also drop the `phi-data`/`phi-logs` volumes — this deletes all stored
 history/graph snapshots/audit logs, so only do this if you actually want

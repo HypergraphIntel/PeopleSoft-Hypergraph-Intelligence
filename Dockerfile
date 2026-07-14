@@ -17,7 +17,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PHI_CONFIG_FILE=/config/config.json \
     PHI_DATA_DIR=/app/data \
-    PHI_LOG_DIR=/app/logs
+    PHI_LOG_DIR=/app/logs \
+    PHI_PORT=8088
 
 WORKDIR /app
 
@@ -50,15 +51,25 @@ RUN mkdir -p /config /app/data /app/logs \
 
 USER phi
 
-EXPOSE 8088
+EXPOSE $PHI_PORT
 
 VOLUME ["/config", "/app/data", "/app/logs"]
 
+# Shell form (not the JSON array CMD below) so $PHI_PORT is available for
+# substitution — HEALTHCHECK CMD written as a plain string always runs
+# through /bin/sh -c already, so this needs no extra wrapping.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl --fail --silent http://127.0.0.1:8088/api/health \
-        || curl --fail --silent http://127.0.0.1:8088/ \
+    CMD curl --fail --silent http://127.0.0.1:${PHI_PORT}/api/health \
+        || curl --fail --silent http://127.0.0.1:${PHI_PORT}/ \
         || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8088"]
+# CMD needs shell form here (unlike the rest of this file, which prefers
+# exec/JSON-array form) specifically so $PHI_PORT gets substituted at
+# container start — a JSON-array CMD is passed to exec() literally, with
+# no shell involved to expand env vars. `exec` inside the shell string
+# still replaces the shell process with uvicorn, so tini (PID 1) supervises
+# uvicorn directly, not an intermediate shell — signal handling is
+# unaffected.
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PHI_PORT}"]

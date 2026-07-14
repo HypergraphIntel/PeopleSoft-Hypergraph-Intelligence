@@ -8675,3 +8675,61 @@ This is the first fully end-to-end container verification in this arc —
 previous sessions' "verification" for path-resolution work was import-
 level Python simulation; this one actually built and ran the real
 artifact and drove real HTTP traffic through it.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 41) — Container: Made Port 8088 Configurable via PHI_PORT
+
+**Context:** Port 8088 was hardcoded in three places in `Dockerfile`
+(`EXPOSE`, `HEALTHCHECK`, `CMD`) and `compose.yml`'s `ports:` mapping —
+no way to run the container on a different port without editing those
+files directly. The bare-metal `Makefile` already handled this correctly
+(`PORT ?= 8088`, overridable), so this brought the container path to
+parity.
+
+**What changed:**
+
+- `Dockerfile`: added `PHI_PORT=8088` to the default `ENV` block.
+  `EXPOSE $PHI_PORT` and `HEALTHCHECK`'s `CMD` (already shell-interpreted
+  as a plain string) both now reference `${PHI_PORT}`. The main `CMD` had
+  to switch from JSON-array/exec form (`["uvicorn", ...]`, which execs
+  literally with no shell to expand variables) to shell form (`["sh",
+  "-c", "exec uvicorn ... --port ${PHI_PORT}"]`) — the `exec` inside the
+  shell string still replaces the shell process with uvicorn itself, so
+  `tini` (PID 1 via `ENTRYPOINT`) supervises uvicorn directly, not an
+  intermediate shell; signal handling is unaffected.
+- `compose.yml`: `ports: - '${PHI_PORT:-8088}:${PHI_PORT:-8088}'` and
+  `PHI_PORT: ${PHI_PORT:-8088}` in `environment:`. Deliberately avoided
+  nested interpolation (`${PHI_HOST_PORT:-${PHI_PORT:-8088}}`) for a
+  "different host port than container port" case that would have been
+  nice to support — verified via `podman-compose ... config` that nested
+  substitution isn't reliably supported there (unclear/inconsistent vs.
+  `docker compose`'s more complete interpolation engine), so kept it to
+  one variable that moves both sides together; documented the override-
+  file escape hatch for anyone who genuinely needs them to differ.
+- `README.md`: documented `PHI_PORT` right after the "open
+  http://localhost:8088" line in the container quickstart.
+
+**Verification — actually exercised the whole chain, not just the
+Dockerfile syntax:**
+1. `podman-compose -f compose.yml config` with no `PHI_PORT` set →
+   confirmed default resolves to `8088:8088` and `PHI_PORT: '8088'`.
+2. Same command with `PHI_PORT=9090` set → confirmed both the `ports:`
+   mapping and the `environment:` block correctly resolved to 9090,
+   proving podman-compose's (simpler) interpolation engine handles this
+   specific non-nested pattern correctly.
+3. `podman build` succeeded with the Dockerfile changes.
+4. `podman run` with `PHI_PORT=9090` and a real port mapping
+   (`-p 19090:9090`) — `curl` against the mapped host port returned 200.
+5. **Actually checked the process inside the container** (`podman exec
+   ... cat /proc/net/tcp`, since no `ps`/`netstat`/`ss` are installed in
+   the slim image) — confirmed uvicorn's listening socket was on hex
+   `2382` = decimal 9090, not the default 8088, and no 8088 listener
+   existed at all. This caught a false-positive earlier in the same
+   check: an initial `curl 127.0.0.1:8088` from the host also returned
+   200, which looked like a leak until traced to this host's *own*,
+   unrelated production `deathstar-api` systemd service already
+   listening on 8088 outside any container — a reminder to verify from
+   inside the container when host-level ports might be occupied by
+   something else entirely.
+6. Cleaned up test containers/images afterward.
