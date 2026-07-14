@@ -176,7 +176,7 @@ Prefer running without a container? Skip to [Manual
 Installation](#manual-installation).
 
 Prebuilt images are published to GHCR on every tagged release:
-`ghcr.io/noodlesploder/peoplesoft-hypergraph-intelligence`. Both
+`ghcr.io/hypergraphintel/peoplesoft-hypergraph-intelligence`. Both
 [Docker](https://docs.docker.com/engine/install/) (with the Compose
 plugin) and [Podman](https://podman.io/) (with `podman-compose`) work —
 pick whichever you have installed; the commands below are identical
@@ -189,7 +189,7 @@ mkdir -p phi/config
 cd phi
 
 curl -o config/config.example.json \
-  https://raw.githubusercontent.com/NoodleSploder/PeopleSoft-Hypergraph-Intelligence/main/config/config.example.json
+  https://raw.githubusercontent.com/HypergraphIntel/PeopleSoft-Hypergraph-Intelligence/main/config/config.example.json
 
 cp config/config.example.json config/config.json
 chmod 600 config/config.json
@@ -205,7 +205,7 @@ commit it.
 
 ```bash
 curl -o compose.yml \
-  https://raw.githubusercontent.com/NoodleSploder/PeopleSoft-Hypergraph-Intelligence/main/compose.yml
+  https://raw.githubusercontent.com/HypergraphIntel/PeopleSoft-Hypergraph-Intelligence/main/compose.yml
 ```
 
 ### 3. Start it
@@ -623,7 +623,7 @@ GRANT SELECT_CATALOG_ROLE TO deathstar_mon;
 ## Manual Installation
 
 ``` bash
-git clone https://github.com/NoodleSploder/peoplesoft-explorer.git deathstar-api
+git clone https://github.com/HypergraphIntel/PeopleSoft-Hypergraph-Intelligence.git deathstar-api
 cd deathstar-api
 
 python3 -m venv .venv

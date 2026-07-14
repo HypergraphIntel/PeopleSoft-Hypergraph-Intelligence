@@ -1,6 +1,6 @@
 services:
   phi:
-    image: ghcr.io/noodlesploder/peoplesoft-hypergraph-intelligence:latest
+    image: ghcr.io/hypergraphintel/peoplesoft-hypergraph-intelligence:latest
     container_name: phi
     restart: unless-stopped
 
