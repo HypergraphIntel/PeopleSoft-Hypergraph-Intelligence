@@ -11,6 +11,8 @@ single API-driven interface.
 The project is intentionally built around **read-only access** wherever
 possible.
 
+**Follow along:** [YouTube](https://youtube.com/@hypergraphintel)
+
 ------------------------------------------------------------------------
 
 ## Goals
