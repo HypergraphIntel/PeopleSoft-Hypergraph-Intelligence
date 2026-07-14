@@ -27,8 +27,7 @@ PeopleSoft Hypergraph Intelligence provides:
 -   Knowledge graph generation
 -   Log exploration
 -   nginx / reverse proxy visibility
--   Multi-environment support for HCM, FSCM, and future PeopleSoft
-    pillars
+-   Multi-environment support for HCM, FSCM, Campus Solutions, CRM, and ERP.  Any PeopleSoft Application is compatible.
 -   AI-assisted PeopleSoft troubleshooting (Claude / OpenAI / Ollama, 21+ tools)
 -   Filesystem source artifact intelligence (SQR, SQC, COBOL/copybook) alongside
     database metadata

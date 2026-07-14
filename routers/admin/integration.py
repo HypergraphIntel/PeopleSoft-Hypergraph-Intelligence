@@ -231,12 +231,27 @@ async function api(path, opts) {
 let navStack = [];
 const NAV_ICONS = {service:'&#127760;',operation:'&#9881;',routing:'&#8652;',node:'&#128279;',queue:'&#11036;',txn:'&#8644;'};
 
+// Rough IB parent→child depth order, used to keep the breadcrumb reading
+// as a lineage rather than a raw click history. A Service Operation
+// genuinely is a child of a Service, a Routing follows from an Operation,
+// etc. — Transactions is always the deepest/leaf type since everything
+// can drill into it.
+const NAV_TYPE_RANK = {service:1, operation:2, routing:3, node:4, queue:5, txn:6};
+
 function pushNav(type, name, push=true) {
   if (!push) return;
   // If clicking the same thing that's already at top of stack, skip
   if (navStack.length && navStack[navStack.length-1].type===type && navStack[navStack.length-1].name===name) {
     renderBreadcrumb(); return;
   }
+  // Jumping to a related object (a "Related" chip, not necessarily a
+  // strict drill-down) shouldn't just tack onto the raw click path — drop
+  // anything already on the stack that isn't a plausible ancestor of the
+  // new node (same or deeper rank), then append. A jump to a deeper type
+  // extends the existing lineage; a jump to a shallower/sibling type
+  // starts a new branch from whatever ancestors still apply.
+  const rank = NAV_TYPE_RANK[type] || 99;
+  navStack = navStack.filter(n => (NAV_TYPE_RANK[n.type] || 99) < rank);
   navStack.push({type, name});
   renderBreadcrumb();
 }
@@ -304,8 +319,11 @@ async function loadServices() {
   const items = d.items || [];
   renderList('svcList', items, item => {
     const b = bStatus(item.status_label);
+    const kindCls = item.service_kind === 'REST' ? 'bd-info' : 'bd-mute';
+    const kindText = item.service_kind === 'REST' ? 'REST' : 'STD';
     return `<div class="list-item" data-name="${esc(item.ptibapplname)}" onclick="showService('${item.ptibapplname}')">
       <span class="badge ${b.cls}">${b.text}</span>
+      <span class="badge ${kindCls}">${kindText}</span>
       <span class="item-name">${esc(item.ptibapplname)}</span>
       <div class="item-meta">${esc(item.descr || '')}</div>
     </div>`;
@@ -442,7 +460,7 @@ async function showService(name, push=true) {
   h += `<div class="card">
     <div class="kv-grid">
       ${kv('Status', chipStatus(it.status_label))}
-      ${kv('Type', esc(it.service_kind || it.appltype_label))}
+      ${kv('Type', chipKind(it.service_kind || it.appltype_label))}
       ${kv('Service Name', esc(it.ib_servicename))}
       ${kv('Owner', esc(it.objectownerid))}
       ${kv('Last Updated', esc(it.lastupddttm))}
@@ -503,14 +521,14 @@ async function showOperation(name, push=true) {
   // Build relationship strip
   const relTags = [];
   const svcName = it.ib_servicename || it.ptibapplname;
-  if (svcName) relTags.push({label:`&#127760; ${svcName}`, action:`showService('${svcName}')`});
+  if (svcName) relTags.push({icon:'&#127760; ', label:`${svcName}`, action:`showService('${svcName}')`});
   (it.routings||[]).slice(0,3).forEach(r => {
-    relTags.push({label:`&#8652; ${r.routingdefnname}`, action:`showRouting('${r.routingdefnname}')`});
+    relTags.push({icon:'&#8652; ', label:`${r.routingdefnname}`, action:`showRouting('${r.routingdefnname}')`});
   });
   (it.runtime_queues||[]).slice(0,2).forEach(q => {
-    relTags.push({label:`&#11036; ${q.queuename}`, action:`showQueue('${q.queuename}')`});
+    relTags.push({icon:'&#11036; ', label:`${q.queuename}`, action:`showQueue('${q.queuename}')`});
   });
-  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`});
+  relTags.push({icon:'&#8644; ', label:'Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`});
 
   let h = relStrip('Related', relTags);
   h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">&#9881; ${esc(it.ib_operationname)}</div>`;
@@ -616,10 +634,10 @@ async function showRouting(name, push=true) {
   if (!it) { setDetail(`<div class="err-msg">Not found: ${esc(name)}</div>`); return; }
 
   const relTags = [];
-  if (it.ib_operationname) relTags.push({label:`&#9881; ${it.ib_operationname}`, action:`showOperation('${it.ib_operationname}')`});
-  if (it.sendernodename) relTags.push({label:`&#8594; ${it.sendernodename}`, action:`showNode('${it.sendernodename}')`});
-  if (it.receivernodename) relTags.push({label:`&#8592; ${it.receivernodename}`, action:`showNode('${it.receivernodename}')`});
-  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`});
+  if (it.ib_operationname) relTags.push({icon:'&#9881; ', label:`${it.ib_operationname}`, action:`showOperation('${it.ib_operationname}')`});
+  if (it.sendernodename) relTags.push({icon:'&#8594; ', label:`${it.sendernodename}`, action:`showNode('${it.sendernodename}')`});
+  if (it.receivernodename) relTags.push({icon:'&#8592; ', label:`${it.receivernodename}`, action:`showNode('${it.receivernodename}')`});
+  relTags.push({icon:'&#8644; ', label:'Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`});
 
   let h = relStrip('Related', relTags);
   h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">&#8652; ${esc(it.routingdefnname)}</div>`;
@@ -666,8 +684,8 @@ async function showNode(name, push=true) {
 
   const allRoutings = [...(it.routings_as_sender||[]), ...(it.routings_as_receiver||[])];
   const uniqueOps = [...new Set(allRoutings.map(r=>r.ib_operationname).filter(Boolean))];
-  const relTags = uniqueOps.slice(0,5).map(op => ({label:`&#9881; ${op}`, action:`showOperation('${op}')`}));
-  relTags.push({label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`});
+  const relTags = uniqueOps.slice(0,5).map(op => ({icon:'&#9881; ', label:`${op}`, action:`showOperation('${op}')`}));
+  relTags.push({icon:'&#8644; ', label:'Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`});
 
   let h = relStrip('Related Ops', relTags);
   h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">
@@ -718,7 +736,7 @@ async function showQueue(name, push=true) {
   const it = d.item;
   if (!it) { setDetail(`<div class="err-msg">Not found: ${esc(name)}</div>`); return; }
 
-  const relTags = [{label:'&#8644; Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`}];
+  const relTags = [{icon:'&#8644; ', label:'Transactions', cls:'rel-action', action:`viewTxnsFor('${name}')`}];
 
   let h = relStrip('Related', relTags);
   h += `<div style="font-size:14px;font-family:monospace;color:#00e5ff;margin-bottom:4px;">&#11036; ${esc(it.queuename)}</div>`;
@@ -762,13 +780,14 @@ async function showTxn(txid, push=true) {
   if (!it) { setDetail(`<div class="err-msg">Not found.</div>`); return; }
 
   const relTags = [];
-  if (it.ib_operationname) relTags.push({label:`&#9881; ${it.ib_operationname}`, action:`showOperation('${it.ib_operationname}')`});
-  if (it.queuename) relTags.push({label:`&#11036; ${it.queuename}`, action:`showQueue('${it.queuename}')`});
-  if (it.pubnode) relTags.push({label:`&#128279; ${it.pubnode}`, action:`showNode('${it.pubnode}')`});
+  if (it.ib_operationname) relTags.push({icon:'&#9881; ', label:`${it.ib_operationname}`, action:`showOperation('${it.ib_operationname}')`});
+  if (it.queuename) relTags.push({icon:'&#11036; ', label:`${it.queuename}`, action:`showQueue('${it.queuename}')`});
+  if (it.pubnode) relTags.push({icon:'&#128279; ', label:`${it.pubnode}`, action:`showNode('${it.pubnode}')`});
 
   let h = relStrip('Path', relTags);
   h += `<div style="font-family:monospace;color:#00e5ff;font-size:11px;margin-bottom:4px;">&#8644; ${esc((txid||'').substring(0,36))}</div>`;
-  h += `<div class="card"><div class="kv-grid">
+
+  h += `<h2>Operation Instance</h2><div class="card"><div class="kv-grid">
       ${kv('Status', chipTx(it.pubstatus_label))}
       ${kv('Operation', `<a class="obj-link" onclick="showOperation('${it.ib_operationname}')">${esc(it.ib_operationname)}</a>`)}
       ${kv('Queue', it.queuename ? `<a class="obj-link" onclick="showQueue('${it.queuename}')">${esc(it.queuename)}</a>` : '')}
@@ -782,8 +801,9 @@ async function showTxn(txid, push=true) {
     ${it.statusstring ? `<div class="warn-msg" style="margin-top:6px;">${esc(it.statusstring)}</div>` : ''}
   </div>`;
 
+  h += `<h2>Publication Transaction${(it.pub_contracts||[]).length === 1 ? '' : 's'} (${(it.pub_contracts||[]).length})</h2>`;
   if ((it.pub_contracts||[]).length) {
-    h += `<h2>Publication Contracts (${it.pub_contracts.length})</h2><div class="card"><table><thead><tr>
+    h += `<div class="card"><table><thead><tr>
       <th>Sub Node</th><th>Routing</th><th>Status</th><th>Retries</th><th>Updated</th>
     </tr></thead><tbody>`;
     it.pub_contracts.forEach(c => {
@@ -794,18 +814,45 @@ async function showTxn(txid, push=true) {
         <td class="ts">${esc(c.lastupddttm||'')}</td></tr>`;
     });
     h += '</tbody></table></div>';
+  } else {
+    h += `<div class="card"><span class="empty">None for this transaction.</span></div>`;
   }
 
+  h += `<h2>Subscription Transaction${(it.sub_contracts||[]).length === 1 ? '' : 's'} (${(it.sub_contracts||[]).length})</h2>`;
   if ((it.sub_contracts||[]).length) {
-    h += `<h2>Subscription Contracts (${it.sub_contracts.length})</h2><div class="card"><table><thead><tr>
-      <th>Action</th><th>Operation</th><th>Routing</th><th>Status</th><th>Proc Inst</th>
+    h += `<div class="card"><table><thead><tr>
+      <th>Sub Txn ID</th><th>Action</th><th>Operation</th><th>Routing</th><th>Status</th><th>Proc Inst</th>
     </tr></thead><tbody>`;
     it.sub_contracts.forEach(c => {
-      h += `<tr><td class="mono">${esc(c.actionname||'')}</td>
+      h += `<tr><td class="mono" style="font-size:10px;">${esc((c.ibtransactionid||'').substring(0,36))}</td>
+        <td class="mono">${esc(c.actionname||'')}</td>
         <td class="mono"><a class="obj-link" onclick="showOperation('${c.ib_operationname}')">${esc(c.ib_operationname||'')}</a></td>
         <td class="mono"><a class="obj-link" onclick="showRouting('${c.routingdefnname}')">${esc(c.routingdefnname||'')}</a></td>
         <td>${chipTx(c.subconstatus_label)}</td>
         <td>${esc(c.process_instance||'')}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+  } else {
+    h += `<div class="card"><span class="empty">None for this transaction.</span></div>`;
+  }
+
+  h += `<h2>Request Message Body</h2>`;
+  if (it.request_body && it.request_body.content) {
+    h += `<div class="card"><div style="font-size:11px;color:#888;margin-bottom:4px;">${it.request_body.segments} segment(s), decompressed</div>
+      <pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;max-height:400px;overflow:auto;margin:0;">${esc(it.request_body.content)}</pre></div>`;
+  } else {
+    h += `<div class="card"><span class="empty">No message body available for this transaction.</span></div>`;
+  }
+
+  if ((it.errors||[]).length) {
+    h += `<h2>IB Errors (${it.errors.length})</h2><div class="card"><table><thead><tr>
+      <th>Time</th><th>Message</th><th>Severity</th><th>Params</th>
+    </tr></thead><tbody>`;
+    it.errors.forEach(e => {
+      h += `<tr><td class="ts">${esc(e.errortimestamp||'')}</td>
+        <td>${esc(e.message_text || `Msg Set ${e.message_set_nbr}, Msg ${e.message_nbr}`)}</td>
+        <td>${esc(e.msg_severity||'')}</td>
+        <td class="mono">${esc((e.params||[]).join(', '))}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }
@@ -879,6 +926,7 @@ function bStatus(l) { return l === 'Active' ? {cls:'bd-ok',text:l||''} : {cls:'b
 function bQueue(l)  { return l === 'Running' ? {cls:'bd-ok',text:l} : l === 'Halted' ? {cls:'bd-err',text:l} : {cls:'bd-warn',text:l||''}; }
 function bTx(l)     { return (l==='Error'||l==='Timeout') ? {cls:'bd-err',text:l} : l==='Done' ? {cls:'bd-ok',text:l} : {cls:'bd-mute',text:l||''}; }
 function chipStatus(l) { const c=l==='Active'?'ch-ok':'ch-mute'; return `<span class="chip ${c}">${esc(l||'')}</span>`; }
+function chipKind(k)   { const c=k==='REST'?'ch-info':'ch-mute'; return `<span class="chip ${c}">${esc(k==='REST'?'REST':'STD')}</span>`; }
 function chipActive(l) { const c=l==='Active'?'ch-ok':'ch-mute'; return `<span class="chip ${c}">${esc(l||'')}</span>`; }
 function chipQueue(l)  { const c=l==='Running'?'ch-ok':l==='Halted'?'ch-err':'ch-warn'; return `<span class="chip ${c}">${esc(l||'')}</span>`; }
 function chipTx(l)     { const c=(l==='Error'||l==='Timeout')?'ch-err':l==='Done'?'ch-ok':l==='Started'?'ch-warn':'ch-mute'; return `<span class="chip ${c}">${esc(l||'')}</span>`; }

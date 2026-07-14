@@ -8733,3 +8733,354 @@ Dockerfile syntax:**
    inside the container when host-level ports might be occupied by
    something else entirely.
 6. Cleaned up test containers/images afterward.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 42) — IB Explorer: Fixed Double-Escaped HTML Entities in Related Tags
+
+**Context:** The "Related" chips on IB Explorer detail pages (Service
+Operations, Routings, Nodes, Queues, Transactions) showed literal text
+like `&#127760;` instead of the intended icons (🌐 for services, ⇜/⇝ for
+routings, ⚙ for operations, etc.).
+
+**Root cause:** `relStrip()` (`routers/admin/integration.py:414-418`)
+already correctly supports a separate unescaped `icon` field —
+`${t.icon||''}${esc(t.label)}` — precisely so a raw HTML entity can
+render as-is while the actual text content still gets escaped for safety.
+But every one of the 13 call sites building `relTags` entries embedded
+the entity directly inside `label` instead (e.g. `{label: '&#127760; ' +
+svcName}`), so `esc()` escaped the `&` in `&#127760;` into `&amp;#127760;`
+— which the browser displays as the literal text `&#127760;` rather than
+decoding it back into the glyph. The `icon` field existed and was
+correctly wired into the render function; nothing used it.
+
+**Fix**: mechanically split every `relTags.push({label: '&#N; text', ...})`
+/ `` {label: `&#N; ${expr}`, ...} `` call site into `{icon: '&#N; ',
+label: 'text'/`${expr}`, ...}` — 13 occurrences across the Service
+Operation, Routing, Node, Queue, and Transaction detail views. Grepped
+afterward to confirm zero remaining `label:` fields contain a raw `&#`
+entity.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`. Not yet
+re-verified live — next step: restart + hard-refresh `/admin/ib`, open a
+Service Operation/Routing/Node/Queue detail, confirm the Related chips
+render actual icon glyphs instead of literal entity text.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 43) — IB Explorer: Breadcrumb Now Follows Lineage, Not Raw Click History
+
+**Context:** `pushNav()` (`routers/admin/integration.py:234-242`)
+unconditionally appended whatever was clicked to `navStack`, with no
+concept of IB's actual object hierarchy (Service → Operation → Routing →
+Node/Queue → Transaction). Clicking a "Related" chip that jumps sideways
+or upward (e.g. from a Service Operation to a Node, or from a Node back
+to an unrelated Service) just kept growing the same flat stack, so the
+breadcrumb read as a literal click trail rather than a parent-child path
+— correct by coincidence when clicks happened to follow the real
+hierarchy (as in the reported screenshot's Service → Operation case),
+wrong whenever they didn't.
+
+**Fix:** Added `NAV_TYPE_RANK` (`service:1, operation:2, routing:3,
+node:4, queue:5, txn:6` — Transactions always deepest, since every other
+type can drill into it). `pushNav()` now filters `navStack` to keep only
+entries with a **strictly shallower** rank than the type being navigated
+to, before appending — per the user's explicit requirement ("if the user
+jumps a link it shouldn't break the lineage but add to it... try to be
+parent-child lineage when possible"):
+- Navigating to a *deeper* type (e.g. Operation → Node) keeps all current
+  ancestors and extends the chain — a jump doesn't reset the breadcrumb.
+- Navigating to a *shallower-or-equal* type (e.g. jumping to an unrelated
+  Service from a Node) drops everything at that rank or deeper, since
+  those entries aren't plausible ancestors of the new node — starts a
+  fresh branch instead of an incoherent flat trail.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`; traced six
+scenarios by hand against the filter logic (Service→Operation staying
+intact — the exact case in the reported screenshot; Operation→Node
+extending; Node→unrelated-Service resetting; Operation→Transactions
+appending as a leaf; Transactions→Routing branching back from the
+Service/Operation ancestors, dropping the dead-end Txn leaf) before
+considering this correct. Not yet re-verified live — next step: restart
++ hard-refresh `/admin/ib`, click through Service → Operation → a
+"Related" Node chip → back to a different Service, confirm the
+breadcrumb behaves as described at each step rather than just growing.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 44) — IB Explorer: Node Status Bug + Missing Standard Services, Both Verified Against Real Data
+
+**Context:** User reported two bugs while confirming the earlier icon/
+breadcrumb fixes worked: (1) node status showing Inactive for nodes
+(PSFT_HR, HRMS) the user confirmed are actually Active in the real
+system, and (2) the Services tab only showing REST services, correctly
+guessing "they may be on a different PeopleTools table."
+
+**Bug 1 — node status.** `nodes()`/`node()`
+(`connectors/ib.py`, two call sites) checked `PSMSGNODEDEFN.ACTIVE_NODE`
+for the literal string `'Y'` only. Delivered PeopleTools stores this
+column as a numeric flag (`'1'`/`'0'`), not `'Y'`/`'N'` — so every active
+node rendered as Inactive. The adjacent `is_local` check
+(`LOCALNODE`) already correctly accepted both `'1'` and `'Y'`; only
+`ACTIVE_NODE` had the narrower, wrong check. Fixed by broadening to the
+same `in ("1", "Y")` pattern, with a comment flagging the column's real
+stored format so this doesn't regress.
+
+**Bug 2 — Standard/SOAP services invisible.** Confirmed via research (not
+guessed): `PSIBAPPLDEFN` is PeopleTools' REST "Application Service"
+catalog specifically — traditional/SOAP "standard" IB services never get
+a row there at all; their only evidence of existing is
+`PSOPERATION.IB_SERVICENAME` on their operations. `services()` only ever
+queried `PSIBAPPLDEFN`, so any service without a REST Application Service
+definition was structurally invisible, not filtered out by any WHERE
+clause. Fixed by adding `_legacy_service_names()` (distinct
+`IB_SERVICENAME` values from `PSOPERATION` not already covered by a
+`PSIBAPPLDEFN` row) and merging synthetic "Standard"-kind rows into the
+`services()` result up to the requested limit. Also fixed `service()`
+(the detail-view lookup) — a legacy service name would previously 404
+("Not found") since it was never looked for outside `PSIBAPPLDEFN`;
+added `_legacy_service_detail()`, which confirms the service is real via
+its `PSOPERATION` operations (already-existing `_operations_for_service()`)
+and builds a synthetic item from them, matching the shape the frontend
+expects (`ptibapplname`, `status_label`, `service_kind`, etc.).
+
+**Verification — against real Oracle data on the live HRTST environment,
+not synthetic fixtures:**
+1. `ib.nodes('HRTST', q='PSFT_HR')` and `q='HRMS'` — confirmed
+   `active_node='1'` now correctly resolves to `active_label='Active'`
+   for both, the exact two nodes the user named.
+2. `ib.services('HRTST', limit=500)` — 500 total services returned, split
+   13 REST / 487 Standard. Before this fix, only the 13 REST services
+   were ever reachable at all — the 487 legacy services genuinely didn't
+   exist in the API response, not merely hidden by pagination.
+3. `ib.service('HRTST', 'ACCOM_TYPE_FULLSYNC')` (one of the newly-visible
+   standard services) — confirmed the detail lookup returns a real item
+   (not `None`/404) with 1 associated operation, proving the
+   `_legacy_service_detail()` fallback works for a name that has zero
+   `PSIBAPPLDEFN` presence.
+4. `python3 -c "import ast; ast.parse(...)"` on the changed file.
+
+Not yet re-verified through the actual browser UI — next step: restart +
+hard-refresh `/admin/ib`, confirm PSFT_HR/HRMS show Active in the Nodes
+list, and confirm the Services tab now lists hundreds of Standard-badged
+services alongside the REST ones, with detail pages opening correctly for
+both kinds.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 45) — IB Explorer: Overview "Services" Count Had the Same Bug
+
+**Context:** After the Services-tab fix (previous entry), the Overview
+tab's "13 SERVICES" stat tile was still wrong — it's computed by a
+completely separate code path (`dashboard()`'s `_count("PSIBAPPLDEFN",
+...)`, `connectors/ib.py:1431`) that never got touched by the earlier
+fix, since that fix only changed `services()`/`service()` (the list/detail
+endpoints), not the dashboard summary.
+
+**Fix:** Replaced the plain `COUNT(*)` on `PSIBAPPLDEFN` with the same
+REST-plus-legacy union logic as `services()`: REST count from
+`PSIBAPPLDEFN` plus a `COUNT(DISTINCT IB_SERVICENAME)` from `PSOPERATION`
+excluding names already covered by a `PSIBAPPLDEFN` row (via `NOT
+EXISTS`, unbounded — unlike `services()`'s list endpoint, the dashboard
+count has no page-size limit to worry about, so a plain distinct count is
+correct and simpler than replicating `_legacy_service_names()`'s
+name-list logic).
+
+**Verification against real Oracle data (HRTST)**: ran the exact two
+component queries (`PSIBAPPLDEFN` count, and the `NOT EXISTS`-filtered
+distinct `PSOPERATION.IB_SERVICENAME` count) independently and confirmed
+`13 + 1077 = 1090`, matching `dashboard()`'s returned `service_count`
+exactly — not just eyeballing a plausible-looking bigger number.
+
+------------------------------------------------------------------------
+
+## 2026-07-14 (session 46) — IB Explorer: Real Status/Description for Standard Services + REST/STD Badges
+
+**Context:** Follow-up to session 44's fix (which made standard/legacy
+services visible at all). The synthetic rows built for those services
+hardcoded `status_label: "Unknown"` and `descr: ""`, since there's no
+`PSIBAPPLDEFN` row to source either from — the user correctly flagged
+"Unknown" as unacceptable and asked for real status, a REST/STD badge per
+service, and the description actually displayed.
+
+**Status**: `PSOPERATION` (a standard service's only footprint) has no
+`STATUS`/`EFF_STATUS` column of its own — confirmed by querying real
+column existence before assuming anything. Activity is a property of the
+service's *operations'* **routings** (`PSIBRTNGDEFN.EFF_STATUS`), not the
+service itself. Added `_legacy_service_statuses_bulk()`: one join+group-by
+query (`PSOPERATION` → `PSIBRTNGDEFN` on `IB_OPERATIONNAME`) covering an
+entire page of services at once — Active if any associated routing is
+active, Inactive if routings exist but none are, Unknown only when there
+is genuinely no routing data to go on (an honest result, not a bug).
+`_legacy_service_status()` (singular) does the same for the single-item
+detail view.
+
+**Description**: sourced from `MIN(DESCR)` grouped by
+`IB_SERVICENAME` directly in the same bulk `PSOPERATION` query used to
+discover the service names in the first place (`_legacy_service_rows()`,
+renamed from `_legacy_service_names()` now that it returns descr too) —
+no extra query needed for this part.
+
+**Performance discipline**: explicitly avoided N+1 queries for both of
+the above — with potentially 1000+ legacy services on a page, a per-row
+status/description lookup would have been one or two extra queries times
+every row. Both are single bulk queries covering the whole returned page.
+
+**Badges**: `routers/admin/integration.py`'s services list gained a
+second `.badge` (REST → `bd-info`, Standard → `bd-mute`/"STD") alongside
+the existing status badge. Added a matching `chipKind()` helper and used
+it for the detail view's "Type" field (previously plain text), consistent
+with how "Status" already renders as a chip there.
+
+**Verification — against real Oracle data on HRTST, not fixtures:**
+1. `ib.services('HRTST', limit=30)` — confirmed real, varied
+   `status_label` values (Active/Inactive/Unknown, no longer uniformly
+   "Unknown") and real `descr` text (e.g. "USA specific Accomodation
+   type", "Account Chartfield Full Sync") for standard services, plus the
+   existing 13 REST services still correctly kind-labeled and unaffected.
+2. `ib.service('HRTST', 'ADMINSERVICE')` — detail-view status/descr/kind
+   all populated correctly (`Active` / `"CREATE"` / `"Standard"`) for a
+   service reachable only via the legacy-detail fallback path.
+3. `python3 -c "import ast; ast.parse(...)"` on both changed files.
+
+Not yet re-verified through the browser — next step: restart + hard-
+refresh `/admin/ib`, confirm the Services list shows two badges per row
+(status + REST/STD) with real statuses, and that detail pages show the
+Type as a chip and the description text under the service name.
+
+------------------------------------------------------------------------
+
+## 2026-07-14 (session 47) — IB Explorer: Fixed Node Type Mapping (Literal Strings, Not Numeric Codes)
+
+**Context:** Node detail pages showed "Node Type: Unknown" for every
+node (HRMS, PSFT_HR shown in the reported screenshot). User named the
+real domain directly: "External, PIA, or IcType."
+
+**Root cause, confirmed via real data before touching anything:**
+`NODE_TYPE_LABELS` mapped keys `"0"`/`"1"`/`"2"`/`"3"` (assumed numeric
+codes), but `SELECT DISTINCT NODE_TYPE FROM sysadm.PSMSGNODEDEFN`
+returned literal strings `'EX'` and `'PIA'` — nothing in this HRTST
+system's data was ever `"0"`-`"3"`, so every node fell through to the
+"Unknown" default regardless of its real type.
+
+**Fix:** Replaced the numeric-keyed map with the real literal-string
+domain — `'PIA'` → `"PIA"`, `'EX'` → `"External"`, plus `'IC'` →
+`"IC Type"` (the third category the user named; not observed in this
+particular dataset's `DISTINCT` results, but included since PeopleTools'
+full domain includes it and the user explicitly asked for it — a
+reasonable inclusion even without live confirmation, unlike guessing an
+entire mapping from scratch). Added `.upper()` normalization at both
+lookup call sites for robustness against case variance across
+PeopleTools versions/environments.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`; re-ran
+`ib.nodes()`/`ib.node()` against real HRTST data for HRMS and PSFT_HR —
+both now correctly resolve to `"PIA"` instead of `"Unknown"`.
+
+------------------------------------------------------------------------
+
+## 2026-07-14 (session 48) — IB Explorer: Fixed Routing Type Mapping (Third Instance of the Same Bug Class)
+
+**Context:** Routing detail pages showed "Type: Unknown" (e.g.
+`IMPERSONATEEX`, shown in the reported screenshot). Same underlying
+pattern as sessions 44/47 (`ACTIVE_NODE`, `NODE_TYPE`): `RTNGTYPE_LABELS`
+assumed numeric keys `"0"`-`"4"`, but `PSIBRTNGDEFN.RTNGTYPE` is a
+literal single-char code.
+
+**This time, didn't guess the label meanings even after confirming the
+real keys.** Queried `SELECT DISTINCT RTNGTYPE` (found `A`, `R`, `S`,
+`X`) and cross-referenced sample routings per code to infer meaning from
+context — confidently identified `A` (Asynchronous, matched to
+`*_FULLSYNC`/`*_SYNC` operations) and `S` (Synchronous, matched to
+`IMPERSONATEEX` itself, a well-known synchronous PeopleSoft security
+operation) this way. But `R` and `X` had genuinely ambiguous data-pattern
+evidence (`R` associated with request/reply-flavored operations like
+`READY_FOR_TRANSMISSION`; `X` had only one sample). Rather than guess on
+a real production system after two rounds of exactly this "guessed wrong
+domain" mistake already this session, asked the user directly. They
+provided the authoritative PeopleTools domain (citing the PSIBRTNGDEFN
+table reference): `A`=Asynchronous–One Way, `N`=Synchronous Non-Blocking,
+`R`=Asynchronous Request/Response, `S`=Synchronous,
+`X`=Asynchronous to Synchronous.
+
+**Fix:** Replaced `RTNGTYPE_LABELS`'s numeric keys with this confirmed
+domain. Added `.upper()` normalization at all six call sites (previously
+inconsistent — none of the six had it), matching the robustness fix
+already applied to `NODE_TYPE_LABELS` lookups in session 47.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`; re-ran
+`ib.routing('HRTST', 'IMPERSONATEEX')` against real data — now correctly
+resolves to `"Synchronous"` instead of `"Unknown"`.
+
+**Pattern across sessions 44/47/48**: three separate PeopleTools decode
+tables in this same file (`ACTIVE_NODE`, `NODE_TYPE`, `RTNGTYPE`) all had
+the identical failure mode — assumed a numeric/simple domain without
+checking the real column values first. Worth a broader sweep of any
+remaining `_LABELS`-style dicts in this file for the same issue rather
+than waiting for each one to surface as a separate bug report.
+
+## 2026-07-14 (session 49) — IB Explorer: Transactions Redesigned as 3-Way Linked Model + Message Body + Errors
+
+**Context:** User requested (given a screenshot of the old flat Txn
+detail view): "Transactions should comprise of related Operation
+Instance link, Publication Transaction or Subscription Transaction. Its
+basically 3 different transactions that link. Then there should be a
+Request Message Body and a Response Message Body. There may or may not
+be associated IB Error messages related to the transaction IDs."
+
+**Bug found and fixed:** `_sub_contracts()` joined
+`PSAPMSGSUBCON.IBTRANSACTIONID = :txid`, but that column is the
+subscription side's own distinct transaction id, not the pub-side one —
+this always returned 0 rows against real data. The correct correlation
+column is `IBPUBTRANSACTID`. Proved live: old join returned 0 rows,
+corrected join returned 1 real matching row for pub transaction
+`6ec9f01e-6fdd-11f1-8e33-635fd23340d6`.
+
+**3-way model:** Relabeled the UI sections to match the user's mental
+model — **Operation Instance** (`PSAPMSGPUBHDR`), **Publication
+Transaction(s)** (`PSAPMSGPUBCON`, corrected join), **Subscription
+Transaction(s)** (`PSAPMSGSUBCON`, corrected join, now also shows the
+sub-side's own transaction id since it differs from the pub-side one).
+
+**Request Message Body:** implemented and verified live.
+`PSAPMSGPUBDATA` is keyed by `IBTRANSACTIONID`, stores
+zlib-compressed MIME content across segment/subsegment/sequence rows.
+New `_message_body()` helper reassembles segments in order,
+`zlib.decompress()`s, and decodes UTF-8. Verified against real
+transaction `6ec9f01e-6fdd-11f1-8e33-635fd23340d6`: 2 segments,
+decompressed to a valid MIME multipart message with `<IBInfo>` XML
+header.
+
+**Response Message Body: deliberately NOT implemented.** Investigated
+`PSAPMSGSCONDATA`/`PSAPMSGPCONDATA` (both structurally similar to
+`PSAPMSGPUBDATA` but keyed by `PUBID` instead of `IBTRANSACTIONID`).
+No table in the `PSAPMSGPUBHDR`/`PUBCON`/`SUBCON` chain exposes a
+`pubid` column to bridge from, and both candidate tables are completely
+empty (0 rows) in HRTST, so there's no live data to reverse-engineer the
+join from either — this isn't a guessable domain value like `RTNGTYPE`,
+it's a genuinely missing link given current access/data. Asked the user
+via `AskUserQuestion` rather than guess a fourth domain this cycle; they
+chose to skip it for now. Left as a documented gap, not implemented.
+
+**IB Errors:** implemented and verified schema (0 live rows in HRTST to
+exercise, but confirmed real). New `_ib_errors()` joins `PSIBERR`
+(keyed by `IBTRANSACTIONID`) to `PSMSGCATDEFN`
+(`MESSAGE_SET_NBR`+`MESSAGE_NBR` → `MESSAGE_TEXT`/`MSG_SEVERITY`) and
+attaches `PSIBERRP` params grouped by `SEQNO`. Renders an empty-state
+message when there are no errors, which is the common case.
+
+**Files:** `connectors/ib.py` (`_sub_contracts()` join fix,
+`_message_body()`, `_ib_errors()`, wired into `transaction()`),
+`routers/admin/integration.py` (`showTxn()` rewritten: Operation
+Instance / Publication Transaction(s) / Subscription Transaction(s)
+sections, Request Message Body `<pre>` viewer, IB Errors table).
+
+**Verification:** `ast.parse()` on both files; live
+`ib.transaction('HRTST', ...)` calls against two real transactions
+confirmed correct pub/sub contract counts, a fully decompressed request
+body, and an empty (not erroring) errors list.
+
+**Not yet done:** Response Message Body (see above — needs either a
+schema/data source I don't currently have access to, or the user's
+direct knowledge of the `pubid` bridge). User has not yet asked to
+restart the service or commit.

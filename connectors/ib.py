@@ -18,6 +18,8 @@ All functions use has_table() before touching any table; missing-grant scenarios
 return structured warnings instead of raising exceptions.
 """
 
+import zlib
+
 from connectors import psdb, ptmetadata
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -52,18 +54,24 @@ QUEUESTATUS_LABELS = {
 }
 
 NODE_TYPE_LABELS = {
-    "0": "PeopleSoft",
-    "1": "External (Rel 8+)",
-    "2": "External (Pre-Rel 8)",
-    "3": "Hub",
+    # PSMSGNODEDEFN.NODE_TYPE is stored as a literal string (confirmed
+    # live: 'PIA', 'EX') on delivered PeopleTools, not the numeric 0-3
+    # codes this used to assume — every real node rendered as "Unknown".
+    "PIA": "PIA",
+    "EX": "External",
+    "IC": "IC Type",
 }
 
 RTNGTYPE_LABELS = {
-    "0": "Any to Local",
-    "1": "Local to Any",
-    "2": "Explicit (Named)",
-    "3": "Any to Any",
-    "4": "Subscription",
+    # PSIBRTNGDEFN.RTNGTYPE is a literal single-char code (confirmed live:
+    # A/R/S/X present in real data), not the numeric 0-4 this used to
+    # assume — every real routing rendered as "Unknown". Domain per
+    # PeopleTools table reference (PSIBRTNGDEFN), user-confirmed:
+    "A": "Asynchronous – One Way",
+    "N": "Synchronous Non-Blocking",
+    "R": "Asynchronous Request/Response",
+    "S": "Synchronous",
+    "X": "Asynchronous to Synchronous",
 }
 
 THRUPUT_LABELS = {
@@ -110,60 +118,211 @@ def _service_kind(row: dict) -> str:
 # Application Service Definitions
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _legacy_service_rows(env_name: str, pattern: str, exclude: set, limit: int) -> list:
+    """
+    Traditional/SOAP ("standard") IB services never get a row in
+    PSIBAPPLDEFN — that table is the PeopleTools "Application Service"
+    (REST) catalog only. A standard service's only footprint is
+    PSOPERATION.IB_SERVICENAME on its operations, so that's the only
+    place to discover it exists at all — and the only place to source a
+    description from (one of its operations' DESCR), since there's no
+    service-level description column anywhere for these. Bulk query (not
+    N+1 per service) — returns {ib_servicename, descr} dicts, not just
+    names, for services not already covered by a PSIBAPPLDEFN row.
+    """
+    if not ptmetadata.has_table(env_name, "PSOPERATION"):
+        return []
+    cols = psdb.select_existing_columns(env_name, "PSOPERATION", ["IB_SERVICENAME", "DESCR"])
+    if "IB_SERVICENAME" not in cols:
+        return []
+    descr_sel = "MIN(DESCR) AS DESCR" if "DESCR" in cols else "NULL AS DESCR"
+    try:
+        rows = psdb.query(env_name, f"""
+            SELECT IB_SERVICENAME, {descr_sel}
+              FROM sysadm.PSOPERATION
+             WHERE IB_SERVICENAME IS NOT NULL
+               AND upper(IB_SERVICENAME) LIKE :pat
+             GROUP BY IB_SERVICENAME
+             ORDER BY IB_SERVICENAME
+             FETCH FIRST {int(limit)} ROWS ONLY
+        """, {"pat": pattern})
+        return [r for r in rows if str(r.get("ib_servicename") or "").upper() not in exclude]
+    except Exception:
+        return []
+
+
+def _legacy_service_statuses_bulk(env_name: str, names: list) -> dict:
+    """
+    Bulk equivalent of _legacy_service_status() for a whole page of
+    services at once (one join+group-by query instead of one query per
+    service) — maps IB_SERVICENAME (upper) -> "Active"/"Inactive" for
+    names that resolved to a real status; names absent from the result
+    default to "Unknown" by the caller (genuinely no routing data).
+    """
+    names = [n for n in names if n]
+    if not names or not ptmetadata.has_table(env_name, "PSIBRTNGDEFN") or not ptmetadata.has_table(env_name, "PSOPERATION"):
+        return {}
+    try:
+        params = {f"n{i}": n for i, n in enumerate(names)}
+        preds = " OR ".join(f"upper(o.IB_SERVICENAME) = :n{i}" for i in range(len(names)))
+        rows = psdb.query(env_name, f"""
+            SELECT o.IB_SERVICENAME, r.EFF_STATUS
+              FROM sysadm.PSOPERATION o
+              JOIN sysadm.PSIBRTNGDEFN r ON r.IB_OPERATIONNAME = o.IB_OPERATIONNAME
+             WHERE {preds}
+        """, params)
+        by_name = {}
+        for row in rows:
+            name = str(row.get("ib_servicename") or "").upper()
+            by_name.setdefault(name, []).append(str(row.get("eff_status") or "").strip().upper())
+        result = {}
+        for name, statuses in by_name.items():
+            if any(s in ("A", "1") for s in statuses):
+                result[name] = "Active"
+            elif statuses:
+                result[name] = "Inactive"
+        return result
+    except Exception:
+        return {}
+
+
 def services(env_name: str, q: str = "", limit: int = 100) -> dict:
-    """Search application/service definitions from PSIBAPPLDEFN."""
+    """
+    Search service definitions. Two sources, since PeopleTools splits
+    them across two different mechanisms with no shared catalog table:
+    REST "Application Services" (PSIBAPPLDEFN) and traditional/SOAP
+    "standard" services, which only exist implicitly via
+    PSOPERATION.IB_SERVICENAME — see _legacy_service_rows().
+    """
     warnings = []
     limit = max(1, min(int(limit), 500))
-
-    if not ptmetadata.has_table(env_name, "PSIBAPPLDEFN"):
-        warnings.append(_warn("NO_PSIBAPPLDEFN",
-            "SYSADM.PSIBAPPLDEFN not accessible — Integration Broker may not be configured"))
-        return {"items": [], "warnings": warnings}
-
-    columns = psdb.select_existing_columns(
-        env_name, "PSIBAPPLDEFN",
-        ["VERSION", "PTIBAPPLTYPE", "IB_SERVICENAME", "STATUS",
-         "PTIB_CONSUMER", "PTIB_EXPORT", "OBJECTOWNERID",
-         "LASTUPDDTTM", "LASTUPDOPRID", "DESCR", "DESCRLONG"],
-        required=["PTIBAPPLNAME"],
-    )
-
     pattern = f"%{q.upper()}%"
-    predicates = ["upper(PTIBAPPLNAME) LIKE :pat"]
-    if "DESCR" in columns:
-        predicates.append("upper(DESCR) LIKE :pat")
-    if "IB_SERVICENAME" in columns:
-        predicates.append("upper(IB_SERVICENAME) LIKE :pat")
 
-    sql = f"""
-        SELECT {", ".join(columns)}
-          FROM sysadm.PSIBAPPLDEFN
-         WHERE {" OR ".join(predicates)}
-         ORDER BY PTIBAPPLNAME
-         FETCH FIRST {limit} ROWS ONLY
+    rows = []
+    if ptmetadata.has_table(env_name, "PSIBAPPLDEFN"):
+        columns = psdb.select_existing_columns(
+            env_name, "PSIBAPPLDEFN",
+            ["VERSION", "PTIBAPPLTYPE", "IB_SERVICENAME", "STATUS",
+             "PTIB_CONSUMER", "PTIB_EXPORT", "OBJECTOWNERID",
+             "LASTUPDDTTM", "LASTUPDOPRID", "DESCR", "DESCRLONG"],
+            required=["PTIBAPPLNAME"],
+        )
+
+        predicates = ["upper(PTIBAPPLNAME) LIKE :pat"]
+        if "DESCR" in columns:
+            predicates.append("upper(DESCR) LIKE :pat")
+        if "IB_SERVICENAME" in columns:
+            predicates.append("upper(IB_SERVICENAME) LIKE :pat")
+
+        sql = f"""
+            SELECT {", ".join(columns)}
+              FROM sysadm.PSIBAPPLDEFN
+             WHERE {" OR ".join(predicates)}
+             ORDER BY PTIBAPPLNAME
+             FETCH FIRST {limit} ROWS ONLY
+        """
+
+        try:
+            rows = psdb.query(env_name, sql, {"pat": pattern})
+            for row in rows:
+                row["status_label"] = _eff(row)
+                row["appltype_label"] = APPLTYPE_LABELS.get(
+                    str(row.get("ptibappltype") or "").strip(), "Unknown")
+                row["service_kind"] = _service_kind(row)
+        except Exception as exc:
+            warnings.append(_warn("PSIBAPPLDEFN_ERR", str(exc), severity="error"))
+    else:
+        warnings.append(_warn("NO_PSIBAPPLDEFN",
+            "SYSADM.PSIBAPPLDEFN not accessible — REST Application Services will not appear"))
+
+    remaining = max(0, limit - len(rows))
+    if remaining:
+        existing = {str(r.get("ptibapplname") or "").upper() for r in rows}
+        legacy_rows = _legacy_service_rows(env_name, pattern, existing, remaining)
+        statuses = _legacy_service_statuses_bulk(
+            env_name, [r.get("ib_servicename") for r in legacy_rows])
+        for lr in legacy_rows:
+            name = lr.get("ib_servicename")
+            rows.append({
+                "ptibapplname": name,
+                "ib_servicename": name,
+                "descr": lr.get("descr") or "",
+                "status_label": statuses.get(str(name or "").upper(), "Unknown"),
+                "appltype_label": "Standard",
+                "service_kind": "Standard",
+            })
+
+    rows.sort(key=lambda r: str(r.get("ptibapplname") or ""))
+    return {"items": rows[:limit], "warnings": warnings}
+
+
+def _legacy_service_status(env_name: str, op_names: list) -> str:
     """
-
+    A "standard"/legacy service has no STATUS/EFF_STATUS column of its
+    own (PSOPERATION doesn't carry one) — activity is really a property
+    of its operations' routings (PSIBRTNGDEFN.EFF_STATUS). Active if any
+    associated routing is active; Inactive if routings exist but none
+    are; Unknown only if there's genuinely no routing data to go on.
+    """
+    names = [n for n in op_names if n][:20]
+    if not names or not ptmetadata.has_table(env_name, "PSIBRTNGDEFN"):
+        return "Unknown"
     try:
-        rows = psdb.query(env_name, sql, {"pat": pattern})
-        for row in rows:
-            row["status_label"] = _eff(row)
-            row["appltype_label"] = APPLTYPE_LABELS.get(
-                str(row.get("ptibappltype") or "").strip(), "Unknown")
-            row["service_kind"] = _service_kind(row)
-        return {"items": rows, "warnings": warnings}
-    except Exception as exc:
-        warnings.append(_warn("PSIBAPPLDEFN_ERR", str(exc), severity="error"))
-        return {"items": [], "warnings": warnings}
+        params = {f"n{i}": name for i, name in enumerate(names)}
+        preds = " OR ".join(f"IB_OPERATIONNAME = :n{i}" for i in range(len(names)))
+        rows = psdb.query(env_name, f"""
+            SELECT EFF_STATUS FROM sysadm.PSIBRTNGDEFN
+             WHERE {preds}
+             FETCH FIRST 50 ROWS ONLY
+        """, params)
+        statuses = [str(r.get("eff_status") or "").strip().upper() for r in rows]
+        if any(s in ("A", "1") for s in statuses):
+            return "Active"
+        if statuses:
+            return "Inactive"
+    except Exception:
+        pass
+    return "Unknown"
+
+
+def _legacy_service_detail(env_name: str, applname: str, warnings: list) -> dict:
+    """
+    Build a synthetic service item for a "standard"/legacy service that
+    has no PSIBAPPLDEFN row (see _legacy_service_rows()) — its only
+    evidence of existing is PSOPERATION.IB_SERVICENAME on its operations,
+    so that's what's used to confirm it's real and to populate detail.
+    """
+    ops = _operations_for_service(env_name, applname, applname)
+    if not ops:
+        return None
+    descr = next((op.get("descr") for op in ops if op.get("descr")), "")
+    op_names = [op.get("ib_operationname") for op in ops]
+    row = {
+        "ptibapplname": applname,
+        "ib_servicename": applname,
+        "descr": descr,
+        "status_label": _legacy_service_status(env_name, op_names),
+        "appltype_label": "Standard",
+        "service_kind": "Standard",
+        "operations": [],
+        "service_operations": ops,
+        "routings": _routings_for_service(env_name, applname),
+    }
+    return row
 
 
 def service(env_name: str, applname: str) -> dict:
-    """Return a single application service definition."""
+    """Return a single application/service definition — either a REST
+    "Application Service" (PSIBAPPLDEFN) or, if no such row exists, a
+    traditional/SOAP "standard" service inferred from PSOPERATION (see
+    _legacy_service_detail())."""
     warnings = []
 
     if not ptmetadata.has_table(env_name, "PSIBAPPLDEFN"):
         warnings.append(_warn("NO_PSIBAPPLDEFN",
             "SYSADM.PSIBAPPLDEFN not accessible"))
-        return {"item": None, "warnings": warnings}
+        legacy = _legacy_service_detail(env_name, applname, warnings)
+        return {"item": legacy, "warnings": warnings}
 
     columns = psdb.select_existing_columns(
         env_name, "PSIBAPPLDEFN",
@@ -182,7 +341,8 @@ def service(env_name: str, applname: str) -> dict:
         """, {"name": applname})
 
         if not rows:
-            return {"item": None, "warnings": warnings}
+            legacy = _legacy_service_detail(env_name, applname, warnings)
+            return {"item": legacy, "warnings": warnings}
 
         row = rows[0]
         row["status_label"] = _eff(row)
@@ -328,7 +488,7 @@ def operations(env_name: str, q: str = "", limit: int = 100) -> dict:
             for row in rows:
                 row["service_kind"] = _service_kind(row)
                 row["rtngtype_label"] = RTNGTYPE_LABELS.get(
-                    str(row.get("rtngtype") or "").strip(), "Unknown")
+                    str(row.get("rtngtype") or "").strip().upper(), "Unknown")
                 row["version_count"] = _operation_version_count(env_name, row.get("ib_operationname"))
                 row["routing_count"] = _operation_routing_count(env_name, row.get("ib_operationname"))
             return {"items": rows, "warnings": warnings}
@@ -414,7 +574,7 @@ def _operation_header(env_name: str, opname: str, warnings: list) -> dict | None
         row = rows[0]
         row["service_kind"] = _service_kind(row)
         row["rtngtype_label"] = RTNGTYPE_LABELS.get(
-            str(row.get("rtngtype") or "").strip(), "Unknown")
+            str(row.get("rtngtype") or "").strip().upper(), "Unknown")
         return row
     except Exception as exc:
         warnings.append(_warn("PSOPERATION_DETAIL_ERR", str(exc), severity="error"))
@@ -667,7 +827,7 @@ def _routings_for_service(env_name: str, applname: str) -> list:
         for row in rows:
             row["eff_status_label"] = _eff(row)
             row["rtngtype_label"] = RTNGTYPE_LABELS.get(
-                str(row.get("rtngtype") or "").strip(), "Unknown")
+                str(row.get("rtngtype") or "").strip().upper(), "Unknown")
         return rows
     except Exception:
         return []
@@ -718,7 +878,7 @@ def routings(env_name: str, q: str = "", limit: int = 100) -> dict:
         for row in rows:
             row["eff_status_label"] = _eff(row)
             row["rtngtype_label"] = RTNGTYPE_LABELS.get(
-                str(row.get("rtngtype") or "").strip(), "Unknown")
+                str(row.get("rtngtype") or "").strip().upper(), "Unknown")
         return {"items": rows, "warnings": warnings}
     except Exception as exc:
         warnings.append(_warn("PSIBRTNGDEFN_ERR", str(exc), severity="error"))
@@ -759,7 +919,7 @@ def routing(env_name: str, rtngname: str) -> dict:
         row = rows[0]
         row["eff_status_label"] = _eff(row)
         row["rtngtype_label"] = RTNGTYPE_LABELS.get(
-            str(row.get("rtngtype") or "").strip(), "Unknown")
+            str(row.get("rtngtype") or "").strip().upper(), "Unknown")
 
         # Sub-definitions (additional node pairs).
         row["sub_definitions"] = _routing_sub(env_name, rtngname)
@@ -825,9 +985,13 @@ def nodes(env_name: str, q: str = "", limit: int = 100) -> dict:
     try:
         rows = psdb.query(env_name, sql, {"pat": pattern})
         for row in rows:
-            row["active_label"] = "Active" if str(row.get("active_node") or "").upper() == "Y" else "Inactive"
+            # PSMSGNODEDEFN.ACTIVE_NODE is delivered as a numeric flag
+            # ('1'/'0'), not 'Y'/'N' — a 'Y'-only check reported active
+            # nodes as Inactive. LOCALNODE below has always correctly
+            # accepted both forms; ACTIVE_NODE hadn't.
+            row["active_label"] = "Active" if str(row.get("active_node") or "").strip().upper() in ("1", "Y") else "Inactive"
             row["node_type_label"] = NODE_TYPE_LABELS.get(
-                str(row.get("node_type") or "").strip(), "Unknown")
+                str(row.get("node_type") or "").strip().upper(), "Unknown")
             row["is_local"] = str(row.get("localnode") or "").strip() in ("1", "Y")
             row["is_default"] = str(row.get("localdefaultflg") or "").upper() == "Y"
         return {"items": rows, "warnings": warnings}
@@ -866,9 +1030,9 @@ def node(env_name: str, nodename: str) -> dict:
             return {"item": None, "warnings": warnings}
 
         row = rows[0]
-        row["active_label"] = "Active" if str(row.get("active_node") or "").upper() == "Y" else "Inactive"
+        row["active_label"] = "Active" if str(row.get("active_node") or "").strip().upper() in ("1", "Y") else "Inactive"
         row["node_type_label"] = NODE_TYPE_LABELS.get(
-            str(row.get("node_type") or "").strip(), "Unknown")
+            str(row.get("node_type") or "").strip().upper(), "Unknown")
         row["is_local"] = str(row.get("localnode") or "").strip() in ("1", "Y")
         row["is_default"] = str(row.get("localdefaultflg") or "").upper() == "Y"
 
@@ -914,7 +1078,7 @@ def ib_operation(env_name: str, opname: str) -> dict:
         for row in rows:
             row["eff_status_label"] = _eff(row)
             row["rtngtype_label"] = RTNGTYPE_LABELS.get(
-                str(row.get("rtngtype") or "").strip(), "Unknown")
+                str(row.get("rtngtype") or "").strip().upper(), "Unknown")
 
         if not rows:
             return {"item": None, "routings": [], "warnings": warnings}
@@ -1182,11 +1346,23 @@ def transaction(env_name: str, txid: str) -> dict:
         row["pubstatus_label"] = PUBSTATUS_LABELS.get(
             str(row.get("pubstatus") or "").strip(), "Unknown")
 
-        # Publication contracts (per-subscriber delivery status).
+        # Publication Transaction(s) — per-destination-node delivery record,
+        # linked to this Operation Instance by IBTRANSACTIONID.
         row["pub_contracts"] = _pub_contracts(env_name, txid)
 
-        # Subscription contracts (handler execution status).
+        # Subscription Transaction(s) — per-handler execution record. These
+        # have their OWN distinct IBTRANSACTIONID; the link back to this
+        # Operation Instance is IBPUBTRANSACTID (confirmed live: joining on
+        # IBTRANSACTIONID here always returned 0 rows for real data).
         row["sub_contracts"] = _sub_contracts(env_name, txid)
+
+        # Request Message Body — PSAPMSGPUBDATA is keyed by IBTRANSACTIONID
+        # (confirmed live) and stores zlib-compressed MIME content.
+        row["request_body"] = _message_body(env_name, "PSAPMSGPUBDATA", txid)
+
+        # IB Error messages (if any) tied to this transaction, resolved
+        # against the standard PeopleTools message catalog.
+        row["errors"] = _ib_errors(env_name, txid)
 
         return {"item": row, "warnings": warnings}
     except Exception as exc:
@@ -1201,7 +1377,7 @@ def _pub_contracts(env_name: str, txid: str) -> list:
         columns = psdb.select_existing_columns(
             env_name, "PSAPMSGPUBCON",
             ["SUBNODE", "ROUTINGDEFNNAME", "PUBCONSTATUS", "STATUSSTRING",
-             "RETRYCOUNT", "LASTUPDDTTM", "MACHINENAME"],
+             "RETRYCOUNT", "LASTUPDDTTM", "MACHINENAME", "IB_SENDPUBID"],
             required=["IBTRANSACTIONID"],
         )
         rows = psdb.query(env_name, f"""
@@ -1224,20 +1400,87 @@ def _sub_contracts(env_name: str, txid: str) -> list:
     try:
         columns = psdb.select_existing_columns(
             env_name, "PSAPMSGSUBCON",
-            ["IB_OPERATIONNAME", "ACTIONNAME", "ACTIONOWNER", "ROUTINGDEFNNAME",
-             "SUBCONSTATUS", "STATUSSTRING", "RETRYCOUNT", "LASTUPDDTTM",
-             "MACHINENAME", "PROCESS_INSTANCE"],
-            required=["IBTRANSACTIONID"],
+            ["IBTRANSACTIONID", "IB_OPERATIONNAME", "ACTIONNAME", "ACTIONOWNER",
+             "ROUTINGDEFNNAME", "SUBCONSTATUS", "STATUSSTRING", "RETRYCOUNT",
+             "LASTUPDDTTM", "MACHINENAME", "PROCESS_INSTANCE"],
+            required=["IBPUBTRANSACTID"],
         )
         rows = psdb.query(env_name, f"""
             SELECT {", ".join(columns)}
               FROM sysadm.PSAPMSGSUBCON
-             WHERE IBTRANSACTIONID = :txid
+             WHERE IBPUBTRANSACTID = :txid
              ORDER BY IB_OPERATIONNAME, ACTIONNAME
         """, {"txid": txid})
         for row in rows:
             row["subconstatus_label"] = SUBCONSTATUS_LABELS.get(
                 str(row.get("subconstatus") or "").strip(), "Unknown")
+        return rows
+    except Exception:
+        return []
+
+
+def _message_body(env_name: str, table: str, txid: str) -> dict | None:
+    """Reassemble and decompress a zlib-compressed IB message body keyed by IBTRANSACTIONID."""
+    if not ptmetadata.has_table(env_name, table):
+        return None
+    try:
+        rows = psdb.query(env_name, f"""
+            SELECT SEGMENTNO, SUBSEGMENTNO, DATASEQNO, MIMEDATALONG
+              FROM sysadm.{table}
+             WHERE IBTRANSACTIONID = :txid
+             ORDER BY SEGMENTNO, SUBSEGMENTNO, DATASEQNO
+        """, {"txid": txid})
+        if not rows:
+            return None
+
+        raw = b"".join(
+            (row.get("mimedatalong") or b"") if isinstance(row.get("mimedatalong"), (bytes, bytearray))
+            else str(row.get("mimedatalong") or "").encode("latin-1")
+            for row in rows
+        )
+        if not raw:
+            return None
+
+        try:
+            text = zlib.decompress(raw).decode("utf-8", errors="replace")
+        except zlib.error:
+            text = raw.decode("utf-8", errors="replace")
+
+        return {"segments": len(rows), "content": text}
+    except Exception:
+        return None
+
+
+def _ib_errors(env_name: str, txid: str) -> list:
+    """IB Error messages (PSIBERR/PSIBERRP) tied to a transaction, resolved via PSMSGCATDEFN."""
+    if not ptmetadata.has_table(env_name, "PSIBERR"):
+        return []
+    try:
+        rows = psdb.query(env_name, """
+            SELECT e.MESSAGE_SET_NBR, e.MESSAGE_NBR, e.SEQNO, e.IBDATAERRLOC,
+                   e.IB_SEGMENTINDEX, e.ERRORTIMESTAMP,
+                   c.MESSAGE_TEXT, c.MSG_SEVERITY
+              FROM sysadm.PSIBERR e
+              LEFT JOIN sysadm.PSMSGCATDEFN c
+                ON c.MESSAGE_SET_NBR = e.MESSAGE_SET_NBR
+               AND c.MESSAGE_NBR = e.MESSAGE_NBR
+             WHERE e.IBTRANSACTIONID = :txid
+             ORDER BY e.SEQNO
+        """, {"txid": txid})
+
+        if rows and ptmetadata.has_table(env_name, "PSIBERRP"):
+            parms = psdb.query(env_name, """
+                SELECT SEQNO, PARM_SEQ, MESSAGE_PARM
+                  FROM sysadm.PSIBERRP
+                 WHERE IBTRANSACTIONID = :txid
+                 ORDER BY SEQNO, PARM_SEQ
+            """, {"txid": txid})
+            by_seqno: dict = {}
+            for p in parms:
+                by_seqno.setdefault(p.get("seqno"), []).append(p.get("message_parm"))
+            for row in rows:
+                row["params"] = by_seqno.get(row.get("seqno"), [])
+
         return rows
     except Exception:
         return []
@@ -1347,7 +1590,39 @@ def dashboard(env_name: str) -> dict:
             pass
         return None
 
-    result["service_count"] = _count("PSIBAPPLDEFN", "PTIBAPPLNAME")
+    # Total services = REST "Application Services" (PSIBAPPLDEFN) plus
+    # traditional/SOAP "standard" services, which never get a PSIBAPPLDEFN
+    # row at all and only exist implicitly via PSOPERATION.IB_SERVICENAME
+    # — see services()/_legacy_service_rows() for the full explanation.
+    # A plain COUNT(*) on PSIBAPPLDEFN alone undercounts to just the REST
+    # subset (13 instead of 500 on a real system).
+    rest_count = _count("PSIBAPPLDEFN", "PTIBAPPLNAME") or 0
+    legacy_count = 0
+    if ptmetadata.has_table(env_name, "PSOPERATION") and ptmetadata.has_table(env_name, "PSIBAPPLDEFN"):
+        try:
+            rows = psdb.query(env_name, """
+                SELECT COUNT(DISTINCT o.IB_SERVICENAME) AS cnt
+                  FROM sysadm.PSOPERATION o
+                 WHERE o.IB_SERVICENAME IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1 FROM sysadm.PSIBAPPLDEFN a
+                        WHERE a.PTIBAPPLNAME = o.IB_SERVICENAME
+                   )
+            """)
+            legacy_count = rows[0]["cnt"] if rows else 0
+        except Exception:
+            legacy_count = 0
+    elif ptmetadata.has_table(env_name, "PSOPERATION"):
+        try:
+            rows = psdb.query(env_name, """
+                SELECT COUNT(DISTINCT IB_SERVICENAME) AS cnt
+                  FROM sysadm.PSOPERATION
+                 WHERE IB_SERVICENAME IS NOT NULL
+            """)
+            legacy_count = rows[0]["cnt"] if rows else 0
+        except Exception:
+            legacy_count = 0
+    result["service_count"] = rest_count + legacy_count
     result["operation_count"] = _count("PSOPERATION", "IB_OPERATIONNAME")
     if result["operation_count"] is None and ptmetadata.has_table(env_name, "PSIBRTNGDEFN"):
         try:
