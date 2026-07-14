@@ -31,6 +31,64 @@ def _normalize_source(text: str) -> str:
     return "\n".join(ln for ln in lines if ln)
 
 
+# PeopleSoft-delivered COBOL organizes PROCEDURE DIVISION into named
+# SECTIONs (e.g. "AA000-MAIN SECTION.") — confirmed live across 6 real
+# programs (PTPSQLRT.cbl, PTPTSTAE.cbl, PTPSETAD.cbl, PTPECACH.cbl,
+# PTPDTTST.cbl, PTPTSSET.cbl; 1-52 sections each), a reliable structural
+# boundary without needing a full COBOL grammar.
+_RE_SECTION_HEADER = re.compile(r'(?im)^\s*([A-Z0-9][A-Z0-9-]*)\s+SECTION\s*\.\s*$')
+
+
+def _extract_blocks(text: str) -> dict[str, str]:
+    """Split COBOL source into named blocks keyed by SECTION name, plus an
+    implicit "(before PROCEDURE DIVISION)" block covering IDENTIFICATION/
+    ENVIRONMENT/DATA DIVISION — WORKING-STORAGE changes matter just as much
+    as PROCEDURE DIVISION changes."""
+    idx = text.upper().find("PROCEDURE DIVISION")
+    if idx < 0:
+        return {"(whole file)": text}
+    blocks: dict[str, str] = {}
+    before = text[:idx]
+    if before.strip():
+        blocks["(before PROCEDURE DIVISION)"] = before
+    proc_text = text[idx:]
+    starts = list(_RE_SECTION_HEADER.finditer(proc_text))
+    if not starts:
+        blocks["(PROCEDURE DIVISION)"] = proc_text
+        return blocks
+    header = proc_text[:starts[0].start()]
+    if header.strip():
+        blocks["(PROCEDURE DIVISION header)"] = header
+    for i, m in enumerate(starts):
+        block_end = starts[i + 1].start() if i + 1 < len(starts) else len(proc_text)
+        blocks[m.group(1).upper()] = proc_text[m.start():block_end]
+    return blocks
+
+
+def _structural_diff(text_a: str, text_b: str) -> dict:
+    """Block-level (SECTION-level) diff: which named blocks were added,
+    removed, changed, or are identical after normalization — real
+    structural insight instead of a single whole-file same/different bit.
+    A section moved to a different position in the file, or an unrelated
+    section added elsewhere, no longer makes every other section look
+    "different" the way a whole-file text diff would."""
+    blocks_a = _extract_blocks(text_a)
+    blocks_b = _extract_blocks(text_b)
+    names_a, names_b = set(blocks_a), set(blocks_b)
+    changed, same = [], []
+    for name in sorted(names_a & names_b):
+        if _normalize_source(blocks_a[name]) == _normalize_source(blocks_b[name]):
+            same.append(name)
+        else:
+            changed.append(name)
+    return {
+        "blocks_added":   sorted(names_b - names_a),
+        "blocks_removed": sorted(names_a - names_b),
+        "blocks_changed": changed,
+        "blocks_same":    same,
+    }
+
+
 def _conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(DB_PATH)
@@ -622,6 +680,15 @@ def envcompare_cobol(source_keys_a: list[str], source_keys_b: list[str],
                         or row["call_count_a"] != row["call_count_b"]
                         or row["description_a"] != row["description_b"]
                     )
+                else:
+                    # Still genuinely different after normalization — this
+                    # is exactly where "changed: true" alone isn't useful;
+                    # break it down by which SECTION(s) actually differ.
+                    texts = by_fn.get(fn_lower, {})
+                    text_a = next((texts[sk] for sk in source_keys_a if sk in texts and texts[sk] is not None), None)
+                    text_b = next((texts[sk] for sk in source_keys_b if sk in texts and texts[sk] is not None), None)
+                    if text_a is not None and text_b is not None:
+                        row["structural_diff"] = _structural_diff(text_a, text_b)
 
     c.close()
 

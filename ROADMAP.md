@@ -506,8 +506,27 @@ was fine; Dependency Graph, Source, and the new Process Runs) now render real da
 with zero console errors in a real headless Chrome session.
 
 ### Remaining
-- Syntax-aware diffing (AST-level comparison, not just comment/whitespace
-  normalization) — no concrete blocker, just a larger lift than this pass.
+- ~~Syntax-aware diffing (AST-level comparison, not just comment/whitespace
+  normalization) — no concrete blocker, just a larger lift than this pass.~~
+  **Done 2026-07-15.** Added block-level structural diffing to both
+  `connectors/sqrdb.py` and `connectors/cobol_db.py`: `_extract_blocks()` splits
+  source into named blocks using each language's natural PeopleSoft-delivered
+  convention (SQR: `begin-procedure`/`end-procedure`; COBOL: `SECTION.` headers
+  within PROCEDURE DIVISION), and `_structural_diff()` compares blocks pairwise
+  (reusing the existing `_normalize_source()` comment/whitespace normalizer per
+  block) to report `blocks_added`/`blocks_removed`/`blocks_changed`/`blocks_same`.
+  Wired into `envcompare_sqr()`/`envcompare_cobol()`'s normalized-diff path for
+  any file still different after whole-file normalization. Not a full AST/grammar
+  parser — a pragmatic middle ground using the delivered-source structural
+  convention, verified live: SQR `begin-procedure` blocks are not nested (checked
+  `battimes.sqr`), COBOL `SECTION.` blocks are reliably present across 6 diverse
+  delivered programs. Since delivered source is identical across all indexed
+  environments in this dataset (no real differing files exist to exercise the
+  path end-to-end), verified the extraction/diff functions directly against real
+  file content with synthetic modifications, then verified the new
+  `structural_diff` field renders correctly on `/admin/sqrcompare` and
+  `/admin/cobolcompare` via real V8 execution (`py_mini_racer`) of the actual
+  served `renderChanged()` JS.
 
 ---
 

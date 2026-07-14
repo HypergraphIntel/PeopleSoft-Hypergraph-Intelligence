@@ -30,6 +30,55 @@ def _normalize_source(text: str) -> str:
     return "\n".join(ln for ln in lines if ln)
 
 
+# begin-procedure/end-procedure pairs delimit SQR's real structural unit —
+# confirmed live (battimes.sqr and others) that pairs are not nested in
+# real PeopleSoft-delivered SQR, so a simple next-begin-procedure-or-EOF
+# boundary is sufficient without needing to track nesting depth.
+_RE_BEGIN_PROC_LINE = re.compile(r'(?im)^\s*begin-procedure\s+(\S+).*$')
+
+
+def _extract_blocks(text: str) -> dict[str, str]:
+    """Split SQR source into named blocks keyed by procedure name, plus an
+    implicit "(preamble)" block for everything before the first procedure
+    (#include, global variable setup, report layout — real changes there
+    matter just as much as changes inside a procedure body)."""
+    starts = list(_RE_BEGIN_PROC_LINE.finditer(text))
+    if not starts:
+        return {"(whole file)": text}
+    blocks: dict[str, str] = {}
+    preamble = text[:starts[0].start()]
+    if preamble.strip():
+        blocks["(preamble)"] = preamble
+    for i, m in enumerate(starts):
+        block_end = starts[i + 1].start() if i + 1 < len(starts) else len(text)
+        blocks[m.group(1).upper()] = text[m.start():block_end]
+    return blocks
+
+
+def _structural_diff(text_a: str, text_b: str) -> dict:
+    """Block-level (procedure-level) diff: which named blocks were added,
+    removed, changed, or are identical after normalization — real
+    structural insight instead of a single whole-file same/different bit.
+    A procedure moved to a different position in the file, or an unrelated
+    procedure added elsewhere, no longer makes every other procedure look
+    "different" the way a whole-file text diff would."""
+    blocks_a = _extract_blocks(text_a)
+    blocks_b = _extract_blocks(text_b)
+    names_a, names_b = set(blocks_a), set(blocks_b)
+    changed, same = [], []
+    for name in sorted(names_a & names_b):
+        if _normalize_source(blocks_a[name]) == _normalize_source(blocks_b[name]):
+            same.append(name)
+        else:
+            changed.append(name)
+    return {
+        "blocks_added":   sorted(names_b - names_a),
+        "blocks_removed": sorted(names_a - names_b),
+        "blocks_changed": changed,
+        "blocks_same":    same,
+    }
+
+
 def _conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(DB_PATH)
@@ -940,6 +989,15 @@ def envcompare_sqr(source_keys_a: list[str], source_keys_b: list[str],
                         or row["include_count_a"] != row["include_count_b"]
                         or row["description_a"] != row["description_b"]
                     )
+                else:
+                    # Still genuinely different after normalization — this
+                    # is exactly where "changed: true" alone isn't useful;
+                    # break it down by which procedure(s) actually differ.
+                    texts = by_fn.get(fn_lower, {})
+                    text_a = next((texts[sk] for sk in source_keys_a if sk in texts and texts[sk] is not None), None)
+                    text_b = next((texts[sk] for sk in source_keys_b if sk in texts and texts[sk] is not None), None)
+                    if text_a is not None and text_b is not None:
+                        row["structural_diff"] = _structural_diff(text_a, text_b)
 
     c.close()
 

@@ -10016,3 +10016,60 @@ not static analysis alone:
   button's label.
 
 **Files:** `routers/admin/tools.py`, `ROADMAP.md`.
+
+## 2026-07-15 — SQR/COBOL Comparison: Block-Level Structural Diffing
+
+**What changed:** `envcompare_sqr()`/`envcompare_cobol()` previously only
+reported whether a file was identical or different after comment/whitespace
+normalization — a single boolean, no visibility into *what* changed. Added
+`_extract_blocks()` and `_structural_diff()` to both `connectors/sqrdb.py` and
+`connectors/cobol_db.py`, splitting source into named blocks along each
+language's natural PeopleSoft-delivered structural convention and diffing them
+pairwise:
+- SQR: `begin-procedure NAME ... end-procedure` blocks (verified live against
+  `battimes.sqr` that these pairs are not nested — 4 clean blocks: Initialize,
+  Terminate, Report-Main, Report-Details).
+- COBOL: `NAME SECTION.` headers within PROCEDURE DIVISION (verified live
+  across 6 diverse delivered programs — `PTPSQLRT.cbl` (52 sections),
+  `PTPTSTAE.cbl` (12), `PTPSETAD.cbl` (1), `PTPECACH.cbl` (13), `PTPDTTST.cbl`
+  (8), `PTPTSSET.cbl` (14) — all reliably followed the convention).
+
+Each block is compared using the file's existing `_normalize_source()`
+comment/whitespace normalizer, same as the whole-file comparison. The result —
+`blocks_added`/`blocks_removed`/`blocks_changed`/`blocks_same` — is attached as
+`row["structural_diff"]` in the normalized-diff branch of `envcompare_sqr()`/
+`envcompare_cobol()`, only when a file is still different after whole-file
+normalization (reusing the `text_a`/`text_b` already fetched via the existing
+`by_fn` lookup — no extra DB query). This is deliberately not a full
+grammar/AST parser — a pragmatic middle ground that leans on the structural
+convention PeopleSoft-delivered source already follows, chosen over a bigger
+lift for a comparison-tool feature.
+
+Also updated `routers/admin/sqr_view.py` and `routers/admin/cobol_view.py`'s
+`renderChanged()` (used by `/admin/sqrcompare` and `/admin/cobolcompare`) to
+display the block-level breakdown inline under each changed file's name when
+`structural_diff` is present: changed blocks in amber, added in green, removed
+in red, with an unchanged-block count.
+
+**Verification:** discovered that delivered SQR/COBOL source is identical
+across every environment currently indexed in this dataset (0 hash-differing
+filenames for either language) — expected for un-customized delivered code,
+but it meant the live `/api/sqr/envcompare` and `/api/cobol/envcompare`
+endpoints never actually exercise the new code path with real data. Verified
+correctness a different way instead: called `_extract_blocks()`/
+`_structural_diff()` directly against real indexed file content
+(`battimes.sqr`, `PTPTSTAE.cbl`) with synthetic single-block edits (a changed
+line, a removed block, an added block), confirming exactly the expected block
+landed in each category — and confirming a bare *comment-only* injection
+correctly reported the block as unchanged (SQR's `!` is a comment character,
+so `_normalize_source()` strips it, same as whole-file normalization already
+did). Then verified the frontend rendering end-to-end using this session's
+established discipline of executing the real served JS in an embedded V8
+(`py_mini_racer`) rather than trusting read-through: extracted the actual
+`renderChanged()` function from a live `TestClient` response for both
+`/admin/sqrcompare` and `/admin/cobolcompare`, called it with a synthetic row
+carrying a `structural_diff` payload, and confirmed the generated HTML embeds
+the amber/green/red block breakdown correctly.
+
+**Files:** `connectors/sqrdb.py`, `connectors/cobol_db.py`,
+`routers/admin/sqr_view.py`, `routers/admin/cobol_view.py`, `ROADMAP.md`.

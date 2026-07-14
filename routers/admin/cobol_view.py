@@ -764,8 +764,17 @@ function renderChanged(rows, labelA, labelB){{
     const hDiff=r.content_hash_a&&r.content_hash_b&&r.content_hash_a!==r.content_hash_b;
     let hashLabel = hDiff?'DIFFERS':(r.content_hash_a?'SAME':'—');
     if (hDiff && r.content_normalized_same === true) hashLabel = 'DIFFERS (whitespace/comments only)';
+    const sd = r.structural_diff;
+    let sdHtml = '';
+    if (sd) {{
+      const parts = [];
+      if (sd.blocks_changed.length) parts.push(`<span style="color:#ffcc44">${{sd.blocks_changed.length}} changed</span>: ${{sd.blocks_changed.map(esc).join(', ')}}`);
+      if (sd.blocks_added.length) parts.push(`<span style="color:#66ff99">${{sd.blocks_added.length}} added</span>: ${{sd.blocks_added.map(esc).join(', ')}}`);
+      if (sd.blocks_removed.length) parts.push(`<span style="color:#ff6666">${{sd.blocks_removed.length}} removed</span>: ${{sd.blocks_removed.map(esc).join(', ')}}`);
+      sdHtml = `<div style="font-size:10px;color:#7faab2;margin-top:3px">Sections — ${{parts.join(' &nbsp;|&nbsp; ') || 'no block-level changes'}} (${{sd.blocks_same.length}} unchanged)</div>`;
+    }}
     return `<tr>
-      <td><a href="/admin/cobol/${{encodeURIComponent(r.filename)}}">${{esc(r.filename)}}</a></td>
+      <td><a href="/admin/cobol/${{encodeURIComponent(r.filename)}}">${{esc(r.filename)}}</a>${{sdHtml}}</td>
       <td>${{esc(r.file_type||'')}}</td>
       <td class="${{tDiff?'diff-val':'same-val'}}">${{r.table_count_a||0}}</td>
       <td class="${{tDiff?'diff-val':'same-val'}}">${{r.table_count_b||0}}</td>
