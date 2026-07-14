@@ -17,9 +17,9 @@ import time
 from pathlib import Path
 from connectors import paths
 
-DATA_DIR = paths.APP_ROOT / "data"
+DATA_DIR = paths.DATA_DIR
 DB_PATH = DATA_DIR / "deployment_events.db"
-CONFIG_PATH = paths.APP_ROOT / "config.json"
+CONFIG_PATH = paths.CONFIG_FILE
 
 
 def _conn():

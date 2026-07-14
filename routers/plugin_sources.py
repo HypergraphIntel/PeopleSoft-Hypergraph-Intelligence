@@ -12,6 +12,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
+from connectors import paths
 
 router = APIRouter(prefix="/api/plugins/sources", tags=["Plugin Sources"])
 
@@ -21,7 +22,7 @@ def list_source_types():
     """List registered source types and their config.json entries."""
     from connectors import plugins
 
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
 
@@ -47,7 +48,7 @@ def source_type_entries(name: str, env: Optional[str] = Query(None)):
     if not entry:
         raise HTTPException(404, f"No source type registered as '{name}'")
 
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
 

@@ -1,0 +1,36 @@
+services:
+  phi:
+    image: ghcr.io/noodlesploder/peoplesoft-hypergraph-intelligence:latest
+    container_name: phi
+    restart: unless-stopped
+
+    ports:
+      - '8088:8088'
+
+    environment:
+      PHI_CONFIG_FILE: /config/config.json
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+
+    volumes:
+      - ./config/config.json:/config/config.json:ro
+      - phi-data:/app/data
+      - phi-logs:/app/logs
+
+      # Add only when SSH ingestion is required:
+      # - ${HOME}/.ssh/phi_ed25519:/home/phi/.ssh/id_ed25519:ro
+      # - ${HOME}/.ssh/known_hosts:/home/phi/.ssh/known_hosts:ro
+
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+volumes:
+  phi-data:
+  phi-logs:

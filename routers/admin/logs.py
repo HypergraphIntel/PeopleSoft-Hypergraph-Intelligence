@@ -16,6 +16,7 @@ from typing import Optional
 import html as _html
 
 from routers.admin._core import _shell, _ESC_JS
+from connectors import paths
 
 def _esc(s: str) -> str:
     return _html.escape(str(s or ""), quote=True)
@@ -161,7 +162,7 @@ def log_errors_view(request: Request, env: Optional[str] = None):
 
     # get configured envs for the filter dropdown
     import json
-    cfg_path = __import__("pathlib").Path(__file__).parent.parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     try:
         envs = [e["name"] for e in json.loads(cfg_path.read_text()).get("peoplesoft", {}).get("environments", [])]
     except Exception:
@@ -314,7 +315,7 @@ def log_viewer(
     db = _logdb()
 
     import json
-    cfg_path = __import__("pathlib").Path(__file__).parent.parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     try:
         envs = [e["name"] for e in json.loads(cfg_path.read_text()).get("peoplesoft", {}).get("environments", [])]
     except Exception:
@@ -655,7 +656,7 @@ def igw_view(request: Request, env: Optional[str] = None):
     db = _logdb()
 
     import json
-    cfg_path = __import__("pathlib").Path(__file__).parent.parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     try:
         cfg = json.loads(cfg_path.read_text())
         envs = [e["name"] for e in cfg.get("peoplesoft", {}).get("environments", [])]
@@ -897,7 +898,7 @@ def prcs_ae_view(request: Request, env: Optional[str] = None):
     db = _logdb()
 
     import json
-    cfg_path = __import__("pathlib").Path(__file__).parent.parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     try:
         cfg = json.loads(cfg_path.read_text())
         envs = [e["name"] for e in cfg.get("peoplesoft", {}).get("environments", [])]

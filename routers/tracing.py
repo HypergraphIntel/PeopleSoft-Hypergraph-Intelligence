@@ -12,7 +12,7 @@ from connectors import paths
 
 router = APIRouter(prefix="/api/tracing", tags=["Transaction Tracing"])
 
-CONFIG = paths.APP_ROOT / "config.json"
+CONFIG = paths.CONFIG_FILE
 
 
 @router.get("/config")

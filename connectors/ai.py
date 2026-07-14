@@ -14,10 +14,11 @@ import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 import json
+from connectors import paths
 
 
 def _load_ai_config() -> dict:
-    cfg_path = Path(__file__).resolve().parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     try:
         return json.loads(cfg_path.read_text()).get("ai", {})
     except Exception:

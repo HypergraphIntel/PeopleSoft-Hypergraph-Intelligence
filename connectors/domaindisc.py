@@ -26,8 +26,9 @@ import re
 from pathlib import Path
 
 from connectors import sshclient
+from connectors import paths
 
-CONFIG = Path(__file__).parent.parent / "config.json"
+CONFIG = paths.CONFIG_FILE
 
 _PRCS_NAME_HINT = "PRCS"  # matches "prcs", "_PRCS", "PRCSDOM", "HRPRCS01", etc.
 

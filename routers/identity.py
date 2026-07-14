@@ -15,8 +15,8 @@ from connectors import paths
 router = APIRouter(prefix="/api/identity", tags=["Identity"])
 
 ROLE_MAP_FILE    = paths.APP_ROOT / "config/role_mapping.yml"
-AUDIT_FILE       = paths.APP_ROOT / "logs/identity_audit.jsonl"
-REQUESTS_FILE    = paths.APP_ROOT / "logs/provision_requests.json"
+AUDIT_FILE       = paths.LOG_DIR / "identity_audit.jsonl"
+REQUESTS_FILE    = paths.LOG_DIR / "provision_requests.json"
 
 class ProvisionRequest(BaseModel):
     password: str

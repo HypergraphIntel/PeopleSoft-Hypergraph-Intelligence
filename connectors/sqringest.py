@@ -21,6 +21,7 @@ On subsequent indexing runs, files whose hash matches the stored value are skipp
 import hashlib
 import logging
 import time
+from connectors import paths
 
 logger = logging.getLogger("deathstar.sqringest")
 
@@ -28,7 +29,7 @@ logger = logging.getLogger("deathstar.sqringest")
 def _load_sources() -> list[dict]:
     import json
     from pathlib import Path
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
     return cfg.get("sqr_sources", [])

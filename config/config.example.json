@@ -1,0 +1,37 @@
+{
+  "oracle": {
+    "databases": [
+      {
+        "name": "HCMDEV",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "service": "HCMDEV",
+        "user": "PHI_READONLY",
+        "password": "replace-me"
+      }
+    ]
+  },
+  "peoplesoft": {
+    "environments": [
+      {
+        "name": "HCM",
+        "pillar": "HCM",
+        "db": "HCMDEV",
+        "host": "oracle.example.internal",
+        "port": 1521,
+        "service": "HCMDEV",
+        "user": "PHI_READONLY",
+        "password": "replace-me"
+      }
+    ]
+  },
+  "ai": {
+    "provider": "ollama",
+    "ollama": {
+      "base_url": "http://host.docker.internal:11434",
+      "model": "llama3.1"
+    }
+  },
+  "ssh_hosts": {},
+  "log_sources": []
+}

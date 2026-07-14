@@ -10,6 +10,7 @@ import glob
 import threading
 from pathlib import Path
 from typing import Optional
+from connectors import paths
 
 _pools: dict[str, object] = {}   # host_alias -> paramiko.SSHClient
 _locks: dict[str, threading.Lock] = {}
@@ -18,7 +19,7 @@ _global_lock = threading.Lock()
 
 def _load_config() -> dict:
     import json
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         return json.load(f)
 

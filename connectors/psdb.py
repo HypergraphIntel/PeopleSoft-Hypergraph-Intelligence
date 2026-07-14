@@ -4,7 +4,7 @@ import re
 import oracledb
 from connectors import paths
 
-CONFIG = paths.APP_ROOT / "config.json"
+CONFIG = paths.CONFIG_FILE
 IDENTIFIER_RE = re.compile(r"^[A-Z][A-Z0-9_$#]*$")
 
 

@@ -16,6 +16,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional
+from connectors import paths
 
 log = logging.getLogger("logingest")
 
@@ -25,7 +26,7 @@ _BLOCK_TYPES = {"igw_error_log"}   # multi-line HTML block parsers — not line-
 
 
 def _load_config() -> dict:
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         return json.load(f)
 

@@ -14,7 +14,7 @@ from connectors import oracle as oracle_connector
 from connectors import psdb, ptmetadata
 from connectors import paths
 
-CONFIG = paths.APP_ROOT / "config.json"
+CONFIG = paths.CONFIG_FILE
 
 RUNSTATUS_LABELS = {
     "0":  "Cancel",

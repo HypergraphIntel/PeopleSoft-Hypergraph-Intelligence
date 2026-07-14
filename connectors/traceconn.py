@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 from connectors import paths
 
-CONFIG_PATH = paths.APP_ROOT / "config.json"
+CONFIG_PATH = paths.CONFIG_FILE
 
 
 def _trace_sources() -> dict:

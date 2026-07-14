@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from connectors import paths
 
-DATA_DIR = paths.APP_ROOT / "data"
+DATA_DIR = paths.DATA_DIR
 DB_PATH  = DATA_DIR / "runtime.db"
 
 RETAIN_DAYS = 30

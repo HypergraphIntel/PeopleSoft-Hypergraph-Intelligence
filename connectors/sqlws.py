@@ -22,9 +22,9 @@ from pathlib import Path
 import oracledb
 from connectors import paths
 
-CONFIG = paths.APP_ROOT / "config.json"
-HISTORY_PATH = paths.APP_ROOT / "data/sqlws_history.jsonl"
-AUDIT_PATH   = paths.APP_ROOT / "logs/sqlws_audit.jsonl"
+CONFIG = paths.CONFIG_FILE
+HISTORY_PATH = paths.DATA_DIR / "sqlws_history.jsonl"
+AUDIT_PATH   = paths.LOG_DIR / "sqlws_audit.jsonl"
 
 DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE     = 1000

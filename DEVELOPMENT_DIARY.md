@@ -8517,3 +8517,161 @@ code references to the old frozen constant on either page. Not yet
 re-verified live — next step: restart + hard-refresh both pages, switch
 ENV, confirm the query list and any open detail panel refresh
 automatically to the newly selected environment.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 39) — Containerization: Wired PHI_CONFIG_FILE/PHI_DATA_DIR/PHI_LOG_DIR
+
+**Context:** User had already built real containerization infrastructure
+— `Dockerfile` (non-root user, tini entrypoint, healthcheck, multi-stage-
+ready layout), `compose.yml` (named volumes for data/logs, config mounted
+read-only as a separate file, `security_opt`/`cap_drop` hardening),
+`.dockerignore`, `config/config.example.json`, two GitHub Actions
+workflows (`container-check.yml` for PR builds, `publish-container.yml`
+for tagged releases to GHCR with SBOM/provenance attestation), and a
+README section documenting the install flow. All of this was
+independently well-designed. The gap: the Dockerfile/compose set three
+environment variables (`PHI_CONFIG_FILE=/config/config.json`,
+`PHI_DATA_DIR=/app/data`, `PHI_LOG_DIR=/app/logs`) that **nothing in the
+Python code read at all** — confirmed via repo-wide grep before writing
+any fix, not assumed.
+
+**Why this matters beyond "just wire the env vars"**: the
+`connectors/paths.py` module built earlier this session (sessions 33-35,
+for the CI/portability fix) only supported one unified `DEATHSTAR_HOME`
+override for the whole app root — config.json and data/ and logs/ all
+resolve under one directory. That's the wrong model for containers:
+config.json contains real credentials and belongs in a read-only mount
+separate from the image and separate from writable state, while data/
+(SQLite DBs) and logs/ (audit trails) are genuinely different volumes
+with different backup/retention needs. The compose.yml already reflected
+this three-way split correctly; the code needed to catch up to it, not
+the other way around.
+
+**Fix**: `connectors/paths.py` now exposes three independently-overridable
+values — `CONFIG_FILE` (`PHI_CONFIG_FILE`, defaults to
+`APP_ROOT/config.json`), `DATA_DIR` (`PHI_DATA_DIR`, defaults to
+`APP_ROOT/data`), `LOG_DIR` (`PHI_LOG_DIR`, defaults to `APP_ROOT/logs`)
+— alongside the existing `APP_ROOT`/`DEATHSTAR_HOME` (source code
+location, unrelated to config/data/log placement). Mechanically updated
+all 18 files from the session-33 refactor that referenced
+`paths.APP_ROOT / "config.json"` (→ `paths.CONFIG_FILE`),
+`paths.APP_ROOT / "data"` (→ `paths.DATA_DIR`), or `paths.APP_ROOT /
+"logs/..."` (→ `paths.LOG_DIR / "..."`). Deliberately left
+`routers/identity.py`'s `ROLE_MAP_FILE` (`config/role_mapping.yml`)
+APP_ROOT-relative — it's static, non-secret config shipped inside the
+image alongside the source, not something that needs its own external
+mount like config.json does.
+
+**Verification, same rigor as session 33's fix**:
+1. `python3 -c "import ast; ast.parse(...)"` on all 20 touched files.
+2. Imported all modules against the real production config (no env vars
+   set) and confirmed every resolved path is byte-identical to before
+   (`/opt/deathstar-api/config.json`, `/opt/deathstar-api/data`, etc.) —
+   zero behavior change on the bare-metal host.
+3. **Simulated the actual container scenario**: set `PHI_CONFIG_FILE`/
+   `PHI_DATA_DIR`/`PHI_LOG_DIR` to a throwaway `/tmp` directory structure
+   (config file, data dir, logs dir all separate, matching compose.yml's
+   layout exactly), confirmed every path resolved to the right split
+   location, confirmed `psdb.default_env()` correctly read the fixture
+   config from the overridden location, and confirmed `routers.peoplesoft`
+   still imports cleanly under this scenario.
+4. Confirmed `oracledb` is never initialized in thick mode anywhere in
+   the codebase (no `oracledb.init_oracle_client()` calls) — it runs pure-
+   Python thin mode by default, so the Dockerfile correctly doesn't need
+   to install Oracle Instant Client libraries.
+5. Confirmed the Dockerfile already `mkdir -p`s `/app/data`/`/app/logs`
+   and compose.yml backs them with named volumes, so no code-side
+   directory-creation gap exists for the default container paths.
+
+**Not yet done**: haven't actually built/run the container image itself
+in this session (no Docker available in this environment) — the fix is
+verified at the Python-path-resolution level via faithful simulation, but
+a real `docker compose up` end-to-end smoke test (does the app actually
+start, connect to Oracle in thin mode, serve the UI, write to the mounted
+volumes) is still outstanding and should be the next verification step
+once Docker is available.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 40) — Containerization: Real podman Build/Run Caught Two More Bugs
+
+**Context:** Session 39 wired `PHI_CONFIG_FILE`/`PHI_DATA_DIR`/
+`PHI_LOG_DIR` but explicitly flagged "haven't actually built/run the
+container" as outstanding. User said "use podman" — podman 5.8.3 /
+podman-compose 1.6.0 turned out to be available in this environment, so
+this session did the real thing instead of stopping at path-resolution
+simulation.
+
+**Bug 1 — missing dependencies, found on first `podman run`:**
+`requirements.txt` was missing `psutil` and `passlib` — both imported at
+module top level in code `main.py` imports eagerly at startup
+(`routers/system.py` → `psutil`; `routers/identity.py` and
+`routers/authelia_admin.py` → `passlib.hash.argon2`), so the container
+crashed immediately with `ModuleNotFoundError: No module named 'psutil'`.
+This was invisible on the bare-metal host because packages had been
+installed into that venv ad-hoc over time, never synced back into
+`requirements.txt` — `pip show` on the live venv confirmed `psutil`,
+`passlib`, `argon2-cffi`, and `openai` were all present outside the
+tracked dependency list. Added `psutil`, `passlib`, `argon2-cffi` (the
+actual argon2 backend passlib needs — importing `passlib.hash.argon2`
+alone still raises at hash-time without it), `openai` (config.json's
+`ai.provider` is actually set to `"openai"` in production), and
+`anthropic` (so switching `ai.provider` to `"claude"` doesn't require a
+rebuild, matching the ollama provider's zero-install "just works" story).
+
+**Bug 2 — a second wave of the same path-hardcoding class, found after
+fixing bug 1:** with dependencies fixed, the app started but logged `Log
+ingest error: [Errno 2] No such file or directory: '/app/config.json'`.
+Root cause: 14 occurrences across 10 files computed `Path(__file__)
+.parent.parent / "config.json"` — this pattern doesn't use a literal
+hardcoded string (so it wasn't caught by session 33's `/opt/deathstar-api`
+grep audit), but it's the exact same underlying bug: it hardcodes
+"config.json lives next to the source code" and completely bypasses
+`PHI_CONFIG_FILE`, landing on `/app/config.json` (nonexistent — the real
+mount is `/config/config.json`) regardless of what the env var says.
+Affected: `routers/cobol.py`, `routers/plugin_sources.py`, `routers/sqr.py`,
+`routers/admin/logs.py`, `connectors/sqringest.py`, `connectors/sshclient.py`,
+`connectors/ai.py`, `connectors/cobolingest.py`, `connectors/domaindisc.py`,
+`connectors/logingest.py`. Mechanically replaced all 14 with
+`paths.CONFIG_FILE`, adding `from connectors import paths` where missing —
+same script-based approach as session 33, same reasoning: grep for the
+exact literal string will always miss `Path(__file__)`-relative
+variants, so any future path audit needs to check both patterns.
+
+**Bug 3 (noted, not fixed) — podman/OCI HEALTHCHECK incompatibility:**
+`podman build` warns `HEALTHCHECK is not supported for OCI image format
+and will be ignored. Must use \`docker\` format`. Not fixed in the
+Dockerfile itself since `HEALTHCHECK` is valid, correct Dockerfile syntax
+and the actual publish pipeline (`publish-container.yml`) uses
+`docker/build-push-action` (real Docker buildx via GitHub Actions), so
+the shipped image will have a working healthcheck. This only affects
+someone building locally with plain `podman build` (needs `--format
+docker` to get HEALTHCHECK support) — worth knowing, not worth
+compromising Dockerfile portability for.
+
+**Full verification, actually run this time, not simulated:**
+1. `podman build` succeeded (after the two fixes).
+2. `podman run` with `PHI_CONFIG_FILE` pointing at a mounted fixture
+   config — container reached "Application startup complete", stayed up
+   (`podman ps` showed `Up`, not `Exited`).
+3. `curl` against the running container: `/` redirects to
+   `/static/index.html` (200 after following), `/admin/` returns 200,
+   `/api/runtime/config` returned `CIENV1`/`CIENV2` — proving the app
+   read the *mounted* config file (not some baked-in default), closing
+   the loop on session 39's path-resolution work with a real request.
+4. `podman exec` into the running container confirmed `/app/data`
+   actually has real SQLite files (`conversations.db`, `incidents.db`,
+   `logs.db`, `runtime.db`, etc.) owned by the non-root `phi` user — the
+   app both reads config and writes state through the container's actual
+   mounted/volumed paths, not just at Python-level path resolution.
+5. Exercised a real API call (`POST /api/sqlws/validate`) and confirmed
+   `/app/logs/sqlws_audit.jsonl` was created and written with that call's
+   audit entry — a genuine write-path round trip, not just directory
+   existence.
+6. Cleaned up the test container and image tag afterward.
+
+This is the first fully end-to-end container verification in this arc —
+previous sessions' "verification" for path-resolution work was import-
+level Python simulation; this one actually built and ran the real
+artifact and drove real HTTP traffic through it.

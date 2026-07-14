@@ -18,6 +18,7 @@ import time
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from connectors import psdb
+from connectors import paths
 
 router = APIRouter(prefix="/api/sqr", tags=["SQR"])
 
@@ -64,7 +65,7 @@ def sqr_sources_list(env: Optional[str] = Query(None)):
     """
     import json
     from pathlib import Path
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
     all_sources = cfg.get("sqr_sources", [])
@@ -88,7 +89,7 @@ def sqr_overrides(env: Optional[str] = Query(None)):
     from connectors import sqrdb
     sqrdb.init_db()
 
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
 
@@ -120,7 +121,7 @@ def sqr_override_summary(env: Optional[str] = Query(None)):
     from connectors import sqrdb
     sqrdb.init_db()
 
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
 
@@ -162,7 +163,7 @@ def sqr_programs(
 
     source_keys: list[str] | None = None
     if env:
-        cfg_path = Path(__file__).parent.parent / "config.json"
+        cfg_path = paths.CONFIG_FILE
         with open(cfg_path) as f:
             cfg = json.load(f)
         source_keys = list({
@@ -287,7 +288,7 @@ def sqr_source(filename: str, max_kb: int = Query(128, ge=1, le=512)):
     if not source_key:
         raise HTTPException(503, "No source_key on this program — re-index required")
 
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
 
@@ -337,7 +338,7 @@ def sqr_envcompare(env_a: str = Query(psdb.default_env()), env_b: str = Query(ps
     from connectors import sqrdb
     sqrdb.init_db()
 
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
 

@@ -7,3 +7,8 @@ jinja2
 python-multipart
 PyYAML
 paramiko
+psutil
+passlib
+argon2-cffi
+openai
+anthropic

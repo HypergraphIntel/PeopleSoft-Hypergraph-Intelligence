@@ -14,7 +14,7 @@ import sqlite3
 from pathlib import Path
 from connectors import paths
 
-DATA_DIR = paths.APP_ROOT / "data"
+DATA_DIR = paths.DATA_DIR
 DB_PATH  = DATA_DIR / "cobol.db"
 
 # Same fixed-format comment convention cobolparser.py already relies on

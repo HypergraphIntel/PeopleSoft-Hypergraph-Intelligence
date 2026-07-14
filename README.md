@@ -169,6 +169,23 @@ PeopleSoft-Hypergraph-Intelligence/
 
 ------------------------------------------------------------------------
 
+## Container installation
+
+Create a local configuration:
+
+```bash
+mkdir -p phi/config
+cd phi
+
+curl -o config/config.example.json \
+  https://raw.githubusercontent.com/NoodleSploder/PeopleSoft-Hypergraph-Intelligence/main/config/config.example.json
+
+cp config/config.example.json config/config.json
+chmod 600 config/config.json
+```
+
+------------------------------------------------------------------------
+
 ## Requirements
 
 ### System Requirements

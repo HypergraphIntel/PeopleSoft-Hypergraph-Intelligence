@@ -21,6 +21,7 @@ import time
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from connectors import psdb
+from connectors import paths
 
 router = APIRouter(prefix="/api/cobol", tags=["COBOL"])
 
@@ -66,7 +67,7 @@ def cobol_analytics():
 def cobol_sources_list(env: Optional[str] = Query(None)):
     import json
     from pathlib import Path
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
     all_sources = cfg.get("cobol_sources", [])
@@ -93,7 +94,7 @@ def cobol_programs(
 
     source_keys: list[str] | None = None
     if env:
-        cfg_path = Path(__file__).parent.parent / "config.json"
+        cfg_path = paths.CONFIG_FILE
         with open(cfg_path) as f:
             cfg = json.load(f)
         source_keys = list({
@@ -188,7 +189,7 @@ def cobol_source(filename: str, max_kb: int = Query(256, ge=1, le=512)):
     if not source_key:
         raise HTTPException(503, "No source_key on this program — re-index required")
 
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
 
@@ -231,7 +232,7 @@ def cobol_envcompare(env_a: str = Query(psdb.default_env()), env_b: str = Query(
     from connectors import cobol_db
     cobol_db.init_db()
 
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
 

@@ -4,7 +4,7 @@ from pathlib import Path
 import oracledb
 from connectors import paths
 
-CONFIG = paths.APP_ROOT / "config.json"
+CONFIG = paths.CONFIG_FILE
 
 
 def load_databases():

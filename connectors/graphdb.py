@@ -7,7 +7,7 @@ from pathlib import Path
 from connectors import ae, ib, peoplecode, psdb, ptmetadata, uom
 from connectors import paths
 
-DATA_DIR = paths.APP_ROOT / "data"
+DATA_DIR = paths.DATA_DIR
 SNAPSHOT_DIR = DATA_DIR / "graph_snapshots"
 SNAPSHOT_MANIFEST = SNAPSHOT_DIR / "manifest.json"
 GRAPHS = {}

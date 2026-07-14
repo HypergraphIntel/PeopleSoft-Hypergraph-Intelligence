@@ -30,6 +30,7 @@ cobol_programs.content_hash; files whose hash matches are skipped.
 import hashlib
 import logging
 import time
+from connectors import paths
 
 logger = logging.getLogger("deathstar.cobolingest")
 
@@ -37,7 +38,7 @@ logger = logging.getLogger("deathstar.cobolingest")
 def _load_sources() -> list[dict]:
     import json
     from pathlib import Path
-    cfg_path = Path(__file__).parent.parent / "config.json"
+    cfg_path = paths.CONFIG_FILE
     with open(cfg_path) as f:
         cfg = json.load(f)
     return cfg.get("cobol_sources", [])

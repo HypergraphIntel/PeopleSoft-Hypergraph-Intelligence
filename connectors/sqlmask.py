@@ -24,9 +24,9 @@ import time
 from pathlib import Path
 from connectors import paths
 
-DATA_DIR = paths.APP_ROOT / "data"
+DATA_DIR = paths.DATA_DIR
 DB_PATH = DATA_DIR / "sql_proxy_vault.db"
-CONFIG_PATH = paths.APP_ROOT / "config.json"
+CONFIG_PATH = paths.CONFIG_FILE
 
 # Fallback catalog/salt used only if config.json has no "sql_proxy" section —
 # real deployments should override both in config.json.
