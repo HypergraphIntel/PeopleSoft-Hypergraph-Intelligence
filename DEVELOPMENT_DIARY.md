@@ -8112,3 +8112,180 @@ only surfaced by actually running the query against live Oracle, not by
 code review or syntax checking. Not yet re-verified live — next step:
 restart + hard-refresh, search "EMPLID" again, confirm 1 result and no
 driver error this time.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 27) — Drift History: Propagated Fields/Record Fields Split
+
+**Context:** Drift History (`/admin/drift`) still showed the old
+"Fields: 522,000" row after the Environment Comparison Fields/Record
+Fields fix (session 22). Confirmed via research (not assumed) that
+`connectors/scheduler.py`'s `_run_drift()` calls `envcompare.summary()`
+directly — no duplicated object-type list to separately fix — so the
+code-level fix already applies. The stale display was because
+`connectors/driftdb.py` persists each snapshot's counts as a frozen JSON
+blob (`record_summary()`); `get_latest()` just replays whatever was
+stored at snapshot time, with no re-query or relabeling. Any
+`drift_snapshots` row written before today's `summary()` fix still has
+the pre-fix label/value baked in.
+
+**Fix**: triggered `POST /api/drift/snapshot?env1=HRDEV&env2=HRTST`
+directly and confirmed via `GET /api/drift/latest` that the new snapshot
+correctly shows `"Fields": 90630` (PSDBFIELD) and `"Record Fields":
+522000/521999` (PSRECFIELD) — the split propagated as expected with zero
+additional code changes needed, confirming the earlier fix was already
+correctly shared/centralized rather than duplicated.
+
+**Note for other environment pairs**: only the HRDEV/HRTST snapshot was
+refreshed. Any other stored env-pair snapshots (e.g. HCM vs FSCM) will
+still show the old "Fields" label/value until their own fresh snapshot is
+triggered — via the page's "Snapshot Now" button or `POST
+/api/drift/snapshot?env1=...&env2=...` for that specific pair.
+
+**Verification**: live `curl` round-trip against the running service
+(`POST /api/drift/snapshot`, then `GET /api/drift/latest`), inspected
+actual JSON response — real verification against the live system, not
+just a syntax check (no code changed this round, so no `ast.parse` was
+relevant).
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 28) — Renamed "PeopleCode Progs" to "PeopleCode"
+
+**Context:** Small label cleanup on the object-count summary table
+(`connectors/envcompare.py`'s `summary()`, shared by both Environment
+Comparison and Drift History per session 27's finding).
+
+**What changed:** Renamed the label in `summary()`'s query tuple list
+from `"PeopleCode Progs"` to `"PeopleCode"`. Grepped the whole repo first
+and found this exact string used as a dict key in one other place —
+`connectors/impact.py`'s `_TYPE_RISK_WEIGHT` (deployment risk weighting
+by object type) — renamed that key too, since a mismatch would have
+silently broken the risk-weight lookup for this type (falling through to
+whatever default the lookup uses for unknown keys) without erroring.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on both
+files; re-grepped for the old string repo-wide afterward to confirm no
+other references were missed. Same caveat as the Fields/Record Fields
+rename (session 27): this only affects the live query going forward —
+existing stored drift snapshots will keep showing "PeopleCode Progs"
+until a fresh snapshot is triggered for that environment pair.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 29) — Drift History: Sort Object Types by |Delta|
+
+**Context:** The object-type table on `/admin/drift` rendered rows in
+whatever order `connectors/envcompare.py`'s `summary()` query list
+happens to be defined in — not sorted by relevance, so drifted types
+(Records, Fields, PeopleCode) were scattered among dozens of identical
+rows instead of surfacing at a glance.
+
+**Fix:** `renderSummary()` (`routers/admin/runtime.py`) now sorts a copy
+of `counts` by `Math.abs(delta)` descending before rendering — rows with
+the largest drift appear first, identical rows (delta 0) sink to the
+bottom. `[...counts].sort(...)` copies rather than mutates in place,
+since `counts` is also read elsewhere in the same function (stat-grid
+totals) before this point.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`. Not yet
+re-verified live — next step: hard-refresh `/admin/drift` (no restart
+needed, this is JS-only), confirm Records/Record Fields/PeopleCode
+(nonzero delta) sort above the identical rows.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 30) — Drift History: Per-Snapshot Delete
+
+**Context:** `/admin/drift`'s History table had no way to remove a bad or
+unwanted snapshot — only bulk pruning (`driftdb.prune()`, keeps most
+recent N) existed, triggered automatically after each new snapshot, not
+user-controllable per row.
+
+**What changed:**
+
+- `connectors/driftdb.py`: added `delete_snapshot(snapshot_id)` — deletes
+  one `drift_snapshots` row by its existing `id` primary key, returns
+  whether a row was actually deleted. `get_history()`'s query now selects
+  `id` (previously only `snapped_at, counts_json`) and includes it in
+  each returned snapshot dict, so the frontend has something to delete by.
+- `routers/drift.py`: new `DELETE /api/drift/snapshot/{snapshot_id}`,
+  404s via `HTTPException` if the id doesn't exist (already-deleted /
+  bad id) rather than silently succeeding.
+- `routers/admin/runtime.py`: History table gained a trailing Delete
+  button per row; `deleteSnapshot(id)` calls `confirm()` first (browser-
+  native confirm/cancel, as asked), then `DELETE`s and reloads the drift
+  view on success, or `alert()`s the error message on failure (e.g. a
+  stale id from before the row was re-rendered).
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"` on all three
+changed files. Attempted a live `curl DELETE` against the still-running
+(pre-restart) service as a sanity check — got a generic 404 and `id:
+null` in `/api/drift/history`, both expected since the running process
+hasn't loaded this code yet; not a real verification of the new
+behavior. Next step: restart, then re-run the same `curl DELETE` (with a
+real id from a fresh `GET /api/drift/history`) to confirm the row
+actually disappears before trusting the UI button.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 31) — Sparklines: Center Flat Trend Lines Instead of Bottom-Aligning
+
+**Context:** Flat trend sparklines (all values identical, e.g. delta
+always 0 across every snapshot) rendered hugging the bottom edge of
+their small box instead of sitting centered — both sparkline
+implementations on this page had the same underlying bug via different
+mechanisms: `sparkline()` (Drift History's Trend column) fell back
+`range = mx-mn||1` to `1` when flat, then the y-formula's `(v-mn)/range`
+term is `0` for every point, landing all of them at `y=h-2` (bottom).
+`_sparkline()` (Metrics History elsewhere on the page) padded
+`max = Math.max(...vals, min+1)` to avoid a zero range, but the same
+`(v-min)/range = 0` consequence put every point at the same bottom-edge
+`y`.
+
+**Fix:** Both functions now detect the flat case explicitly (`mx===mn` /
+`Math.max(...vals)===min`) and set every point's `y` to `h/2` (vertical
+center) instead of running it through the range-normalization formula
+that always resolved to the bottom edge for equal values.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`. Not yet
+re-verified live — next step: hard-refresh `/admin/drift` (JS-only, no
+restart needed), confirm flat rows (Components, Pages, Permission Lists,
+etc.) now show a horizontal line centered in the sparkline box instead of
+along the bottom edge.
+
+------------------------------------------------------------------------
+
+## 2026-07-13 (session 32) — IB Explorer: ENV Selector Was Inert
+
+**Context:** User asked directly whether the ENV selector on `/admin/ib`
+actually worked. It didn't — confirmed by research before touching
+anything, not assumed.
+
+**Root cause:** `/admin/ib` uses the shared shell's global ENV selector
+(`_shell()` called with default `env=True`, no page-local selector).
+`static/app.js`'s change handler calls `window.onEnvChange(v)` only if
+defined, then always dispatches a `deathstar:envchange` CustomEvent —
+`routers/admin/integration.py` defined neither hook. Every API call on
+the page already correctly reads `env()` (→ `window.dsGetEnv()`) at
+fetch time and passes it server-side, so the backend was never the
+problem — but nothing re-triggered those fetches when the dropdown
+changed, so the page silently kept showing whatever environment was
+active at initial load. Notably, a `reload()` function already existed
+(re-fetching dashboard/services/operations/nodes/queues and clearing any
+open object detail) — it was fully correct but never called from
+anywhere, dead code apparently written for exactly this purpose and never
+wired up.
+
+**Fix:** Two lines — `window.onEnvChange = reload;` and
+`document.addEventListener('deathstar:envchange', reload);` — covering
+both mechanisms app.js uses, so this works regardless of which one fires.
+
+**Verification:** `python3 -c "import ast; ast.parse(...)"`; grepped to
+confirm every function `reload()` calls (`loadDashboard`, `loadServices`,
+`loadOperations`, `loadNodes`, `loadQueues`, `clearDetail`) actually
+exists in this file before wiring them into an event handler that runs
+later (not just checking the two new lines parse). Not yet re-verified
+live — next step: restart + hard-refresh `/admin/ib`, switch
+environments, confirm Overview counts and any open object detail refresh
+instead of staying stuck on the previous environment.

@@ -905,6 +905,14 @@ function reload() {
   loadQueues();
 }
 
+// The global shell's ENV selector (app.js) calls window.onEnvChange(v) when
+// present and always dispatches a 'deathstar:envchange' event — this page
+// previously defined neither, so switching environments silently left every
+// panel (Overview counts, open object detail, tab contents) stuck on
+// whatever env was active at initial page load.
+window.onEnvChange = reload;
+document.addEventListener('deathstar:envchange', reload);
+
 (async () => {
   renderBreadcrumb();
 

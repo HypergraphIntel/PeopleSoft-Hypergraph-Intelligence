@@ -13,7 +13,7 @@ from connectors import graphdb, psdb, ptmetadata
 _TYPE_RISK_WEIGHT = {
     "Permission Lists": 5,
     "Roles":            5,
-    "PeopleCode Progs": 4,
+    "PeopleCode":       4,
     "IB Routings":      4,
     "IB Messages":      4,
     "AE Programs":      3,

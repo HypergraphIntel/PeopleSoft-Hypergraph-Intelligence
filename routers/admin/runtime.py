@@ -1159,11 +1159,12 @@ function setHistPeriod(h) {
 function _sparkline(vals, color, w=120, h=32) {
   if (!vals.length) return `<svg width="${w}" height="${h}"></svg>`;
   const min = Math.min(...vals);
+  const flat = Math.max(...vals) === min;
   const max = Math.max(...vals, min + 1);
   const range = max - min || 1;
   const pts = vals.map((v, i) => {
     const x = ((i / Math.max(vals.length - 1, 1)) * (w - 4) + 2).toFixed(1);
-    const y = (h - 2 - ((v - min) / range) * (h - 6)).toFixed(1);
+    const y = flat ? (h / 2).toFixed(1) : (h - 2 - ((v - min) / range) * (h - 6)).toFixed(1);
     return `${x},${y}`;
   }).join(' ');
   const lastPt = pts.split(' ').at(-1).split(',');
@@ -3212,10 +3213,11 @@ function sparkline(points,w=90,h=26){
   if(!points||points.length<2)return'<span style="color:#333;font-size:10px">no data</span>';
   const vals=points.map(p=>p.delta==null?0:Math.abs(p.delta));
   const mx=Math.max(...vals,1),mn=Math.min(...vals);
+  const flat=mx===mn;
   const range=mx-mn||1;
   const pts=vals.map((v,i)=>{
     const x=(i/(vals.length-1))*w;
-    const y=h-((v-mn)/range)*(h-4)-2;
+    const y=flat ? h/2 : h-((v-mn)/range)*(h-4)-2;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
   const last=vals[vals.length-1];
@@ -3272,7 +3274,8 @@ function renderSummary(latest,history){
   </div>`;
   const e1=esc(latest.env1||'ENV1'),e2=esc(latest.env2||'ENV2');
   h+=`<table><tr><th>Object Type</th><th style="text-align:right">${e1}</th><th style="text-align:right">${e2}</th><th style="text-align:right">Delta</th><th>Trend (|delta|)</th></tr>`;
-  counts.forEach(c=>{
+  const sortedCounts=[...counts].sort((a,b)=>Math.abs(b.delta||0)-Math.abs(a.delta||0));
+  sortedCounts.forEach(c=>{
     const d=c.delta,cls=deltaClass(d),sign=d>0?'+':'';
     h+=`<tr><td>${esc(c.type)}</td>
       <td style="text-align:right;font-family:monospace">${c.env1_count!=null?c.env1_count.toLocaleString():'—'}</td>
@@ -3288,7 +3291,7 @@ function renderSummary(latest,history){
     let hh=`<div class="section-head">History — last ${days()} days (${snaps.length} snapshots)</div>`;
     hh+=`<table><tr><th>Snapshot</th>`;
     counts.forEach(c=>{hh+=`<th style="text-align:right">${esc(c.type)}</th>`;});
-    hh+='</tr>';
+    hh+='<th></th></tr>';
     [...snaps].reverse().slice(0,30).forEach(s=>{
       const cmap={};(s.counts||[]).forEach(c=>{cmap[c.type]=c.delta;});
       hh+=`<tr><td class="mono">${esc((s.snapped_at||'').substring(0,16))}</td>`;
@@ -3296,12 +3299,24 @@ function renderSummary(latest,history){
         const d=cmap[c.type],cls=deltaClass(d),sign=d>0?'+':'';
         hh+=`<td style="text-align:right" class="${cls}">${d!=null?sign+d:'—'}</td>`;
       });
+      hh+=`<td style="text-align:right">${s.id!=null?`<button class="sec" style="font-size:10px;padding:2px 8px;color:#ff6666;border-color:#ff444488" onclick="deleteSnapshot(${s.id})">Delete</button>`:''}</td>`;
       hh+='</tr>';
     });
     hh+='</table>';
     $('historySection').innerHTML=hh;
   } else {
     $('historySection').innerHTML='';
+  }
+}
+
+async function deleteSnapshot(id){
+  if(!confirm('Delete this drift snapshot? This cannot be undone.'))return;
+  try{
+    const r=await fetch(`/api/drift/snapshot/${id}`,{method:'DELETE'});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||r.statusText);}
+    loadDrift();
+  }catch(e){
+    alert('Failed to delete snapshot: '+e.message);
   }
 }
 

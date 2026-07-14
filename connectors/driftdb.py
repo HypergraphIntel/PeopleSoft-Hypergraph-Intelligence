@@ -177,7 +177,7 @@ def get_history(env1: str, env2: str, days: int = 30) -> dict:
                            time.gmtime(time.time() - days * 86400))
     with _conn() as con:
         rows = con.execute("""
-            SELECT snapped_at, counts_json FROM drift_snapshots
+            SELECT id, snapped_at, counts_json FROM drift_snapshots
              WHERE env1=? AND env2=? AND snapped_at >= ?
              ORDER BY snapped_at ASC
         """, (env1, env2, cutoff)).fetchall()
@@ -187,7 +187,7 @@ def get_history(env1: str, env2: str, days: int = 30) -> dict:
     for row in rows:
         t = row["snapped_at"]
         counts = json.loads(row["counts_json"])
-        snapshots.append({"snapped_at": t, "counts": counts})
+        snapshots.append({"id": row["id"], "snapped_at": t, "counts": counts})
         for c in counts:
             otype = c.get("type", "")
             series.setdefault(otype, []).append({
@@ -234,6 +234,14 @@ def snapshot_count(env1: str, env2: str) -> int:
             (env1, env2),
         ).fetchone()
     return row["n"] if row else 0
+
+
+def delete_snapshot(snapshot_id: int) -> bool:
+    """Delete a single drift snapshot by id. Returns True if a row was deleted."""
+    init_db()
+    with _conn() as con:
+        cur = con.execute("DELETE FROM drift_snapshots WHERE id=?", (snapshot_id,))
+        return cur.rowcount > 0
 
 
 def prune(env1: str, env2: str, keep: int = 90) -> int:

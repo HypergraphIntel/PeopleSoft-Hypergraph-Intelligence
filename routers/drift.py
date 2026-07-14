@@ -2,7 +2,7 @@
 Drift API — scheduled envcompare snapshots, history, and alerts.
 """
 
-from fastapi import APIRouter, Query, BackgroundTasks
+from fastapi import APIRouter, Query, BackgroundTasks, HTTPException
 from connectors import driftdb, scheduler, psdb
 
 router = APIRouter(prefix="/api/drift", tags=["Drift"])
@@ -52,3 +52,12 @@ def drift_snapshot(
     """Trigger an immediate drift snapshot (runs in background)."""
     background_tasks.add_task(scheduler.run_drift_now, env1, env2)
     return {"status": "triggered", "env1": env1, "env2": env2}
+
+
+@router.delete("/snapshot/{snapshot_id}")
+def drift_delete_snapshot(snapshot_id: int):
+    """Delete a single drift snapshot by id."""
+    deleted = driftdb.delete_snapshot(snapshot_id)
+    if not deleted:
+        raise HTTPException(404, f"No drift snapshot with id {snapshot_id}")
+    return {"status": "deleted", "id": snapshot_id}
