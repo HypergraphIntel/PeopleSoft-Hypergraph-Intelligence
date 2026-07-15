@@ -37,9 +37,23 @@ def _default_drift_pairs() -> list[tuple]:
     return [(envs[i], envs[i + 1]) for i in range(len(envs) - 1)]
 
 
+def _default_promotion_chains() -> dict:
+    """pillar -> ordered [upstream..downstream] env list, from config.json's
+    promotion_chains section. Empty dict (no scheduled detection) if unset."""
+    try:
+        import json
+        from connectors import paths
+        with open(paths.CONFIG_FILE) as f:
+            cfg = json.load(f)
+        return {k: v for k, v in cfg.get("promotion_chains", {}).items() if k != "_comment"}
+    except Exception:
+        return {}
+
+
 # Configuration — values can be overridden before calling start().
 ENVS: list[str] = _default_envs()
 DRIFT_ENV_PAIRS: list[tuple] = _default_drift_pairs()   # env pairs for drift comparison
+PROMOTION_CHAINS: dict = _default_promotion_chains()    # pillar -> ordered env chain
 INTERVAL_HOURS: int = 24
 RETAIN_COUNT: int = 7
 DRIFT_RETAIN_DAYS: int = 90
@@ -66,6 +80,14 @@ _rt_thread: threading.Thread | None = None
 _rt_stop_event = threading.Event()
 _last_rt_run: str = ""
 _last_rt_error: str = ""
+
+# Promotion auto-detection thread
+PROMOTION_CHECK_INTERVAL_SECONDS: int = 900   # every 15 minutes
+_promo_thread: threading.Thread | None = None
+_promo_stop_event = threading.Event()
+_last_promo_run: str = ""
+_last_promo_error: str = ""
+_last_promo_detected: int = 0
 
 
 def _run_for_env(env: str) -> None:
@@ -197,8 +219,37 @@ def _runtime_snapshot_loop() -> None:
     logger.info("Runtime snapshot scheduler stopped")
 
 
+def _run_promotion_check(pillar: str, chain: list) -> None:
+    global _last_promo_detected
+    from connectors import promotiondb
+    result = promotiondb.detect_promotions(pillar, chain)
+    _last_promo_detected += len(result.get("detected", []))
+    if result.get("detected"):
+        logger.info("Scheduler: promotion auto-detect %s found %d new promotion(s)",
+                    pillar, len(result["detected"]))
+
+
+def _promotion_loop() -> None:
+    global _last_promo_run, _last_promo_error
+    logger.info("Promotion auto-detect scheduler started (chains=%s, interval=%ds)",
+                PROMOTION_CHAINS, PROMOTION_CHECK_INTERVAL_SECONDS)
+    while not _promo_stop_event.is_set():
+        for pillar, chain in PROMOTION_CHAINS.items():
+            if _promo_stop_event.is_set():
+                break
+            try:
+                _run_promotion_check(pillar, chain)
+                _last_promo_run = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                _last_promo_error = ""
+            except Exception as exc:
+                _last_promo_error = str(exc)
+                logger.warning("Promotion auto-detect error for %s: %s", pillar, exc)
+        _promo_stop_event.wait(PROMOTION_CHECK_INTERVAL_SECONDS)
+    logger.info("Promotion auto-detect scheduler stopped")
+
+
 def start() -> None:
-    global _thread, _log_thread, _rt_thread
+    global _thread, _log_thread, _rt_thread, _promo_thread
     if _thread and _thread.is_alive():
         logger.debug("Scheduler already running")
     else:
@@ -223,17 +274,30 @@ def start() -> None:
         _rt_thread.start()
         logger.info("Runtime snapshot scheduler thread started")
 
+    if not PROMOTION_CHAINS:
+        logger.debug("No promotion_chains configured — promotion auto-detect thread not started")
+    elif _promo_thread and _promo_thread.is_alive():
+        logger.debug("Promotion auto-detect scheduler already running")
+    else:
+        _promo_stop_event.clear()
+        _promo_thread = threading.Thread(target=_promotion_loop, name="promotion-detect", daemon=True)
+        _promo_thread.start()
+        logger.info("Promotion auto-detect scheduler thread started")
+
 
 def stop() -> None:
     _stop_event.set()
     _log_stop_event.set()
     _rt_stop_event.set()
+    _promo_stop_event.set()
     if _thread:
         _thread.join(timeout=5)
     if _log_thread:
         _log_thread.join(timeout=5)
     if _rt_thread:
         _rt_thread.join(timeout=5)
+    if _promo_thread:
+        _promo_thread.join(timeout=5)
     logger.info("All scheduler threads stopped")
 
 
@@ -257,6 +321,11 @@ def status() -> dict:
         "runtime_snapshot_running": bool(_rt_thread and _rt_thread.is_alive()),
         "last_rt_run":        _last_rt_run,
         "last_rt_error":      _last_rt_error,
+        "promotion_chains":         PROMOTION_CHAINS,
+        "promotion_detect_running": bool(_promo_thread and _promo_thread.is_alive()),
+        "last_promo_run":           _last_promo_run,
+        "last_promo_error":         _last_promo_error,
+        "last_promo_detected_total": _last_promo_detected,
     }
 
 

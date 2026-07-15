@@ -10155,3 +10155,63 @@ itself, not just a manual test script, can reach the Windows VM over SMB.
 **Files:** `connectors/smbconn.py` (new), `connectors/logingest.py`,
 `connectors/logdb.py`, `config.json`, `requirements.txt`, `README.md`,
 `ROADMAP.md`.
+
+## 2026-07-15 — Promotion Auto-Detection: A Stale ROADMAP Claim, Corrected
+
+**Context — a real mistake, not just a feature build:** when asked "what's
+next", I told the user Promotion auto-detection was blocked because "HCM and
+FSCM here are separate pillars, not a promotion chain — this needs real
+DV/TST/UAT/PRD connections." The user pushed back hard: they had personally
+set up HRDEV, HRTST, HRUAT, and HRPRD. I had repeated a stale ROADMAP note
+without checking it against the live config or database — exactly the kind
+of unverified claim this diary's own established discipline (verify against
+live data, don't trust docs at face value) exists to prevent. Checked
+`config.json`: all four environments are pillar `HCM` — a real chain. Checked
+live Oracle connectivity to all four via `psdb.query_env()`:
+`SELECT PROJECTNAME, LASTUPDDTTM FROM SYSADM.PSPROJECTDEFN` returned real
+data (3487-3488 rows) from every one of them. The blocker never existed;
+I just hadn't looked.
+
+**What changed:** Phase 1 (`connectors/promotiondb.py`) was a manual-only
+promotion log. Added Phase 2 auto-detection: `detect_promotions(pillar,
+chain)` snapshots `PSPROJECTDEFN.LASTUPDDTTM` (all ~3488 projects per
+environment — a full table snapshot, not filtered, since custom project
+naming conventions vary too much to safely exclude anything) for every
+environment in a chain, storing the latest known state per (pillar, env,
+project) in a new `project_state` table. On each check, a downstream
+environment's project is flagged as promoted when its stored timestamp
+changed since the last check *and* the new value matches its immediate
+upstream neighbor's *current* timestamp — meaning the project state was just
+copied down. Reuses the existing `record_promotion()` so auto-detected
+events land in the same table/timeline/API as manually-logged ones
+(`promoted_by: "auto-detected"` distinguishes them). First run per pillar
+only establishes a baseline; nothing fires until a real second-run change is
+observed, so a cold start can't produce false positives.
+
+Chains are config-driven (`config.json` → `promotion_chains`: `{"HCM":
+["HRDEV","HRTST","HRUAT","HRPRD"]}`), matching this session's established
+pattern (`ssh_hosts`, `smb_hosts`) of not guessing at real-world topology.
+Wired into `connectors/scheduler.py` as a new 15-minute background thread
+(`promotion-detect`, `PROMOTION_CHECK_INTERVAL_SECONDS`), only started if at
+least one chain is configured. New endpoints on `routers/promotions.py`:
+`POST /api/promotions/detect?pillar=` (manual trigger) and `GET
+/api/promotions/chains`.
+
+**Verification:** ran a real baseline scan against the live 4-environment
+chain — 0 false positives (the only cross-env difference found was a project
+*count* mismatch, HRTST has one fewer row than the others, nothing to detect
+since nothing "changed" on a first run by definition). Since this lab
+environment has no real in-flight promotion to observe naturally (same
+situation as the SQR/COBOL structural-diff work — delivered/synced state
+across environments, nothing currently differs), verified the detection
+*logic* directly: seeded a synthetic stale prior timestamp for one real
+project (`NZ15913294R`) in HRTST's `project_state` row, re-ran detection, and
+confirmed it correctly recorded a `HRDEV → HRTST` promotion with the real
+project name and real timestamps in the notes. Ran a third time and
+confirmed no duplicate/re-fire (idempotent). Confirmed the result surfaces
+correctly through `list_promotions()`. Verified both new API endpoints via a
+real `TestClient` HTTP call, and confirmed `scheduler.start()` actually
+spins up the new thread and `status()` reports it correctly.
+
+**Files:** `connectors/promotiondb.py`, `connectors/scheduler.py`,
+`routers/promotions.py`, `config.json`, `ROADMAP.md`.

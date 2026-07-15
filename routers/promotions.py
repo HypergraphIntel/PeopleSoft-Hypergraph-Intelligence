@@ -1,13 +1,13 @@
 """
-Promotion Event Log API — manually recorded project promotion events.
-Phase 1: manual log. Phase 2: auto-detection from PSPROJECTDEFN when
-DV/TST/UAT/PRD DB connections are available.
+Promotion Event Log API — manually recorded and auto-detected project
+promotion events.
 """
 
+import json
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from connectors import promotiondb, deploymentdb
+from connectors import promotiondb, deploymentdb, paths
 
 router = APIRouter(prefix="/api/promotions", tags=["Promotions"])
 
@@ -92,6 +92,35 @@ def delete_promotion(id: int):
     if not promotiondb.delete_promotion(id):
         raise HTTPException(status_code=404, detail=f"Promotion {id} not found")
     return {"deleted": id}
+
+
+@router.post("/detect")
+def detect_promotions(pillar: str = Query(...)):
+    """
+    Trigger an immediate promotion auto-detection scan for a pillar's
+    configured chain (config.json promotion_chains). Snapshots
+    PSPROJECTDEFN.LASTUPDDTTM for every environment in the chain and
+    auto-records any promotion whose downstream timestamp just advanced
+    to match its upstream neighbor.
+    """
+    with open(paths.CONFIG_FILE) as f:
+        cfg = json.load(f)
+    chains = cfg.get("promotion_chains", {})
+    chain = chains.get(pillar.upper())
+    if not chain:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No promotion_chains entry configured for pillar '{pillar}' in config.json",
+        )
+    return promotiondb.detect_promotions(pillar.upper(), chain)
+
+
+@router.get("/chains")
+def get_chains():
+    """Return the configured promotion chains (pillar -> ordered env list)."""
+    with open(paths.CONFIG_FILE) as f:
+        cfg = json.load(f)
+    return {"chains": {k: v for k, v in cfg.get("promotion_chains", {}).items() if k != "_comment"}}
 
 
 @router.get("/{id}/deployment")

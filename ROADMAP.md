@@ -194,12 +194,35 @@ Since `/api/drift/latest` reads a **persisted** snapshot (not a live query), a f
 `POST /api/drift/snapshot` had to be triggered to pick up the new types — pre-existing
 snapshots only have the original 17.
 
-### Remaining — blocked on real promotion-chain environments
-- **Promotion auto-detection** (Phase 2): snapshot `PSPROJECTDEFN.LASTUPDDTTM` per
-  environment and auto-record a promotion when a target env's timestamp advances to
-  match the source. The Phase 1 schema/API already accommodate this without structural
-  changes. **Lab context**: HCM and FSCM here are separate pillars, not a promotion
-  chain — this needs real DV/TST/UAT/PRD connections to implement meaningfully.
+### Promotion auto-detection (Phase 2) — Done 2026-07-15
+~~blocked on real promotion-chain environments~~ — **this assumption was wrong and
+was corrected by the user**: HRDEV/HRTST/HRUAT/HRPRD are all pillar `HCM` in
+`config.json` and are a real DV→TST→UAT→PRD chain with live Oracle connectivity to
+all four (confirmed: `SELECT PROJECTNAME, LASTUPDDTTM FROM SYSADM.PSPROJECTDEFN`
+returns real data — 3487-3488 rows — against every one of them). Implemented:
+`connectors/promotiondb.py`'s `detect_promotions(pillar, chain)` snapshots
+`PSPROJECTDEFN.LASTUPDDTTM` for every environment in a configured chain
+(`config.json` `promotion_chains`, e.g. `"HCM": ["HRDEV","HRTST","HRUAT","HRPRD"]`)
+into a new `project_state` table, and auto-records a promotion (`promoted_by:
+"auto-detected"`) whenever a downstream environment's timestamp for a project
+changes since the last check *and* the new value matches its immediate upstream
+neighbor's current timestamp — reusing the existing Phase 1 `record_promotion()`
+so auto-detected and manually-logged promotions share one timeline/API. First run
+against a pillar only establishes a baseline (nothing to diff against yet); no
+false positives on cold start. Wired into `connectors/scheduler.py` as a new
+15-minute background thread (`promotion-detect`), gated on `promotion_chains`
+being configured — no-op if unset. New endpoints: `POST /api/promotions/detect`
+(manual trigger), `GET /api/promotions/chains`.
+
+**Verified live**: baseline run against the real 4-environment chain found 0
+false positives (project sets differ only by count — HRTST has one fewer project
+than the others, nothing changed). Since there was no real in-flight promotion to
+observe, verified the detection *logic* itself by seeding a synthetic stale prior
+state for one real project in `project_state` (same verification approach used
+for the SQR/COBOL structural diff work, where no real differing files existed
+either) and confirming a second run correctly detected and recorded the
+promotion, a third run did not re-fire (idempotent), and the result appeared
+correctly in `list_promotions()`.
 
 ### Remaining — domain topology port/listener detail
 - **2026-07-13**: Domain discovery (`connectors/domaindisc.py`) was rebuilt on SSH
