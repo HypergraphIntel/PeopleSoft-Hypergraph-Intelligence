@@ -184,6 +184,9 @@ def admin_graph():
                 <option value="ci">Component Interface</option>
                 <option value="application_package">App Package</option>
                 <option value="eocc_config">Page Field Config</option>
+                <option value="ptf_test">PTF Test</option>
+                <option value="nav_collection">Nav Collection</option>
+                <option value="event_mapping">Event Mapping</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="loadGraph()">Explore</button>
@@ -1079,6 +1082,9 @@ def object_explorer_page(object_type="", object_name=""):
                 <option value="ci">Component Interface</option>
                 <option value="application_package">App Package</option>
                 <option value="eocc_config">Page Field Config</option>
+                <option value="ptf_test">PTF Test</option>
+                <option value="nav_collection">Nav Collection</option>
+                <option value="event_mapping">Event Mapping</option>
             </select>
             <input id="objectName" placeholder="Object name">
             <button onclick="openTypedObject()">Open</button>
