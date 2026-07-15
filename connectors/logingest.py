@@ -31,10 +31,20 @@ def _load_config() -> dict:
         return json.load(f)
 
 
+def _transport_for(name: str):
+    """Return the module implementing list_files/read_bytes for a transport name."""
+    from connectors import sshclient, smbconn
+    return {
+        "ssh_sftp": sshclient,
+        "local":    sshclient,   # sshclient's "local" alias handles this itself
+        "smb":      smbconn,
+    }.get(name, sshclient)
+
+
 def run_ingest():
     """Main entry point — ingest all enabled log sources."""
     try:
-        from connectors import logdb, sshclient
+        from connectors import logdb
         from connectors.logparser import parse_line
     except ImportError as exc:
         log.error("logingest: missing dependency: %s", exc)
@@ -49,7 +59,7 @@ def run_ingest():
         logdb.upsert_sources([s for s in sources if s.get("name")])
         for src in logdb.get_sources(enabled_only=True):
             if src["type"] not in _BLOCK_TYPES:
-                _ingest_source(src, logdb, sshclient, parse_line)
+                _ingest_source(src, logdb, _transport_for(src.get("transport", "ssh_sftp")), parse_line)
 
     # IGW log sources (block-based HTML parsers)
     igw_sources = cfg.get("igw_log_sources", [])
@@ -57,10 +67,10 @@ def run_ingest():
         logdb.upsert_sources([s for s in igw_sources if s.get("name")])
         for src in logdb.get_sources(enabled_only=True):
             if src["type"] in _BLOCK_TYPES:
-                _ingest_source(src, logdb, sshclient, parse_line)
+                _ingest_source(src, logdb, _transport_for(src.get("transport", "ssh_sftp")), parse_line)
 
 
-def _ingest_source(src: dict, logdb, sshclient, parse_line):
+def _ingest_source(src: dict, logdb, transport, parse_line):
     name     = src["name"]
     env      = src["env"]
     ssh_host = src["ssh_host"]
@@ -68,7 +78,7 @@ def _ingest_source(src: dict, logdb, sshclient, parse_line):
     log_type = src["type"]
 
     try:
-        files = sshclient.list_files(ssh_host, pattern)
+        files = transport.list_files(ssh_host, pattern)
     except Exception as exc:
         log.warning("logingest[%s]: list_files failed: %s", name, exc)
         logdb.mark_ingest_done(name, error=str(exc))
@@ -87,7 +97,7 @@ def _ingest_source(src: dict, logdb, sshclient, parse_line):
     for filepath in files:
         err = _ingest_file(
             name, env, ssh_host, filepath, log_type,
-            offsets, new_offsets, logdb, sshclient, parse_line
+            offsets, new_offsets, logdb, transport, parse_line
         )
         if err:
             file_errors.append(err)
@@ -99,12 +109,12 @@ def _ingest_source(src: dict, logdb, sshclient, parse_line):
 
 def _ingest_file(source_name: str, env: str, ssh_host: str, filepath: str,
                  log_type: str, offsets: dict, new_offsets: dict,
-                 logdb, sshclient, parse_line) -> Optional[str]:
+                 logdb, transport, parse_line) -> Optional[str]:
     """Returns an error string if the file could not be read, else None."""
     offset = offsets.get(filepath, 0)
 
     try:
-        raw_bytes = sshclient.read_bytes(ssh_host, filepath, offset=offset)
+        raw_bytes = transport.read_bytes(ssh_host, filepath, offset=offset)
     except Exception as exc:
         msg = f"read failed ({filepath}): {exc}"
         log.warning("logingest[%s]: %s", source_name, msg)

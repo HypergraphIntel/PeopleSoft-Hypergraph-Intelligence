@@ -10073,3 +10073,85 @@ the amber/green/red block breakdown correctly.
 
 **Files:** `connectors/sqrdb.py`, `connectors/cobol_db.py`,
 `routers/admin/sqr_view.py`, `routers/admin/cobol_view.py`, `ROADMAP.md`.
+
+## 2026-07-15 — Windows-Hosted Process Scheduler Log Ingestion (SMB Transport)
+
+**What changed:** the user made a real Windows 11 VM available, running
+HRDEV's Process Scheduler (`HRDEV_PRCS_WIN`), with its `ps_cfg_home` folder
+shared over SMB ("Everyone" share permission). This was a previously-blocked
+ROADMAP item — log ingestion only supported SSH/SFTP (or local disk), and no
+Windows target existed to build/test against.
+
+Added `connectors/smbconn.py`, mirroring `sshclient.py`'s public API
+(`list_files`/`read_bytes`/`file_size`) so `connectors/logingest.py` could
+dispatch to either transport interchangeably. `logingest.py` now resolves a
+per-source `transport` field (`_transport_for()`) defaulting to `ssh_sftp` for
+every pre-existing source (zero config changes needed for the fleet already
+configured), with `smb` routing through the new module. `connectors/logdb.py`
+gained a `transport` column on `log_sources` via `_migrate_schema()` (checked
+`PRAGMA table_info` before `ALTER TABLE`, since pre-existing `data/logs.db`
+files predate this column). `config.json` gained a `smb_hosts` section (same
+`env:VAR_NAME` secret-indirection shape as `ssh_hosts`, via the existing
+`paths.resolve_secret()`) and one new source, `HRDEV_PRCS_AE_WIN`.
+
+**Real problems found and fixed while wiring this up against the actual VM**
+(not simulated — every step below was root-caused against the live host,
+192.168.122.185):
+- Guest/anonymous SMB auth failed with `STATUS_ACCOUNT_DISABLED`
+  (`0xc0000072`) even though the share itself was set to "Everyone" — Windows
+  11 disables the built-in Guest account for SMB by default regardless of
+  share ACLs. Needed a real domain/local account (`guacuser`) — the user
+  supplied credentials, stored as `env:PHI_HRDEV_SMB_PASSWORD`, never written
+  to any file.
+- Reading the AESRV log file with a plain `smbclient.open_file()` failed with
+  `STATUS_SHARING_VIOLATION` ("used by another process") — PeopleSoft's own
+  `PSAESRV` process holds these log files open continuously. Fixed by opening
+  with `share_access='rwd'`, matching how `sshclient.py`'s SFTP path never hit
+  this problem (SFTP has no exclusive-lock semantics to violate).
+- Confirmed the existing `prcs_ae` parser (written against Linux AESRV logs)
+  consumes real Windows AESRV lines unmodified — same
+  `PSAESRV.<pid> (<reqno>) [<timestamp>] - - - (<level>) <msg>` format.
+  Windows-only server-startup lines (`Server started`, `... service
+  advertised`) have an extra `PS@<hostname>` token inside the timestamp
+  brackets that the existing regex doesn't match — confirmed these are pure
+  Tuxedo startup chatter with no AE-run business data (`RunAeAsync
+  started/completed`, `RunAeProgAsync status`), so no real events are lost;
+  left unfixed as a minor, non-blocking parser gap rather than scope-creeping
+  into a Linux-affecting regex change for a feature this session didn't touch.
+
+**Verified end-to-end against the real VM**, not just unit-level: cleared
+`data/logs.db` and ran `logingest.run_ingest()` for real — confirmed 21 real
+`app_entries` rows landed for `HRDEV_PRCS_AE_WIN` with correct
+timestamps/messages, confirmed a second run advanced 0 new rows (offset
+tracking works identically to the SSH path), confirmed a pre-existing
+SSH-based source (`HCMDMO_PRCS_AE`) was unaffected (3550 rows, untouched),
+and confirmed `/admin/logs` and `/api/logs/sources` both render the new
+source correctly through a real `TestClient` HTTP call.
+
+**Deployment (real systemd service, not just dev shell):** the running
+`deathstar-api.service` had no `Environment=`/`EnvironmentFile=` at all
+before this — every secret up to now had been a literal in `config.json` or
+set ad hoc in an interactive shell. Rather than editing the unit file
+directly or using `Environment=` (visible to any local user via `systemctl
+show`), added a drop-in `/etc/systemd/system/deathstar-api.service.d/secrets.conf`
+pointing at `EnvironmentFile=/etc/deathstar-api/secrets.env` (mode 600, owned
+by the service user) — extensible for future secrets without touching the
+unit file again. Required `sudo`, which this session can't run
+non-interactively (no TTY for a password prompt), so every privileged step
+(directory/file creation, the drop-in, `daemon-reload`, `restart`) was handed
+to the user as a copy-pasteable script and confirmed done rather than
+attempted directly.
+
+**Found one more real gap in the process**: the first post-restart live
+ingest returned `"No module named 'smbclient'"` in `error_msg` — `pip
+install smbprotocol` had only been run against the interactive shell's own
+venv (`~/.venvs/default`), not `/opt/deathstar-api/.venv`, which is what
+`deathstar-api.service`'s `ExecStart` actually points at. Installed into the
+correct venv, restarted, and re-verified a real ingest cycle through the live
+service (not just the dev shell) came back with a clean `error_msg: null`
+and an advanced `last_ingest` timestamp — confirming the production service
+itself, not just a manual test script, can reach the Windows VM over SMB.
+
+**Files:** `connectors/smbconn.py` (new), `connectors/logingest.py`,
+`connectors/logdb.py`, `config.json`, `requirements.txt`, `README.md`,
+`ROADMAP.md`.

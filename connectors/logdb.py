@@ -52,6 +52,7 @@ def init_db():
             env         TEXT NOT NULL,
             ssh_host    TEXT NOT NULL,
             path        TEXT NOT NULL,
+            transport   TEXT NOT NULL DEFAULT 'ssh_sftp',
             enabled     INTEGER NOT NULL DEFAULT 1,
             offsets     TEXT NOT NULL DEFAULT '{}',
             last_ingest TEXT,
@@ -131,6 +132,11 @@ def init_db():
 
 def _migrate_schema(c: sqlite3.Connection):
     """One-time schema migrations that can't be expressed as CREATE IF NOT EXISTS."""
+    # log_sources: add transport column (pre-existing DBs predate SMB support)
+    cols = {row["name"] for row in c.execute("PRAGMA table_info(log_sources)").fetchall()}
+    if "transport" not in cols:
+        c.execute("ALTER TABLE log_sources ADD COLUMN transport TEXT NOT NULL DEFAULT 'ssh_sftp'")
+
     # app_entries: add unique dedup index (dedup rows first if needed)
     idx = c.execute(
         "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_app_unique'"
@@ -203,21 +209,23 @@ def upsert_sources(sources: list[dict]):
     c = _conn()
     for src in sources:
         c.execute("""
-            INSERT INTO log_sources(name, type, env, ssh_host, path, enabled)
-            VALUES(:name, :type, :env, :ssh_host, :path, :enabled)
+            INSERT INTO log_sources(name, type, env, ssh_host, path, transport, enabled)
+            VALUES(:name, :type, :env, :ssh_host, :path, :transport, :enabled)
             ON CONFLICT(name) DO UPDATE SET
-                type     = excluded.type,
-                env      = excluded.env,
-                ssh_host = excluded.ssh_host,
-                path     = excluded.path,
-                enabled  = excluded.enabled
+                type      = excluded.type,
+                env       = excluded.env,
+                ssh_host  = excluded.ssh_host,
+                path      = excluded.path,
+                transport = excluded.transport,
+                enabled   = excluded.enabled
         """, {
-            "name":     src["name"],
-            "type":     src["type"],
-            "env":      src["env"],
-            "ssh_host": src["ssh_host"],
-            "path":     src["path"],
-            "enabled":  1 if src.get("enabled", True) else 0,
+            "name":      src["name"],
+            "type":      src["type"],
+            "env":       src["env"],
+            "ssh_host":  src["ssh_host"],
+            "path":      src["path"],
+            "transport": src.get("transport", "ssh_sftp"),
+            "enabled":   1 if src.get("enabled", True) else 0,
         })
     c.commit()
 

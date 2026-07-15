@@ -296,10 +296,25 @@ retention. Session-chain correlation joins `PSACCESSLOG` → `web_entries` → `
 - Error surface grouped by code+object with "Ask AI" deep-links
 
 ### Remaining
-- Process Scheduler log ingestion for **Windows-hosted** schedulers (SMB/WinRM
-  transport) — blocked until a Windows scheduler server is available to test against.
-  Design (`prcs_log_sources` transport types: `local`/`ssh_sftp`/`smb`/`winrm`/`agent`)
-  is documented but unimplemented.
+- ~~Process Scheduler log ingestion for **Windows-hosted** schedulers (SMB/WinRM
+  transport) — blocked until a Windows scheduler server is available to test
+  against.~~ **Done 2026-07-15**: a real Windows 11 VM running HRDEV's Process
+  Scheduler (`HRDEV_PRCS_WIN`) became available. Implemented the SMB transport:
+  `connectors/smbconn.py` (new, `smbprotocol` library) mirrors `sshclient.py`'s
+  `list_files`/`read_bytes`/`file_size` API so `logingest.py` can dispatch to
+  either transport by a new per-source `"transport"` field (`ssh_sftp` default,
+  `smb` for Windows), resolved via a new `smb_hosts` config section (same
+  `env:VAR_NAME` secret-indirection pattern as `ssh_hosts`). `log_sources`
+  table gained a `transport` column via migration. WinRM/local/agent transports
+  remain unimplemented — SMB was sufficient for this real target and is the
+  simpler of the two to provision (a shared folder vs. enabling PS Remoting).
+  Verified live end-to-end: real SMB auth (guest access is disabled on Windows
+  11 by default even on an "Everyone"-shared folder — needed a real domain
+  account), a real file-locking issue found and fixed (`share_access='rwd'`,
+  since PeopleSoft's own server process holds the log file open), the existing
+  `prcs_ae` parser consuming real Windows AESRV log lines unmodified, offset
+  tracking correctly returning 0 new bytes on a second run, and the existing
+  SSH-based sources continuing to work unaffected.
 - `msgLog.html` (`igw_msg_log`): message logging is disabled in this environment — no
   file exists to parse against.
 

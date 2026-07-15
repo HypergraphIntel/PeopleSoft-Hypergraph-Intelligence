@@ -346,7 +346,8 @@ reference showing multiple environments/pillars, `ssh_hosts`,
 ### Storing secrets outside config.json
 
 Every `password` field (`oracle.databases[].password`,
-`peoplesoft.environments[].password`, `ssh_hosts.<alias>.password`) accepts
+`peoplesoft.environments[].password`, `ssh_hosts.<alias>.password`,
+`smb_hosts.<alias>.password`) accepts
 either a literal string (the original behavior — nothing changes if you
 keep doing this) or a reference to an environment variable, written as
 `"env:VAR_NAME"`:

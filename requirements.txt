@@ -7,6 +7,7 @@ jinja2
 python-multipart
 PyYAML
 paramiko
+smbprotocol
 psutil
 passlib
 argon2-cffi
