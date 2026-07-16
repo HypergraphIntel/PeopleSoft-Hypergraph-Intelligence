@@ -585,6 +585,57 @@ has `$HOME=/app`, not your host user's home directory.
 
 ---
 
+### Infrastructure page container introspection
+
+The **Infrastructure** admin page (Containers, Container Logs, Services)
+introspects the *host's* containers/systemd units via
+`connectors/system.py`. Since PHI itself now runs inside a container,
+it has no local Podman engine or CLI to shell out to — this is
+disabled by default, and the page will show "No containers".
+
+To enable it, mount the host's Podman API socket in and let PHI talk
+to it over the `podman` Python SDK instead of a CLI:
+
+1.  **Security tradeoff first:** this grants the PHI container control
+    over *every* container on the host (list, read logs, restart) —
+    not just itself. Only enable it if you're comfortable with that
+    blast radius should the PHI container ever be compromised.
+
+2.  One-time, on the host (rootless Podman only — plain Docker/rootful
+    Podman don't need this, `/var/run/docker.sock` or
+    `/run/podman/podman.sock` already exist and are usually reachable):
+
+    ``` bash
+    systemctl --user enable --now podman.socket
+    ```
+
+3.  **Rootless Podman only:** same class of issue as the SSH key above
+    — the container's uid namespace remaps the socket's host owner to
+    the container's own namespace-root, not to a gid the `phi` user is
+    a member of, so a plain bind mount fails with a permission error
+    even though the socket is `rw-rw----` and you own it. Fix it the
+    same way, directly on the live socket file:
+
+    ``` bash
+    podman unshare chown 10001:10001 "$XDG_RUNTIME_DIR"/podman/podman.sock
+    ```
+
+    This doesn't survive `systemctl --user restart podman.socket` or a
+    reboot (the socket file gets recreated with your normal host
+    ownership) — re-run the `chown` after either.
+
+4.  Uncomment the `PODMAN_SOCKET` env var and socket volume line in
+    `compose.yml`, then `docker compose up -d` (or
+    `podman-compose up -d`) to pick up the mount and reload the
+    Infrastructure page.
+
+Note the **Services** panel (systemd unit status/restart, journal log
+tailing) still won't work even with the socket mounted — those talk to
+host `systemctl`/`journalctl` directly, which is a separate, larger
+scope (host D-Bus/systemd access) not covered by the Podman socket.
+
+---
+
 ### log_sources
 
 Defines which log files to ingest. Each entry is one log file glob pattern

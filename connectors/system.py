@@ -1,6 +1,18 @@
-import json
+import os
 import subprocess
 import psutil
+from podman import PodmanClient
+
+# Podman socket for host container introspection (Infrastructure page).
+# PHI itself always runs inside a container, so it has no local podman
+# engine/CLI -- this talks to the host's rootless Podman API instead,
+# bind-mounted in via compose.yml. Requires the host to have run
+# `systemctl --user enable --now podman.socket` once.
+PODMAN_SOCKET = os.environ.get("PODMAN_SOCKET", "/run/podman/podman.sock")
+
+
+def _podman_client():
+    return PodmanClient(base_url=f"unix://{PODMAN_SOCKET}")
 
 
 # Services to monitor — (display_name, systemd_unit, restartable)
@@ -83,54 +95,50 @@ def reload_nginx():
 
 def containers():
     try:
-        result = subprocess.run(
-            ["podman", "ps", "--all", "--format", "json"],
-            capture_output=True, text=True, timeout=5
-        )
-        if result.returncode != 0:
-            return {"containers": [], "error": result.stderr.strip()}
-        raw = json.loads(result.stdout or "[]")
-        items = []
-        for c in raw:
-            items.append({
-                "id": (c.get("Id") or "")[:12],
-                "name": (c.get("Names") or [""])[0] if isinstance(c.get("Names"), list) else c.get("Names", ""),
-                "image": c.get("Image", ""),
-                "status": c.get("State", c.get("Status", "")),
-                "running": c.get("State", "").lower() == "running",
-                "created": c.get("CreatedAt", ""),
-            })
-        return {"containers": items}
+        with _podman_client() as client:
+            items = []
+            for c in client.containers.list(all=True):
+                attrs = c.attrs
+                names = attrs.get("Names") or [c.name]
+                state = attrs.get("State", "")
+                items.append({
+                    "id": (attrs.get("Id") or "")[:12],
+                    "name": names[0] if isinstance(names, list) else str(names),
+                    "image": attrs.get("Image", ""),
+                    "status": state or attrs.get("Status", ""),
+                    "running": state.lower() == "running",
+                    "created": attrs.get("Created", ""),
+                })
+            return {"containers": items}
     except Exception as exc:
         return {"containers": [], "error": str(exc)}
 
 
 def container_logs(name: str, lines: int = 50):
     name = name.strip()
-    result = subprocess.run(
-        ["podman", "logs", "--tail", str(int(lines)), name],
-        capture_output=True, text=True, timeout=5
-    )
-    return {
-        "name": name,
-        "lines": (result.stdout + result.stderr).splitlines()[-lines:],
-        "returncode": result.returncode,
-    }
+    lines = int(lines)
+    try:
+        with _podman_client() as client:
+            container = client.containers.get(name)
+            out_lines = []
+            for chunk in container.logs(tail=lines, stream=False):
+                if isinstance(chunk, bytes):
+                    chunk = chunk.decode(errors="replace")
+                out_lines.extend(chunk.splitlines())
+            return {"name": name, "lines": out_lines[-lines:], "returncode": 0}
+    except Exception as exc:
+        return {"name": name, "lines": [], "returncode": 1, "error": str(exc)}
 
 
 def restart_container(name: str):
     name = name.strip()
-    result = subprocess.run(
-        ["podman", "restart", name],
-        capture_output=True, text=True, timeout=30
-    )
-    return {
-        "name": name,
-        "status": "ok" if result.returncode == 0 else "error",
-        "stdout": result.stdout.strip(),
-        "stderr": result.stderr.strip(),
-        "returncode": result.returncode,
-    }
+    try:
+        with _podman_client() as client:
+            container = client.containers.get(name)
+            container.restart()
+            return {"name": name, "status": "ok", "stdout": "", "stderr": "", "returncode": 0}
+    except Exception as exc:
+        return {"name": name, "status": "error", "stdout": "", "stderr": str(exc), "returncode": 1}
 
 
 def journal(units: str = "nginx,deathstar-api", lines: int = 100):

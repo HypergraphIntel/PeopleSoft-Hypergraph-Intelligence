@@ -19,11 +19,20 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      # PODMAN_SOCKET: /run/podman/podman.sock
+
+    # Infrastructure page container introspection (optional, off by
+    # default). See README.md's "Infrastructure page container
+    # introspection" section before enabling -- it grants the phi
+    # container control over every container on the host, not just
+    # itself, and the socket path below is rootless-Podman specific
+    # (won't apply as-is to plain Docker).
 
     volumes:
       - ./config/config.json:/config/config.json:ro
       - phi-data:/app/data
       - phi-logs:/app/logs
+      # - ${XDG_RUNTIME_DIR:-/run/user/1000}/podman/podman.sock:/run/podman/podman.sock
 
       # SSH-based log/SQR/COBOL ingestion (optional, off by default).
       # config.json's ssh_hosts.*.key_path uses "~/.ssh/id_rsa", which

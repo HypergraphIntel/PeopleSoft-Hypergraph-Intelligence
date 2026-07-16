@@ -9,6 +9,7 @@ PyYAML
 paramiko
 smbprotocol
 psutil
+podman        # REST client for host container introspection (Infrastructure page); talks to a mounted Podman socket, no CLI/engine needed in-image
 passlib
 argon2-cffi
 openai
