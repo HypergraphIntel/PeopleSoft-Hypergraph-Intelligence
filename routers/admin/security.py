@@ -821,7 +821,7 @@ async function loadReport() {
 @router.get("/record", response_class=HTMLResponse)
 @router.get("/record/{recname}", response_class=HTMLResponse)
 def admin_record(recname: str = None):
-    return _shell("Record Explorer", "objects", noscroll=True, content=r"""
+    return _shell("Record Explorer", "objects", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;height:100vh;}
@@ -1931,7 +1931,7 @@ function renderPC(d) {
 @router.get("/operator", response_class=HTMLResponse)
 @router.get("/operator/{oprid_val:path}", response_class=HTMLResponse)
 def admin_operator(oprid_val: str = None):
-    return _shell("Operator Explorer", "operator", noscroll=True, content=r"""
+    return _shell("Operator Explorer", "operator", noscroll=True, content="""\
 <style>
 *{box-sizing:border-box;}
 body{background:#050b12;color:#d7faff;font-family:Arial,sans-serif;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;}

@@ -1,5 +1,19 @@
+import warnings
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Several admin page modules embed JS regex literals (e.g. \b, \d, \/) inside
+# plain (non-raw) Python triple-quoted strings. Python 3.12 warns on these as
+# "invalid escape sequences" even though they're intentional -- the fallback
+# behavior (treat as literal backslash+char) is exactly what's wanted, since
+# these are JS escapes, not Python ones. Making those strings raw is *not*
+# a safe fix: several of them also contain legitimate Python `\\` (double
+# backslash, collapsing to one literal backslash in the JS output) mixed in
+# with the invalid single-backslash sequences, and raw strings stop
+# collapsing `\\` too -- silently corrupting those regexes instead (this bit
+# us once already). Suppressing the warning is the only change with zero
+# risk of altering the embedded JS.
+warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, Response

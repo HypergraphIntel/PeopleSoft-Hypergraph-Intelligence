@@ -314,7 +314,7 @@ window.onEnvChange=()=>{{const comp=document.getElementById('compInp').value.tri
 @router.get("/compseq", response_class=HTMLResponse)
 def admin_compseq(request: Request, env: str = psdb.default_env(), comp: str = ""):
     preload = bool(comp)
-    return _shell("PC Timeline", "compseq", content=rf"""
+    return _shell("PC Timeline", "compseq", content=f"""
 <style>
 .cs-bar{{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid #1a2a3a;
   background:#060d16;flex-wrap:wrap}}

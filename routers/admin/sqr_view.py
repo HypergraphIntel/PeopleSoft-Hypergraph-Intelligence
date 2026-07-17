@@ -57,7 +57,7 @@ def sqr_analytics():
 <div id="analyticsContent"><div style="color:#7faab2;padding:24px">Loading analytics…</div></div>
 
 <script>
-r""" + _ESC_JS + r"""
+""" + _ESC_JS + """
 const $ = id => document.getElementById(id);
 async function load() {
   const [statsRes, anRes] = await Promise.all([
@@ -231,7 +231,7 @@ def sqr_index():
 </div>
 
 <script>
-r""" + _ESC_JS + r"""
+""" + _ESC_JS + """
 const $ = id => document.getElementById(id);
 let _page = 1, _debTimer = null;
 
@@ -383,7 +383,7 @@ doSearch(1);
 
 @router.get("/sqr/{filename}", response_class=HTMLResponse)
 def sqr_detail(filename: str):
-    content = rf"""
+    content = f"""
 <style>
 .sqr-detail-grid{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
 @media(max-width:900px){{.sqr-detail-grid{{grid-template-columns:1fr}}}}
@@ -421,11 +421,11 @@ def sqr_detail(filename: str):
 <div id="detailContent"><div style="color:#7faab2;padding:24px">Loading…</div></div>
 
 <script>
-r""" + _ESC_JS + r"""
+""" + _ESC_JS + """
 const $ = id => document.getElementById(id);
 async function loadDetail() {
   try {
-    const r = await fetch('/api/sqr/program/' + encodeURIComponent(r""" + f'"{filename}"' + r"""));
+    const r = await fetch('/api/sqr/program/' + encodeURIComponent(""" + f'"{filename}"' + """));
     if (!r.ok) {
       $('detailContent').innerHTML = '<div style="color:#f55;padding:24px">Program not found in index. Try re-indexing from <a href="/admin/sqr" style="color:#0af">SQR Explorer</a>.</div>';
       return;
@@ -585,7 +585,7 @@ async function loadRuns() {
   const el = $('runsContent');
   try {
     const env = document.getElementById('globalEnv')?.value || 'HCM';
-    const r = await fetch('/api/sqr/program/' + encodeURIComponent(r""" + f'"{filename}"' + r""") + '/runs?env=' + encodeURIComponent(env));
+    const r = await fetch('/api/sqr/program/' + encodeURIComponent(""" + f'"{filename}"' + """) + '/runs?env=' + encodeURIComponent(env));
     const d = await r.json();
     if (d.warning) {
       el.innerHTML = `<div style="color:#7faab2">${esc(d.warning)}</div>`;
@@ -625,7 +625,7 @@ async function loadRuns() {
 async function loadSource() {
   _srcLoaded = true;
   try {
-    const r = await fetch('/api/sqr/program/' + encodeURIComponent(r""" + f'"{filename}"' + r""") + '/source');
+    const r = await fetch('/api/sqr/program/' + encodeURIComponent(""" + f'"{filename}"' + """) + '/source');
     if (!r.ok) {
       $('srcContent').innerHTML = '<span style="color:#f55">Could not load source — file may not be accessible from the server</span>';
       return;
@@ -679,7 +679,7 @@ async function loadKgRecords() {
 async function loadInclBy() {
   _inclByLoaded = true;
   try {
-    const r = await fetch('/api/sqr/sqc/' + encodeURIComponent(r""" + f'"{filename}"' + r""") + '/users');
+    const r = await fetch('/api/sqr/sqc/' + encodeURIComponent(""" + f'"{filename}"' + """) + '/users');
     if (!r.ok) { $('inclByContent').innerHTML = '<span style="color:#f55">Could not load inclusion data</span>'; return; }
     const d = await r.json();
     const progs = d.programs || [];
@@ -738,7 +738,7 @@ async function loadTree() {
   _treeLoaded = true;
   const tc = $('treeContent');
   try {
-    const r = await fetch('/api/sqr/program/' + encodeURIComponent(r""" + f'"{filename}"' + r""") + '/tree');
+    const r = await fetch('/api/sqr/program/' + encodeURIComponent(""" + f'"{filename}"' + """) + '/tree');
     if (!r.ok) { tc.innerHTML = '<span style="color:#f55">Could not load include tree</span>'; return; }
     const d = await r.json();
     if (!d.children || !d.children.length) {
@@ -782,7 +782,7 @@ loadDetail();
 @router.get("/sqr/table/{table_name}", response_class=HTMLResponse)
 def sqr_table_detail(table_name: str):
     tbl_upper = table_name.upper()
-    content = rf"""
+    content = f"""
 <style>
 .sqr-tbl{{width:100%;border-collapse:collapse;font-size:12px}}
 .sqr-tbl th{{text-align:left;padding:6px 10px;border-bottom:1px solid #1a3a4a;
@@ -808,9 +808,9 @@ def sqr_table_detail(table_name: str):
 <div id="tableContent"><div style="color:#7faab2;padding:24px">Loading…</div></div>
 
 <script>
-r""" + _ESC_JS + r"""
+""" + _ESC_JS + """
 async function load() {
-  const r = await fetch('/api/sqr/table/' + encodeURIComponent(r""" + f'"{tbl_upper}"' + r"""));
+  const r = await fetch('/api/sqr/table/' + encodeURIComponent(""" + f'"{tbl_upper}"' + """));
   const d = await r.json();
   const progs = d.programs || [];
   if (!progs.length) {
@@ -865,7 +865,7 @@ _SQR_KW = (
 @router.get("/sqrsearch", response_class=HTMLResponse)
 def sqr_search_page(q: str = ""):
     preload = q.strip()
-    return _shell("SQR Source Search", "sqrsearch", noscroll=True, content=rf"""
+    return _shell("SQR Source Search", "sqrsearch", noscroll=True, content=f"""
 <style>
 *{{box-sizing:border-box}}
 .ds-content{{display:flex;flex-direction:column;overflow:hidden;height:calc(100vh - 88px)}}
@@ -1082,7 +1082,7 @@ def _esc_attr(s: str) -> str:
 def sqr_deps_page(q: str = ""):
     """SQR Include Dependency Graph — visualize the SQC include tree."""
     preload = q.strip()
-    content = rf"""
+    content = f"""
 <style>
 *{{box-sizing:border-box}}
 .ds-toolbar{{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
@@ -1308,7 +1308,7 @@ window.onEnvChange=()=>{{}};
 @router.get("/sqrcompare", response_class=HTMLResponse)
 def sqr_compare_page():
     """SQR environment side-by-side comparison (e.g. HCM vs FSCM)."""
-    content = rf"""
+    content = f"""
 <style>
 *{{box-sizing:border-box}}
 .cmp-toolbar{{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
@@ -1477,7 +1477,7 @@ window.onEnvChange=()=>{{}};
 def sqr_overrides_page():
     """SQR Override Intelligence: delivered-only / custom-only / overridden
     categorization per environment, beyond the plain duplicate-filename check."""
-    content = rf"""
+    content = f"""
 <style>
 *{{box-sizing:border-box}}
 .ov-toolbar{{padding:10px 16px;border-bottom:1px solid #00e5ff22;display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
@@ -1522,7 +1522,7 @@ a{{color:#00e5ff;text-decoration:none}}a:hover{{text-decoration:underline}}
 <div id="body"><div class="empty">Select an environment (or leave blank for all) and click Analyze.</div></div>
 
 <script>
-r""" + _ESC_JS + r"""
+""" + _ESC_JS + """
 const $ = id => document.getElementById(id);
 
 async function loadEnvs() {
